@@ -1,0 +1,266 @@
+{
+  "common": {
+    "brand": "Collision Productions",
+    "navInvites": "Guests",
+    "navSponsors": "Sponsors",
+    "navManifesto": "Manifesto",
+    "navContact": "Contact",
+    "footerCopyright": "Collision Productions, Paris",
+    "footerBackToStudio": "Back to collision.studio",
+    "footerLegal": "Legal",
+    "switchLang": "FR",
+    "switchLangFull": "Français"
+  },
+  "guests": {
+    "meta": {
+      "title": "European documentary series — Collision Productions",
+      "description": "A documentary series giving a face and a voice to those thinking and building the Europe of tomorrow. __TODO__ confirm after manifesto. EN copy by human native speaker, do not machine translate."
+    },
+    "hero": {
+      "eyebrow": "Documentary series, 2026 / 2027",
+      "titlePre": "We are filming",
+      "titleEm": "Europe",
+      "titlePost": "before it stops telling its own story.",
+      "sub1": "Industrial decline, political fracture, democratic disillusion — but also creators, engineers, scientists and leaders who refuse the decline. __TODO__ final EN rewrite by human native speaker.",
+      "sub2": "Our goal: to give a face and a voice to those thinking and building the Europe of tomorrow.",
+      "ctaPrimary": "Read the manifesto",
+      "ctaSecondary": "Take part"
+    },
+    "stats": {
+      "items": [
+        { "value": "__TODO__", "label": "Episodes" },
+        { "value": "__TODO__", "label": "Average length" },
+        { "value": "__TODO__", "label": "Countries covered" },
+        { "value": "__TODO__", "label": "Expected reach" }
+      ]
+    },
+    "manifesto": {
+      "eyebrow": "Manifesto",
+      "titlePre": "Why",
+      "titleEm": "now",
+      "titlePost": ".",
+      "paragraphs": [
+        "__TODO__ Paragraph 1 — The diagnosis. Industrial decline, political fracture, democratic disillusion. Lucid tone, never cynical, almost essayistic.",
+        "__TODO__ Paragraph 2 — The counter-narrative. Creators, engineers, scientists, leaders who refuse the decline and build something else.",
+        "__TODO__ Paragraph 3 — Our standing. Collision Productions, the team behind GDIY and the China series. GDIY figures to confirm.",
+        "__TODO__ Paragraph 4 — The commitment. Why this series, why now, the window before 2027."
+      ]
+    },
+    "method": {
+      "eyebrow": "Format",
+      "titlePre": "Our",
+      "titleEm": "method",
+      "titlePost": ".",
+      "blocks": [
+        { "label": "Interview length", "value": "__TODO__" },
+        { "label": "Shooting location", "value": "__TODO__" },
+        { "label": "Language", "value": "__TODO__" },
+        { "label": "Review rights", "value": "__TODO__" }
+      ],
+      "schedule": "__TODO__ One line on the shooting and release schedule."
+    },
+    "guestsConfirmed": {
+      "eyebrow": "Confirmed guests",
+      "titlePre": "They",
+      "titleEm": "said yes",
+      "titlePost": ".",
+      "fallback": "Lineup currently being assembled.",
+      "fallbackPartners": "__TODO__ Partner organisation logos displayed in the meantime.",
+      "items": [
+        { "name": "__TODO__ Name", "role": "__TODO__ Role", "country": "__TODO__ Country", "photo": "" },
+        { "name": "__TODO__ Name", "role": "__TODO__ Role", "country": "__TODO__ Country", "photo": "" },
+        { "name": "__TODO__ Name", "role": "__TODO__ Role", "country": "__TODO__ Country", "photo": "" },
+        { "name": "__TODO__ Name", "role": "__TODO__ Role", "country": "__TODO__ Country", "photo": "" }
+      ]
+    },
+    "benefit": {
+      "eyebrow": "For guests",
+      "titlePre": "For",
+      "titleEm": "you",
+      "titlePost": ".",
+      "columns": [
+        {
+          "title": "European reach",
+          "body": "__TODO__ Audience, countries, platforms. Break down once China figures are sourced."
+        },
+        {
+          "title": "Long archive",
+          "body": "Full unedited interviews are preserved and available to the guest, for life."
+        },
+        {
+          "title": "Collective narrative",
+          "body": "Contribute to a civic European positioning, the opposite of any vanity media logic."
+        }
+      ]
+    },
+    "testimonials": {
+      "eyebrow": "Testimonials",
+      "items": [
+        { "quote": "__TODO__ Short quote from a previous GDIY guest, transferable.", "name": "__TODO__ Name", "role": "__TODO__ Role" },
+        { "quote": "__TODO__ Short quote from a previous GDIY guest, transferable.", "name": "__TODO__ Name", "role": "__TODO__ Role" },
+        { "quote": "__TODO__ Short quote from a previous GDIY guest, transferable.", "name": "__TODO__ Name", "role": "__TODO__ Role" }
+      ]
+    },
+    "contact": {
+      "eyebrow": "Contact",
+      "titlePre": "If you would like to",
+      "titleEm": "take part",
+      "titlePost": ".",
+      "body": "Reply within 72 hours, direct exchange with the editorial team. No commercial form.",
+      "emailLabel": "Email the editorial team",
+      "email": "europe@collision.studio",
+      "calendlyLabel": "Book a slot",
+      "calendlyHref": "__TODO__ Calendly URL — Clémence or Matthieu"
+    }
+  },
+  "sponsors": {
+    "meta": {
+      "title": "Editorial partnership — European series — Collision Productions",
+      "description": "Associate your brand with a European media asset built for decision makers, creators and cognitive elites. __TODO__ finalise after copy review."
+    },
+    "hero": {
+      "eyebrow": "Editorial partnership, European series 2026 / 2027",
+      "titlePre": "Associate your brand with",
+      "titleEm": "the Europe that thinks",
+      "titlePost": ".",
+      "sub": "A European media asset, not an ad inventory. Audience: decision makers, creators, cognitive elites, FR first, then EU.",
+      "ctaPrimary": "View the deck",
+      "ctaPrimaryHref": "__TODO__ /deck-europe-collision.pdf",
+      "ctaSecondary": "Book a call",
+      "ctaSecondaryHref": "__TODO__ Calendly URL — Christofer or Matthieu"
+    },
+    "stats": {
+      "items": [
+        { "value": "__TODO__", "label": "Projected views, European series" },
+        { "value": "__TODO__", "label": "Countries covered" },
+        { "value": "100M+ / 1.5M/mo", "label": "Collision reach, cumulative / monthly" },
+        { "value": "~70%", "label": "GDIY average completion rate" }
+      ],
+      "note": "__TODO__ confirm GDIY figures after audit"
+    },
+    "why": {
+      "eyebrow": "Context",
+      "titlePre": "The",
+      "titleEm": "moment",
+      "titlePost": "is rare.",
+      "paragraphs": [
+        "__TODO__ Paragraph 1 — European context. Lucid reading of the coming decade.",
+        "__TODO__ Paragraph 2 — Narrative opportunity. Why a long-term media asset.",
+        "__TODO__ Paragraph 3 — Window before 2027. Why brands that partner now will capture the value."
+      ]
+    },
+    "trackRecord": {
+      "eyebrow": "Track record",
+      "titlePre": "What we",
+      "titleEm": "know how to do",
+      "titlePost": ".",
+      "items": [
+        { "title": "China series", "meta": "__TODO__ views, length", "href": "__TODO__ YouTube link" },
+        { "title": "Brazil series", "meta": "__TODO__ views", "href": "__TODO__" },
+        { "title": "USA series", "meta": "__TODO__ views", "href": "__TODO__" },
+        { "title": "GR20 series", "meta": "__TODO__ views", "href": "__TODO__" },
+        { "title": "GDIY", "meta": "100M+ cumulative, 1.5M/month", "href": "__TODO__" }
+      ],
+      "sponsorsNote": "__TODO__ Recurring GDIY sponsor logos, with consent"
+    },
+    "tiers": {
+      "eyebrow": "Commitment",
+      "titlePre": "Three",
+      "titleEm": "ways",
+      "titlePost": "to partner.",
+      "items": [
+        {
+          "name": "Title partner",
+          "volume": "1 only",
+          "description": "Exclusive naming, generic presence on the series, possible editorial integration, preview access, long-term rights.",
+          "budget": "__TODO__ Range to provide"
+        },
+        {
+          "name": "Embedded partner",
+          "volume": "3 to 5",
+          "description": "Episode-by-episode integration on relevant topics, systematic mention, short-term rights.",
+          "budget": "__TODO__ Range to provide"
+        },
+        {
+          "name": "Product partner",
+          "volume": "Unlimited",
+          "description": "Goods or services exchange for shoots: travel, accommodation, equipment. No cash.",
+          "budget": "Barter"
+        }
+      ]
+    },
+    "audience": {
+      "eyebrow": "Audience",
+      "titlePre": "Who",
+      "titleEm": "listens",
+      "titlePost": "to you.",
+      "demographics": {
+        "title": "Demographics",
+        "rows": [
+          { "label": "Median age", "value": "__TODO__" },
+          { "label": "Socio-pro", "value": "__TODO__" },
+          { "label": "Main geography", "value": "__TODO__" },
+          { "label": "Main platform", "value": "__TODO__" }
+        ]
+      },
+      "chinaBreakdown": {
+        "title": "China series breakdown",
+        "rows": [
+          { "label": "Total views", "value": "__TODO__" },
+          { "label": "Top 3 countries", "value": "__TODO__" },
+          { "label": "Average watch time", "value": "__TODO__" },
+          { "label": "Traffic sources", "value": "__TODO__" }
+        ]
+      }
+    },
+    "caseStudies": {
+      "eyebrow": "Case studies",
+      "titlePre": "They",
+      "titleEm": "trusted us",
+      "titlePost": ".",
+      "items": [
+        {
+          "brand": "__TODO__ Brand",
+          "context": "__TODO__ Context",
+          "execution": "__TODO__ Execution",
+          "result": "__TODO__ Measured outcome"
+        },
+        {
+          "brand": "__TODO__ Brand",
+          "context": "__TODO__ Context",
+          "execution": "__TODO__ Execution",
+          "result": "__TODO__ Measured outcome"
+        },
+        {
+          "brand": "__TODO__ Brand",
+          "context": "__TODO__ Context",
+          "execution": "__TODO__ Execution",
+          "result": "__TODO__ Measured outcome"
+        }
+      ]
+    },
+    "contact": {
+      "eyebrow": "Sales contact",
+      "titlePre": "Let's talk",
+      "titleEm": "ROI",
+      "titlePost": ".",
+      "body": "Direct conversation with the partnership team. Reply within 72 hours.",
+      "calendlyLabel": "Book a call with Christofer or Matthieu",
+      "calendlyHref": "__TODO__ Calendly URL",
+      "deckLabel": "Download the partnership deck",
+      "deckHref": "__TODO__ Deck PDF URL",
+      "emailLabel": "Email the partnerships team",
+      "email": "partners@collision.studio",
+      "form": {
+        "firstName": "First name",
+        "lastName": "Last name",
+        "emailPro": "Work email",
+        "company": "Company",
+        "budget": "Indicative budget",
+        "message": "Message",
+        "submit": "Send",
+        "consent": "By submitting this form, you agree to be contacted by the partnerships team."
+      }
+    }
+  }
+}

@@ -1,0 +1,266 @@
+{
+  "common": {
+    "brand": "Collision Productions",
+    "navInvites": "Invités",
+    "navSponsors": "Sponsors",
+    "navManifesto": "Manifeste",
+    "navContact": "Contact",
+    "footerCopyright": "Collision Productions, Paris",
+    "footerBackToStudio": "Retour à collision.studio",
+    "footerLegal": "Mentions légales",
+    "switchLang": "EN",
+    "switchLangFull": "English"
+  },
+  "guests": {
+    "meta": {
+      "title": "Série documentaire européenne — Collision Productions",
+      "description": "Une série documentaire qui donne un visage et une voix à ceux qui pensent et construisent l'Europe de demain. __TODO__ confirmer après rédaction manifeste."
+    },
+    "hero": {
+      "eyebrow": "Série documentaire, 2026 / 2027",
+      "titlePre": "Nous filmons",
+      "titleEm": "l'Europe",
+      "titlePost": "avant qu'elle ne se raconte plus elle-même.",
+      "sub1": "Décrochage industriel, fracture politique, désillusion démocratique, mais aussi créateurs, ingénieurs, scientifiques, dirigeants qui refusent le décrochage. __TODO__ réécriture finale après manifeste.",
+      "sub2": "Notre objectif : donner un visage et une voix à ceux qui pensent et construisent l'Europe de demain.",
+      "ctaPrimary": "Lire le manifeste",
+      "ctaSecondary": "Participer"
+    },
+    "stats": {
+      "items": [
+        { "value": "__TODO__", "label": "Épisodes" },
+        { "value": "__TODO__", "label": "Durée moyenne" },
+        { "value": "__TODO__", "label": "Pays couverts" },
+        { "value": "__TODO__", "label": "Audience attendue" }
+      ]
+    },
+    "manifesto": {
+      "eyebrow": "Manifeste",
+      "titlePre": "Pourquoi",
+      "titleEm": "maintenant",
+      "titlePost": ".",
+      "paragraphs": [
+        "__TODO__ Paragraphe 1 — Le constat. Décrochage industriel, fracture politique, désillusion démocratique. Ton lucide, jamais cynique, presque essayiste.",
+        "__TODO__ Paragraphe 2 — Le contre-récit. Des créateurs, ingénieurs, scientifiques, dirigeants qui refusent ce décrochage et construisent autre chose.",
+        "__TODO__ Paragraphe 3 — Notre place. Collision Productions, équipe derrière GDIY et la série Chine. Chiffres GDIY (audience cumulée, mensuelle) à confirmer.",
+        "__TODO__ Paragraphe 4 — L'engagement. Pourquoi cette série, pourquoi maintenant, fenêtre de tir avant 2027."
+      ]
+    },
+    "method": {
+      "eyebrow": "Format",
+      "titlePre": "Notre",
+      "titleEm": "méthode",
+      "titlePost": ".",
+      "blocks": [
+        { "label": "Durée d'entretien", "value": "__TODO__" },
+        { "label": "Lieu de tournage", "value": "__TODO__" },
+        { "label": "Langue", "value": "__TODO__" },
+        { "label": "Droits de relecture", "value": "__TODO__" }
+      ],
+      "schedule": "__TODO__ Une ligne sur le calendrier de tournage et de diffusion."
+    },
+    "guestsConfirmed": {
+      "eyebrow": "Invités confirmés",
+      "titlePre": "Ils",
+      "titleEm": "ont dit oui",
+      "titlePost": ".",
+      "fallback": "Sélection en cours de constitution.",
+      "fallbackPartners": "__TODO__ Logos d'organisations partenaires à afficher en attendant.",
+      "items": [
+        { "name": "__TODO__ Nom", "role": "__TODO__ Fonction", "country": "__TODO__ Pays", "photo": "" },
+        { "name": "__TODO__ Nom", "role": "__TODO__ Fonction", "country": "__TODO__ Pays", "photo": "" },
+        { "name": "__TODO__ Nom", "role": "__TODO__ Fonction", "country": "__TODO__ Pays", "photo": "" },
+        { "name": "__TODO__ Nom", "role": "__TODO__ Fonction", "country": "__TODO__ Pays", "photo": "" }
+      ]
+    },
+    "benefit": {
+      "eyebrow": "Pour les invités",
+      "titlePre": "Pour",
+      "titleEm": "vous",
+      "titlePost": ".",
+      "columns": [
+        {
+          "title": "Portée européenne",
+          "body": "__TODO__ Audience, pays, plateformes. Ventiler après chiffrage Chine."
+        },
+        {
+          "title": "Archive longue",
+          "body": "Les versions intégrales des entretiens sont conservées et exploitables par l'invité, à vie."
+        },
+        {
+          "title": "Récit collectif",
+          "body": "Contribuer à un positionnement civique européen, à l'opposé de toute logique de vanity media."
+        }
+      ]
+    },
+    "testimonials": {
+      "eyebrow": "Témoignages",
+      "items": [
+        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
+        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
+        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" }
+      ]
+    },
+    "contact": {
+      "eyebrow": "Contact",
+      "titlePre": "Si vous voulez",
+      "titleEm": "participer",
+      "titlePost": ".",
+      "body": "Réponse sous 72 heures, échange direct avec l'équipe éditoriale. Pas de formulaire commercial.",
+      "emailLabel": "Écrire à l'équipe éditoriale",
+      "email": "europe@collision.studio",
+      "calendlyLabel": "Réserver un créneau",
+      "calendlyHref": "__TODO__ URL Calendly Clémence ou Matthieu"
+    }
+  },
+  "sponsors": {
+    "meta": {
+      "title": "Partenariat éditorial — Série européenne — Collision Productions",
+      "description": "Associez votre marque à un actif média européen pensé pour les décideurs, créateurs et élites cognitives. __TODO__ finaliser après rédaction."
+    },
+    "hero": {
+      "eyebrow": "Partenariat éditorial, série européenne 2026 / 2027",
+      "titlePre": "Associez votre marque à",
+      "titleEm": "l'Europe qui pense",
+      "titlePost": ".",
+      "sub": "Un actif média européen, pas un inventaire publicitaire. Audience décideurs, créateurs, élites cognitives, FR puis EU.",
+      "ctaPrimary": "Voir le dossier",
+      "ctaPrimaryHref": "__TODO__ /deck-europe-collision.pdf",
+      "ctaSecondary": "Prendre rendez-vous",
+      "ctaSecondaryHref": "__TODO__ URL Calendly Christofer ou Matthieu"
+    },
+    "stats": {
+      "items": [
+        { "value": "__TODO__", "label": "Vues prévues, série européenne" },
+        { "value": "__TODO__", "label": "Pays couverts" },
+        { "value": "100M+ / 1,5M/mois", "label": "Audience Collision cumulée / mensuelle" },
+        { "value": "~70%", "label": "Taux de complétion moyen GDIY" }
+      ],
+      "note": "__TODO__ confirmer chiffres GDIY après audit"
+    },
+    "why": {
+      "eyebrow": "Contexte",
+      "titlePre": "Le",
+      "titleEm": "moment",
+      "titlePost": "est rare.",
+      "paragraphs": [
+        "__TODO__ Paragraphe 1 — Contexte européen. Lecture lucide de la décennie qui vient.",
+        "__TODO__ Paragraphe 2 — Opportunité de récit. Pourquoi un actif média à long terme.",
+        "__TODO__ Paragraphe 3 — Fenêtre de tir avant 2027. Pourquoi les marques qui s'associent maintenant capteront la valeur."
+      ]
+    },
+    "trackRecord": {
+      "eyebrow": "Track record",
+      "titlePre": "Ce que nous",
+      "titleEm": "savons faire",
+      "titlePost": ".",
+      "items": [
+        { "title": "Série Chine", "meta": "__TODO__ vues, durée", "href": "__TODO__ lien YouTube" },
+        { "title": "Série Brésil", "meta": "__TODO__ vues", "href": "__TODO__" },
+        { "title": "Série USA", "meta": "__TODO__ vues", "href": "__TODO__" },
+        { "title": "Série GR20", "meta": "__TODO__ vues", "href": "__TODO__" },
+        { "title": "GDIY", "meta": "100M+ cumulées, 1,5M/mois", "href": "__TODO__" }
+      ],
+      "sponsorsNote": "__TODO__ Logos sponsors récurrents GDIY, sous accord"
+    },
+    "tiers": {
+      "eyebrow": "Engagement",
+      "titlePre": "Trois",
+      "titleEm": "manières",
+      "titlePost": "de s'associer.",
+      "items": [
+        {
+          "name": "Partenaire titre",
+          "volume": "1 seul",
+          "description": "Nommage exclusif, présence générique sur la série, intégration éditoriale possible, accès avant-première, droits long terme.",
+          "budget": "__TODO__ Fourchette à fournir"
+        },
+        {
+          "name": "Partenaire intégré",
+          "volume": "3 à 5",
+          "description": "Intégration épisode par épisode sur thématique pertinente, mention systématique, droits courts.",
+          "budget": "__TODO__ Fourchette à fournir"
+        },
+        {
+          "name": "Partenaire produit",
+          "volume": "Illimité",
+          "description": "Échange de biens ou services pour les tournages : transport, hôtellerie, matériel. Pas de cash.",
+          "budget": "Échange en nature"
+        }
+      ]
+    },
+    "audience": {
+      "eyebrow": "Audience",
+      "titlePre": "Qui",
+      "titleEm": "vous écoute",
+      "titlePost": ".",
+      "demographics": {
+        "title": "Démographie",
+        "rows": [
+          { "label": "Âge médian", "value": "__TODO__" },
+          { "label": "CSP", "value": "__TODO__" },
+          { "label": "Géographie principale", "value": "__TODO__" },
+          { "label": "Plateforme principale", "value": "__TODO__" }
+        ]
+      },
+      "chinaBreakdown": {
+        "title": "Ventilation série Chine",
+        "rows": [
+          { "label": "Vues totales", "value": "__TODO__" },
+          { "label": "Top 3 pays", "value": "__TODO__" },
+          { "label": "Durée moyenne de visionnage", "value": "__TODO__" },
+          { "label": "Sources de trafic", "value": "__TODO__" }
+        ]
+      }
+    },
+    "caseStudies": {
+      "eyebrow": "Études de cas",
+      "titlePre": "Ils nous ont",
+      "titleEm": "fait confiance",
+      "titlePost": ".",
+      "items": [
+        {
+          "brand": "__TODO__ Marque",
+          "context": "__TODO__ Contexte",
+          "execution": "__TODO__ Exécution",
+          "result": "__TODO__ Résultat chiffré"
+        },
+        {
+          "brand": "__TODO__ Marque",
+          "context": "__TODO__ Contexte",
+          "execution": "__TODO__ Exécution",
+          "result": "__TODO__ Résultat chiffré"
+        },
+        {
+          "brand": "__TODO__ Marque",
+          "context": "__TODO__ Contexte",
+          "execution": "__TODO__ Exécution",
+          "result": "__TODO__ Résultat chiffré"
+        }
+      ]
+    },
+    "contact": {
+      "eyebrow": "Contact commercial",
+      "titlePre": "Parlons",
+      "titleEm": "ROI",
+      "titlePost": ".",
+      "body": "Discussion directe avec l'équipe partenariats. Réponse sous 72 heures.",
+      "calendlyLabel": "Prendre rendez-vous avec Christofer ou Matthieu",
+      "calendlyHref": "__TODO__ URL Calendly",
+      "deckLabel": "Télécharger le dossier de partenariat",
+      "deckHref": "__TODO__ URL deck PDF",
+      "emailLabel": "Écrire à l'équipe partenariats",
+      "email": "partners@collision.studio",
+      "form": {
+        "firstName": "Prénom",
+        "lastName": "Nom",
+        "emailPro": "Email professionnel",
+        "company": "Société",
+        "budget": "Budget envisagé",
+        "message": "Message",
+        "submit": "Envoyer",
+        "consent": "En envoyant ce formulaire, vous acceptez d'être recontacté par l'équipe partenariats."
+      }
+    }
+  }
+}

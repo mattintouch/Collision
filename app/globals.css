@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ink: 10 10 10;
+    --paper: 245 241 232;
+    --accent: 184 65 42;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: theme('colors.paper.DEFAULT');
+    color: theme('colors.ink.DEFAULT');
+    font-family: theme('fontFamily.sans');
+    font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: theme('colors.ink.DEFAULT');
+    color: theme('colors.paper.DEFAULT');
+  }
+
+  h1, h2, h3, h4 {
+    font-family: theme('fontFamily.serif');
+    font-weight: 400;
+  }
+}
+
+@layer components {
+  .container-edit {
+    @apply mx-auto w-full max-w-7xl px-6 md:px-10;
+  }
+
+  .rule {
+    @apply h-px w-full bg-ink/10;
+  }
+
+  .eyebrow {
+    @apply font-sans text-eyebrow uppercase text-mute;
+  }
+
+  .display-title em {
+    font-style: italic;
+    font-feature-settings: 'ss01';
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3 text-sm tracking-wide transition-all duration-300 ease-editorial;
+  }
+
+  .btn-primary {
+    @apply bg-ink text-paper hover:bg-accent;
+  }
+
+  .btn-secondary {
+    @apply border border-ink/20 text-ink hover:border-ink hover:bg-ink hover:text-paper;
+  }
+
+  .todo {
+    @apply bg-accent/10 text-accent px-1 py-0.5 rounded-sm text-[0.85em] font-sans;
+  }
+}
