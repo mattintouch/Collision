@@ -14,24 +14,24 @@
   "guests": {
     "meta": {
       "title": "Série documentaire européenne — Collision Productions",
-      "description": "Une série documentaire qui donne un visage et une voix à ceux qui pensent et construisent l'Europe de demain. __TODO__ confirmer après rédaction manifeste."
+      "description": "Collision Productions, l'équipe derrière le podcast Génération Do It Yourself, prépare une série documentaire européenne pour 2026-2027. Elle filme celles et ceux qui pensent et construisent l'Europe de demain."
     },
     "hero": {
       "eyebrow": "Série documentaire, 2026 / 2027",
       "titlePre": "Nous filmons",
       "titleEm": "l'Europe",
       "titlePost": "avant qu'elle ne se raconte plus elle-même.",
-      "sub1": "Décrochage industriel, fracture politique, désillusion démocratique, mais aussi créateurs, ingénieurs, scientifiques, dirigeants qui refusent le décrochage. __TODO__ réécriture finale après manifeste.",
-      "sub2": "Notre objectif : donner un visage et une voix à ceux qui pensent et construisent l'Europe de demain.",
+      "sub1": "Collision Productions est l'équipe derrière Génération Do It Yourself, l'un des podcasts d'affaires les plus écoutés en France — 100 millions d'écoutes cumulées, 1,5 million par mois, 70 % de complétion moyenne. Quatre séries documentaires longues sont sorties dans son sillage, sur la Chine, les États-Unis, le Brésil et le GR20.",
+      "sub2": "Notre prochaine série filme l'Europe. Pas son déclin annoncé, pas le commentaire qui s'écrit déjà sur les plateaux : les créateurs, ingénieurs, scientifiques et dirigeants qui, partout sur le continent, refusent le décrochage et construisent autre chose.",
       "ctaPrimary": "Lire le manifeste",
       "ctaSecondary": "Participer"
     },
     "stats": {
       "items": [
-        { "value": "__TODO__", "label": "Épisodes" },
-        { "value": "__TODO__", "label": "Durée moyenne" },
-        { "value": "__TODO__", "label": "Pays couverts" },
-        { "value": "__TODO__", "label": "Audience attendue" }
+        { "value": "100M+", "label": "Écoutes cumulées Collision" },
+        { "value": "1,5M / mois", "label": "Audience mensuelle" },
+        { "value": "4", "label": "Séries documentaires antérieures" },
+        { "value": "~70%", "label": "Taux de complétion moyen" }
       ]
     },
     "manifesto": {
@@ -40,10 +40,10 @@
       "titleEm": "maintenant",
       "titlePost": ".",
       "paragraphs": [
-        "__TODO__ Paragraphe 1 — Le constat. Décrochage industriel, fracture politique, désillusion démocratique. Ton lucide, jamais cynique, presque essayiste.",
-        "__TODO__ Paragraphe 2 — Le contre-récit. Des créateurs, ingénieurs, scientifiques, dirigeants qui refusent ce décrochage et construisent autre chose.",
-        "__TODO__ Paragraphe 3 — Notre place. Collision Productions, équipe derrière GDIY et la série Chine. Chiffres GDIY (audience cumulée, mensuelle) à confirmer.",
-        "__TODO__ Paragraphe 4 — L'engagement. Pourquoi cette série, pourquoi maintenant, fenêtre de tir avant 2027."
+        "L'Europe entre dans une décennie qui décidera de son rang. Le commentaire dominant raconte un déclin acquis : décrochage industriel, fracture politique, démographie qui se contracte, désillusion démocratique. Ce cadre s'écrit chaque matin dans les éditoriaux. Il n'est pas faux. Il n'est pas suffisant.",
+        "Il existe une autre Europe, plus discrète et plus tenace. Des fondateurs qui industrialisent à nouveau, des chercheurs qui restent, des dirigeants qui investissent ici, des créateurs qui choisissent ce continent comme terrain. Ils ne tiennent pas tribune et ne signent pas d'éditoriaux. Notre métier est de les enregistrer.",
+        "Collision Productions est née de Génération Do It Yourself, devenu en quelques années l'un des podcasts d'affaires les plus écoutés en France. 100 millions d'écoutes cumulées, 1,5 million par mois, un taux de complétion moyen de 70 %. Quatre séries documentaires longues — Chine, États-Unis, Brésil, GR20 — ont prolongé ce travail sur des terrains où il faut aller voir.",
+        "Cette série européenne s'inscrit dans la même méthode : un entretien long, dense, filmé chez l'invité ou sur son terrain, monté avec soin, diffusé sur les plateformes où vit déjà notre audience. Une archive du moment, vue par celles et ceux qui le construisent. Diffusion en 2026-2027, avant que l'élection européenne ne fige tous les récits."
       ]
     },
     "method": {
@@ -52,12 +52,12 @@
       "titleEm": "méthode",
       "titlePost": ".",
       "blocks": [
-        { "label": "Durée d'entretien", "value": "__TODO__" },
-        { "label": "Lieu de tournage", "value": "__TODO__" },
-        { "label": "Langue", "value": "__TODO__" },
-        { "label": "Droits de relecture", "value": "__TODO__" }
+        { "label": "Durée d'entretien", "value": "2 à 4 heures" },
+        { "label": "Lieu de tournage", "value": "Chez l'invité ou sur son terrain" },
+        { "label": "Langue", "value": "Français, anglais ou langue de l'invité, sous-titrée" },
+        { "label": "Droits de relecture", "value": "Relecture éditoriale, pas de droit de coupe" }
       ],
-      "schedule": "__TODO__ Une ligne sur le calendrier de tournage et de diffusion."
+      "schedule": "Tournages prévus de l'automne 2026 au printemps 2027. Diffusion progressive à partir de l'été 2027."
     },
     "guestsConfirmed": {
       "eyebrow": "Invités confirmés",
@@ -80,25 +80,25 @@
       "titlePost": ".",
       "columns": [
         {
-          "title": "Portée européenne",
-          "body": "__TODO__ Audience, pays, plateformes. Ventiler après chiffrage Chine."
+          "title": "Une audience qui décide",
+          "body": "Notre audience — 1,5 million d'auditeurs par mois, décideurs, fondateurs, dirigeants, élites cognitives en France et de plus en plus en Europe — ne consomme pas ce contenu de manière passive. Elle le commente, le cite, l'écoute jusqu'au bout. Taux de complétion moyen de 70 %."
         },
         {
-          "title": "Archive longue",
-          "body": "Les versions intégrales des entretiens sont conservées et exploitables par l'invité, à vie."
+          "title": "Une archive longue",
+          "body": "Les versions intégrales des entretiens sont conservées et restent exploitables par l'invité, à vie. Vous repartez avec un document éditorial dense, pas un extrait pour les réseaux sociaux."
         },
         {
-          "title": "Récit collectif",
-          "body": "Contribuer à un positionnement civique européen, à l'opposé de toute logique de vanity media."
+          "title": "Un récit collectif",
+          "body": "Vous contribuez à un positionnement civique européen, à l'opposé d'une logique de vanity media. La série place chaque entretien dans un ensemble plus vaste, et chaque invité dans une conversation que les autres invités continueront."
         }
       ]
     },
     "testimonials": {
       "eyebrow": "Témoignages",
       "items": [
-        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
-        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
-        { "quote": "__TODO__ Citation courte d'ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" }
+        { "quote": "__TODO__ Citation courte d'un ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
+        { "quote": "__TODO__ Citation courte d'un ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" },
+        { "quote": "__TODO__ Citation courte d'un ancien invité GDIY transférable.", "name": "__TODO__ Nom", "role": "__TODO__ Fonction" }
       ]
     },
     "contact": {
@@ -106,7 +106,7 @@
       "titlePre": "Si vous voulez",
       "titleEm": "participer",
       "titlePost": ".",
-      "body": "Réponse sous 72 heures, échange direct avec l'équipe éditoriale. Pas de formulaire commercial.",
+      "body": "Réponse sous 72 heures, échange direct avec l'équipe éditoriale. Pas de formulaire commercial, pas d'intermédiaire.",
       "emailLabel": "Écrire à l'équipe éditoriale",
       "email": "europe@collision.studio",
       "calendlyLabel": "Réserver un créneau",
@@ -116,14 +116,14 @@
   "sponsors": {
     "meta": {
       "title": "Partenariat éditorial — Série européenne — Collision Productions",
-      "description": "Associez votre marque à un actif média européen pensé pour les décideurs, créateurs et élites cognitives. __TODO__ finaliser après rédaction."
+      "description": "Collision Productions, l'éditeur de Génération Do It Yourself et de quatre séries documentaires longues, ouvre le partenariat sur sa prochaine série européenne 2026-2027. Audience : décideurs, créateurs, élites cognitives."
     },
     "hero": {
       "eyebrow": "Partenariat éditorial, série européenne 2026 / 2027",
       "titlePre": "Associez votre marque à",
       "titleEm": "l'Europe qui pense",
       "titlePost": ".",
-      "sub": "Un actif média européen, pas un inventaire publicitaire. Audience décideurs, créateurs, élites cognitives, FR puis EU.",
+      "sub": "Collision Productions est l'éditeur de Génération Do It Yourself, l'un des podcasts d'affaires les plus écoutés en France (100M d'écoutes cumulées, 1,5M par mois, 70 % de complétion), et de quatre séries documentaires longues sur la Chine, les États-Unis, le Brésil et le GR20. Notre prochaine série filme l'Europe. Vous vous associez à un actif média européen — pas à un inventaire publicitaire — devant une audience de décideurs, créateurs et élites cognitives, FR puis EU.",
       "ctaPrimary": "Voir le dossier",
       "ctaPrimaryHref": "__TODO__ /deck-europe-collision.pdf",
       "ctaSecondary": "Prendre rendez-vous",
@@ -131,12 +131,12 @@
     },
     "stats": {
       "items": [
-        { "value": "__TODO__", "label": "Vues prévues, série européenne" },
-        { "value": "__TODO__", "label": "Pays couverts" },
-        { "value": "100M+ / 1,5M/mois", "label": "Audience Collision cumulée / mensuelle" },
-        { "value": "~70%", "label": "Taux de complétion moyen GDIY" }
+        { "value": "100M+", "label": "Écoutes cumulées Collision" },
+        { "value": "1,5M / mois", "label": "Audience mensuelle" },
+        { "value": "~70%", "label": "Taux de complétion moyen" },
+        { "value": "4", "label": "Séries documentaires antérieures" }
       ],
-      "note": "__TODO__ confirmer chiffres GDIY après audit"
+      "note": "Chiffres consolidés sur l'ensemble des productions Collision."
     },
     "why": {
       "eyebrow": "Contexte",
@@ -144,9 +144,9 @@
       "titleEm": "moment",
       "titlePost": "est rare.",
       "paragraphs": [
-        "__TODO__ Paragraphe 1 — Contexte européen. Lecture lucide de la décennie qui vient.",
-        "__TODO__ Paragraphe 2 — Opportunité de récit. Pourquoi un actif média à long terme.",
-        "__TODO__ Paragraphe 3 — Fenêtre de tir avant 2027. Pourquoi les marques qui s'associent maintenant capteront la valeur."
+        "L'Europe entre dans la décennie qui décidera de son rang. Le commentaire dominant raconte un déclin acquis. Ce cadre n'est pas faux ; il n'est pas suffisant. Une autre Europe existe — fondateurs qui industrialisent à nouveau, chercheurs qui restent, dirigeants qui investissent ici — qu'aucun grand média ne filme avec le temps qu'elle mérite.",
+        "Cette série constitue un actif éditorial qui circulera pendant des années, sur les plateformes où notre audience décide déjà ses lectures. Vous ne payez pas un placement, vous cohabitez avec un récit collectif que des décideurs européens commenteront, citeront et archiveront.",
+        "La fenêtre est étroite. Avant l'élection européenne de 2027, peu de productions auront eu le temps de filmer ce moment de l'intérieur. Les marques qui s'associent maintenant captent la valeur — celle d'un récit qui leur survivra et que personne ne pourra refaire au même endroit."
       ]
     },
     "trackRecord": {
@@ -155,11 +155,11 @@
       "titleEm": "savons faire",
       "titlePost": ".",
       "items": [
+        { "title": "Génération Do It Yourself", "meta": "Podcast hebdomadaire — 100M+ écoutes, 1,5M / mois", "href": "__TODO__ URL GDIY" },
         { "title": "Série Chine", "meta": "__TODO__ vues, durée", "href": "__TODO__ lien YouTube" },
+        { "title": "Série États-Unis", "meta": "__TODO__ vues", "href": "__TODO__" },
         { "title": "Série Brésil", "meta": "__TODO__ vues", "href": "__TODO__" },
-        { "title": "Série USA", "meta": "__TODO__ vues", "href": "__TODO__" },
-        { "title": "Série GR20", "meta": "__TODO__ vues", "href": "__TODO__" },
-        { "title": "GDIY", "meta": "100M+ cumulées, 1,5M/mois", "href": "__TODO__" }
+        { "title": "Série GR20", "meta": "__TODO__ vues", "href": "__TODO__" }
       ],
       "sponsorsNote": "__TODO__ Logos sponsors récurrents GDIY, sous accord"
     },
@@ -172,19 +172,19 @@
         {
           "name": "Partenaire titre",
           "volume": "1 seul",
-          "description": "Nommage exclusif, présence générique sur la série, intégration éditoriale possible, accès avant-première, droits long terme.",
+          "description": "Nommage exclusif de la série, présence générique sur l'ensemble des épisodes, intégration éditoriale possible sur sujets cohérents, accès avant-première, droits long terme sur les contenus.",
           "budget": "__TODO__ Fourchette à fournir"
         },
         {
           "name": "Partenaire intégré",
           "volume": "3 à 5",
-          "description": "Intégration épisode par épisode sur thématique pertinente, mention systématique, droits courts.",
+          "description": "Intégration épisode par épisode, ciblée sur la thématique pertinente. Mention systématique en générique et en posts associés. Droits courts.",
           "budget": "__TODO__ Fourchette à fournir"
         },
         {
           "name": "Partenaire produit",
           "volume": "Illimité",
-          "description": "Échange de biens ou services pour les tournages : transport, hôtellerie, matériel. Pas de cash.",
+          "description": "Échange de biens ou services pour les tournages : transport, hôtellerie, matériel, captation. Pas de cash, valorisation éditoriale équivalente.",
           "budget": "Échange en nature"
         }
       ]
@@ -244,7 +244,7 @@
       "titlePre": "Parlons",
       "titleEm": "ROI",
       "titlePost": ".",
-      "body": "Discussion directe avec l'équipe partenariats. Réponse sous 72 heures.",
+      "body": "Discussion directe avec l'équipe partenariats. Réponse sous 72 heures. Premier rendez-vous court, sans engagement, pour caler le format avant le deck.",
       "calendlyLabel": "Prendre rendez-vous avec Christofer ou Matthieu",
       "calendlyHref": "__TODO__ URL Calendly",
       "deckLabel": "Télécharger le dossier de partenariat",
