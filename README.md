@@ -14,7 +14,7 @@ Nom de projet : Magellan (domaine `magellan.collision.studio` branché ultérieu
 | 1 — Base | Schéma §4, RLS par rôle/show, étapes configurables, seed 3 shows + cibles de test | ✅ migrations |
 | 2 — MCP | Serveur MCP lecture/écriture, connecteur Claude | ✅ `mcp-server/` |
 | 3 — App | Sélecteur de show, board (voie/archétype, ou raison pour Fleurons), dossier cible, capture, dispo classée | ✅ |
-| 4 — Copilote | Dialogue MCP + Google Calendar, rédaction style maison | ⏳ à venir |
+| 4 — Copilote | Panneau conversationnel branché sur la base (outils), dispo classée, suggestion d'appuis, rédaction style maison, discipline de relance | ✅ |
 | 5 — Veille | Job d'actualité des cibles, digest | ⏳ à venir |
 | 6 — Continuité | Bascule cible → épisode (RPC `validate_cible` déjà en place) | ◑ amorcé |
 
@@ -23,6 +23,7 @@ Nom de projet : Magellan (domaine `magellan.collision.studio` branché ultérieu
 - **Front** : Next.js 14 (App Router) en PWA. Desktop d'abord, mobile pour Matthieu.
 - **Base / Auth** : Supabase (Postgres, RLS, Google OAuth restreint à `stefani.fr` / `collision.studio`).
 - **MCP** : serveur stdio TypeScript (`mcp-server/`), branché comme connecteur Claude et consommé par le copilote.
+- **Copilote** : API route `/api/copilot` sur l'API Claude (`claude-opus-4-8`) avec boucle d'outils ; repli heuristique en mode démo.
 - **Déploiement** : Vercel.
 
 ## Démarrage

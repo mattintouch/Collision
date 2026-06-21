@@ -7,6 +7,7 @@ import clsx from "clsx";
 const tabs = [
   { key: "board", label: "Board" },
   { key: "dispo", label: "Dispo" },
+  { key: "copilote", label: "Copilote" },
 ];
 
 export function NavTabs({ showSlug }: { showSlug: string }) {
