@@ -6,15 +6,15 @@ import type { ChatMessage } from "@/lib/copilot/config";
 
 const SUGGESTIONS_INVITES = [
   "Qui engager cette semaine ?",
+  "Mes créneaux libres, avec une cible en face",
   "Quels appuis ouvrent une porte ?",
   "Écris un premier message à Tony Parker",
-  "Analyse l'état du pipe",
 ];
 const SUGGESTIONS_THEMATIQUE = [
   "Quelle entreprise traiter maintenant ?",
+  "Mes créneaux libres, avec une cible en face",
   "Où en est la recherche ?",
   "Quels appuis pour obtenir un accès ?",
-  "Analyse l'état du pipe",
 ];
 
 export function CopilotPanel({

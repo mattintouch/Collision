@@ -2,6 +2,7 @@
 // même discipline que le vrai copilote. Donne un aperçu complet hors-ligne.
 
 import { getCibles } from "../data";
+import { getFreeSlots } from "../calendar";
 import {
   ARCHETYPE_LABELS,
   CONSEIL_LABELS,
@@ -107,13 +108,42 @@ function analyseAnswer(cibles: CibleEnrichie[]): string {
   return out.join("\n");
 }
 
+async function slotsAnswer(
+  show: Show,
+  cibles: CibleEnrichie[],
+  providerToken?: string | null
+): Promise<string> {
+  const { slots, demo } = await getFreeSlots(providerToken);
+  if (slots.length === 0)
+    return "Aucun créneau libre repéré sur les 7 prochains jours.";
+  const top = ranked(cibles).slice(0, 3);
+  const lines = slots.slice(0, 4).map((s, i) => {
+    const c = top[i % top.length];
+    if (!c) return `- ${s.label}`;
+    const r = computeResurgence(c);
+    return `- ${s.label} → ${c.nom}${r.raison ? ` (${r.raison})` : ""}`;
+  });
+  return [
+    demo
+      ? "Créneaux à venir (démo — branche Google Calendar pour le réel), avec une cible en face :"
+      : "Créneaux libres à venir, avec une cible en face :",
+    "",
+    ...lines,
+    "",
+    "Je propose, je ne remplis pas à la mitraillette. À toi de confirmer.",
+  ].join("\n");
+}
+
 export async function heuristicReply(
   show: Show,
   showId: string,
-  lastMessage: string
+  lastMessage: string,
+  providerToken?: string | null
 ): Promise<string> {
   const t = lastMessage.toLowerCase();
   const cibles = await getCibles(showId);
+
+  const intentSlots = /\b(calendrier|agenda|libre|libres|quand suis|mes cr[ée]neaux|free)\b/.test(t);
 
   const intentDispo = /\b(dispo|disponib|créneau|creneau|qui|quoi|propos|remplir|slot|engager|cibler?|entreprise|marque|traiter|prioris|maintenant|semaine|prochaine?|prendre|sortir|invit)\b/.test(t);
   const intentAppui = /\b(appui|porte|intro|recommand|introduc)\b/.test(t);
@@ -123,12 +153,14 @@ export async function heuristicReply(
   if (intentDraft) return draftAnswer(show, cibles, lastMessage);
   if (intentAppui) return appuisAnswer(cibles);
   if (intentAnalyse) return analyseAnswer(cibles);
+  if (intentSlots) return slotsAnswer(show, cibles, providerToken);
   if (intentDispo) return dispoAnswer(show, cibles);
 
   return [
     "Mode démo (sans clé IA branchée) — je raisonne sur les données locales. Je peux :",
     "",
     "- proposer qui ou quoi engager pour un créneau (« qui pour mardi ? »),",
+    "- regarder tes créneaux libres et mettre une cible en face (« mes créneaux libres ? »),",
     "- te montrer les appuis qui ouvrent une porte (« quels appuis ? »),",
     "- rédiger un message au style maison (« écris à Tony Parker »),",
     "- lire le pipe (« analyse l'état du pipe »).",

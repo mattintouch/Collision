@@ -2,6 +2,20 @@ import { NextResponse } from "next/server";
 import { getShow } from "@/lib/data";
 import { copilotReply } from "@/lib/copilot/engine";
 import type { ChatMessage } from "@/lib/copilot/config";
+import { isSupabaseConfigured } from "@/lib/config";
+import { createClient } from "@/lib/supabase/server";
+
+/** Token d'accès Google (scope calendar.readonly) issu de la session OAuth. */
+async function getProviderToken(): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session?.provider_token ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,7 +48,8 @@ export async function POST(request: Request) {
   }));
 
   try {
-    const result = await copilotReply(show, show.id, trimmed, slot);
+    const providerToken = await getProviderToken();
+    const result = await copilotReply(show, show.id, trimmed, slot, providerToken);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur copilote";

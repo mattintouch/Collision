@@ -21,17 +21,21 @@ export async function copilotReply(
   show: Show,
   showId: string,
   messages: ChatMessage[],
-  slot?: string
+  slot?: string,
+  providerToken?: string | null
 ): Promise<CopilotResult> {
   // Mode démo : pas de clé branchée → heuristique sur les données locales.
   if (!hasAnthropicKey()) {
     const lastUser =
       [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-    return { text: await heuristicReply(show, showId, lastUser), demo: true };
+    return {
+      text: await heuristicReply(show, showId, lastUser, providerToken),
+      demo: true,
+    };
   }
 
   const client = new Anthropic();
-  const ctx: ToolContext = { showId, showSlug: show.slug };
+  const ctx: ToolContext = { showId, showSlug: show.slug, providerToken };
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
     content: m.content,

@@ -2,12 +2,14 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { getCibleDossier, getCibles } from "../data";
+import { getFreeSlots } from "../calendar";
 import { computeResurgence, CONSEIL_LABELS, SIGNAL_LABELS } from "../domain";
 import type { CibleEnrichie } from "../types";
 
 export interface ToolContext {
   showId: string;
   showSlug: string;
+  providerToken?: string | null;
 }
 
 export const toolDefs: Anthropic.Tool[] = [
@@ -37,6 +39,12 @@ export const toolDefs: Anthropic.Tool[] = [
       properties: { cible_id: { type: "string" } },
       required: ["cible_id"],
     },
+  },
+  {
+    name: "list_free_slots",
+    description:
+      "Créneaux libres à venir dans Google Calendar (7 prochains jours, heures ouvrées). À utiliser pour proposer des cibles en face d'une vraie disponibilité.",
+    input_schema: { type: "object", properties: {} },
   },
 ];
 
@@ -89,6 +97,11 @@ export async function runTool(
       return computeResurgence(b).score - computeResurgence(a).score;
     });
     return JSON.stringify(cibles.map(summarize), null, 2);
+  }
+
+  if (name === "list_free_slots") {
+    const { slots, demo } = await getFreeSlots(ctx.providerToken);
+    return JSON.stringify({ demo, slots: slots.map((s) => s.label) }, null, 2);
   }
 
   if (name === "get_dossier") {

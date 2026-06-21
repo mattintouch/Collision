@@ -14,7 +14,7 @@ Nom de projet : Magellan (domaine `magellan.collision.studio` branché ultérieu
 | 1 — Base | Schéma §4, RLS par rôle/show, étapes configurables, seed 3 shows + cibles de test | ✅ migrations |
 | 2 — MCP | Serveur MCP lecture/écriture, connecteur Claude | ✅ `mcp-server/` |
 | 3 — App | Sélecteur de show, board (voie/archétype, ou raison pour Fleurons), dossier cible, capture, dispo classée | ✅ |
-| 4 — Copilote | Panneau conversationnel branché sur la base (outils), dispo classée, suggestion d'appuis, rédaction style maison, discipline de relance | ✅ |
+| 4 — Copilote | Panneau conversationnel branché sur la base + Google Calendar (créneaux libres), dispo classée, suggestion d'appuis, rédaction style maison, discipline de relance | ✅ |
 | 5 — Veille | Job d'actualité des cibles, digest | ⏳ à venir |
 | 6 — Continuité | Bascule cible → épisode (RPC `validate_cible` déjà en place) | ◑ amorcé |
 

@@ -13,8 +13,15 @@ export function LoginButton() {
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        // Lecture du calendrier pour le copilote (créneaux libres).
+        scopes: "https://www.googleapis.com/auth/calendar.readonly",
         // Restriction de domaine demandée à Google ; revérifiée côté app.
-        queryParams: { hd: "collision.studio", prompt: "select_account" },
+        // access_type=offline + consent pour obtenir un refresh token.
+        queryParams: {
+          hd: "collision.studio",
+          prompt: "consent",
+          access_type: "offline",
+        },
       },
     });
   }
