@@ -1,0 +1,19 @@
+# Config minimale pour le Supabase CLI (dév local).
+# `supabase start` lance Postgres + Auth + Storage en local.
+# `supabase db reset` rejoue migrations/ puis seed.sql.
+project_id = "magellan"
+
+[db]
+port = 54322
+major_version = 15
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+
+# Google OAuth restreint aux domaines stefani.fr et collision.studio.
+# Renseigner client_id / secret via les variables d'env du CLI au branchement.
+[auth.external.google]
+enabled = true
+client_id = "env(SUPABASE_AUTH_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_GOOGLE_SECRET)"

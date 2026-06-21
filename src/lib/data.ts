@@ -1,0 +1,86 @@
+// Couche d'accès aux données. Branche Supabase si configuré, sinon repli démo.
+
+import { isSupabaseConfigured } from "./config";
+import {
+  demoAppuis,
+  demoCibles,
+  demoShows,
+  demoSignals,
+  demoStages,
+  demoTouches,
+} from "./demo";
+import { createClient } from "./supabase/server";
+import type {
+  Appui,
+  CibleEnrichie,
+  Show,
+  Signal,
+  Stage,
+  Touche,
+} from "./types";
+
+export const demoMode = !isSupabaseConfigured();
+
+export async function getShows(): Promise<Show[]> {
+  if (demoMode) return demoShows;
+  const supabase = createClient();
+  const { data } = await supabase.from("shows").select("*").order("nom");
+  return data ?? [];
+}
+
+export async function getShow(slug: string): Promise<Show | null> {
+  const shows = await getShows();
+  return shows.find((s) => s.slug === slug) ?? null;
+}
+
+export async function getStages(showId: string): Promise<Stage[]> {
+  if (demoMode) return demoStages[showId] ?? [];
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("stages")
+    .select("*")
+    .eq("show_id", showId)
+    .order("position");
+  return data ?? [];
+}
+
+export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
+  if (demoMode) return demoCibles.filter((c) => c.show_id === showId);
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("cibles_enrichies")
+    .select("*")
+    .eq("show_id", showId);
+  return data ?? [];
+}
+
+export interface CibleDossier {
+  cible: CibleEnrichie | null;
+  appuis: Appui[];
+  touches: Touche[];
+  signals: Signal[];
+}
+
+export async function getCibleDossier(id: string): Promise<CibleDossier> {
+  if (demoMode) {
+    return {
+      cible: demoCibles.find((c) => c.id === id) ?? null,
+      appuis: demoAppuis.filter((a) => a.cible_id === id),
+      touches: demoTouches.filter((t) => t.cible_id === id),
+      signals: demoSignals.filter((s) => s.cible_id === id),
+    };
+  }
+  const supabase = createClient();
+  const [cible, appuis, touches, signals] = await Promise.all([
+    supabase.from("cibles_enrichies").select("*").eq("id", id).single(),
+    supabase.from("appuis").select("*").eq("cible_id", id),
+    supabase.from("touches").select("*").eq("cible_id", id).order("date", { ascending: false }),
+    supabase.from("signals").select("*").eq("cible_id", id).order("date", { ascending: false }),
+  ]);
+  return {
+    cible: cible.data ?? null,
+    appuis: appuis.data ?? [],
+    touches: touches.data ?? [],
+    signals: signals.data ?? [],
+  };
+}
