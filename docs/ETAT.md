@@ -60,10 +60,11 @@ donc on est en mode réel (sauf l'IA, voir ci-dessous).
 1. **Clé Claude** : ajouter `ANTHROPIC_API_KEY` (secret) dans Vercel + redeploy
    → active copilote IA, veille web réelle, enrichissement réel.
    (Optionnel : `ANTHROPIC_MODEL`, défaut `claude-opus-4-8`.)
-2. **Import Folk** (cahier des charges §14.2) : exporter la donnée Folk (API/CSV)
-   avant toute résiliation, et reprendre **uniquement le périmètre pipe invité**
-   dans Magellan (le reste reste sur Folk). → à construire : un importeur CSV qui
-   mappe contacts Folk → cibles / appuis / contacts.
+2. **Import Folk** (cahier des charges §14.2) : ✅ construit via l'API Folk.
+   Page `/[show]/import` (bouton « Importer (Folk) » sur le board) : choisir un
+   groupe Folk → aperçu → import en cibles (+ emails/téléphones en contacts,
+   dédoublonnage par nom). Reste à brancher : `FOLK_API_KEY` (clé API Folk,
+   serveur uniquement) dans Vercel, puis redeploy.
 3. **Google Calendar durable** : persister/rafraîchir le refresh token Google
    (le provider_token actuel n'est frais qu'après connexion).
 4. **Vision** : lecture des captures d'écran par l'IA (la capture par texte

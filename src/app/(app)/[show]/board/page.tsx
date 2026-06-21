@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getCibles, getShow, getStages } from "@/lib/data";
+import Link from "next/link";
 import { Board } from "@/components/Board";
 import { NewTargetButton } from "@/components/NewTargetButton";
 
@@ -30,7 +31,12 @@ export default async function BoardPage({
               : "par étape, raison de sélection en avant"}
           </p>
         </div>
-        <NewTargetButton show={show} />
+        <div className="flex items-center gap-2">
+          <Link href={`/${show.slug}/import`} className="btn-ghost">
+            Importer (Folk)
+          </Link>
+          <NewTargetButton show={show} />
+        </div>
       </div>
 
       <Board show={show} stages={stages} cibles={cibles} />

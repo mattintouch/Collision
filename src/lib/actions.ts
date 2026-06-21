@@ -5,6 +5,8 @@ import { createClient } from "./supabase/server";
 import { demoMode, getCibleDossier, getShow } from "./data";
 import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
+import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
+import { mapPerson, type MappedTarget } from "./folk/map";
 
 export interface ActionResult {
   ok: boolean;
@@ -205,6 +207,142 @@ export async function deleteContact(input: {
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   return { ok: true };
+}
+
+/** Lister les groupes Folk (pour choisir quoi importer). */
+export async function folkListGroups(): Promise<{
+  ok: boolean;
+  groups: FolkGroup[];
+  error?: string;
+}> {
+  if (!hasFolkKey())
+    return { ok: false, groups: [], error: "Clé Folk absente : ajoute FOLK_API_KEY (Vercel) puis redéploie." };
+  try {
+    return { ok: true, groups: await fetchFolkGroups() };
+  } catch (e) {
+    return { ok: false, groups: [], error: e instanceof Error ? e.message : "Erreur Folk" };
+  }
+}
+
+export interface FolkImportPreviewRow {
+  nom: string;
+  role: string | null;
+  organisation: string | null;
+  nb_contacts: number;
+}
+
+export interface FolkImportResult {
+  ok: boolean;
+  error?: string;
+  dry_run: boolean;
+  total: number;
+  created: number;
+  skipped: number;
+  preview: FolkImportPreviewRow[];
+}
+
+/**
+ * Importe les personnes d'un groupe Folk dans un show (cibles + contacts).
+ * dry_run=true : aperçu sans rien écrire. Conforme §14.2 (pipe invité).
+ */
+export async function folkImport(input: {
+  show_slug: string;
+  group_id: string;
+  dry_run: boolean;
+}): Promise<FolkImportResult> {
+  const empty = { total: 0, created: 0, skipped: 0, preview: [] as FolkImportPreviewRow[] };
+  if (!hasFolkKey())
+    return { ok: false, dry_run: input.dry_run, ...empty, error: "Clé Folk absente (FOLK_API_KEY)." };
+
+  const show = await getShow(input.show_slug);
+  if (!show) return { ok: false, dry_run: input.dry_run, ...empty, error: "Show introuvable" };
+
+  let mapped: MappedTarget[];
+  try {
+    const people = await fetchFolkPeople(input.group_id);
+    mapped = people.map((p) => mapPerson(p, show.type_pipe));
+  } catch (e) {
+    return { ok: false, dry_run: input.dry_run, ...empty, error: e instanceof Error ? e.message : "Erreur Folk" };
+  }
+
+  const preview: FolkImportPreviewRow[] = mapped.slice(0, 50).map((m) => ({
+    nom: m.nom,
+    role: m.role,
+    organisation: m.organisation,
+    nb_contacts: m.contacts.length,
+  }));
+
+  if (input.dry_run) {
+    return { ok: true, dry_run: true, total: mapped.length, created: 0, skipped: 0, preview };
+  }
+
+  // Écriture : nécessite Supabase branché.
+  if (demoMode)
+    return { ok: false, dry_run: false, total: mapped.length, created: 0, skipped: 0, preview, error: DEMO_BLOCK.error };
+
+  const supabase = createClient();
+
+  // Étape initiale du show + dédoublonnage par nom.
+  const [{ data: firstStage }, { data: existing }] = await Promise.all([
+    supabase.from("stages").select("id").eq("show_id", show.id).order("position").limit(1).maybeSingle(),
+    supabase.from("cibles").select("nom").eq("show_id", show.id),
+  ]);
+  const seen = new Set((existing ?? []).map((c) => c.nom.trim().toLowerCase()));
+
+  let created = 0;
+  let skipped = 0;
+  for (const m of mapped) {
+    if (seen.has(m.nom.trim().toLowerCase())) {
+      skipped++;
+      continue;
+    }
+    seen.add(m.nom.trim().toLowerCase());
+
+    const isPers = m.kind === "personne";
+    const { data: cible, error } = await supabase
+      .from("cibles")
+      .insert({
+        show_id: show.id,
+        kind: m.kind,
+        nom: m.nom,
+        stage_id: firstStage?.id ?? null,
+        priorite: "moyenne",
+        voie: "froid",
+        role: isPers ? m.role : null,
+        organisation: isPers ? m.organisation : null,
+      })
+      .select("id")
+      .single();
+    if (error || !cible) {
+      skipped++;
+      continue;
+    }
+    created++;
+
+    if (m.contacts.length > 0) {
+      await supabase.from("contacts").insert(
+        m.contacts.map((c) => ({
+          cible_id: cible.id,
+          kind: c.kind,
+          valeur: c.valeur,
+          label: c.label,
+          source: c.source,
+          confiance: c.confiance,
+        }))
+      );
+    }
+    if (m.note) {
+      await supabase.from("touches").insert({
+        cible_id: cible.id,
+        canal: "Import Folk",
+        contenu: m.note,
+        source: "saisie",
+      });
+    }
+  }
+
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, dry_run: false, total: mapped.length, created, skipped, preview };
 }
 
 /** Mettre une cible sur une étape donnée. */
