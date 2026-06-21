@@ -105,12 +105,12 @@ export async function runTool(
   }
 
   if (name === "get_dossier") {
-    const { cible, appuis, touches, signals } = await getCibleDossier(
+    const { cible, appuis, touches, signals, contacts } = await getCibleDossier(
       String(input.cible_id)
     );
     if (!cible) return JSON.stringify({ error: "Cible introuvable" });
     return JSON.stringify(
-      { cible: summarize(cible), appuis, touches, signals },
+      { cible: summarize(cible), appuis, touches, signals, contacts },
       null,
       2
     );

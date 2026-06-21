@@ -7,7 +7,8 @@ Base Postgres unique. Schéma du cahier des charges §4, RLS par rôle et par sh
 1. `migrations/0001_schema.sql` — types, tables, triggers (compteur de touche, updated_at).
 2. `migrations/0002_rls.sql` — fonctions d'aide + politiques RLS + création de profil à l'inscription.
 3. `migrations/0003_functions.sql` — `validate_cible()` (bascule épisode) + vue `cibles_enrichies` (résurgence).
-4. `seed.sql` — 3 shows, leurs étapes, cibles de test.
+4. `migrations/0004_contacts.sql` — table `contacts` (enrichissement) + RLS.
+5. `seed.sql` — 3 shows, leurs étapes, cibles de test.
 
 ## Local
 

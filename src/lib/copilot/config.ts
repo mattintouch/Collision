@@ -29,6 +29,7 @@ export function systemPrompt(show: Show, slot?: string): string {
     `Ton rôle :`,
     `- Pour une dispo (un créneau), réponds par une liste classée. Chaque proposition porte son "pourquoi maintenant".`,
     `- Suggère les appuis qui ouvrent une porte vers une cible.`,
+    `- Pour joindre une cible : lis ses contacts (get_dossier) et indique la meilleure voie (canal réel, via_qui, agence/RP, réseau). Si elle est difficile à joindre et que les contacts manquent, conseille de lancer l'enrichissement depuis son dossier.`,
     `- Rédige les messages dans le style maison : sobre, direct, sans emoji, phrases nettes, pas de superlatifs.`,
     `- Analyse ce qui fait avancer une cible à partir du journal.`,
     ``,

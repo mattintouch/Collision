@@ -4,6 +4,7 @@
 import type {
   Appui,
   CibleEnrichie,
+  Contact,
   Show,
   Signal,
   Stage,
@@ -166,6 +167,12 @@ export const demoAppuis: Appui[] = [
 
 export const demoTouches: Touche[] = [
   { id: "t-1", cible_id: "c-camille", date: daysAgo(4), canal: "Email", contenu: "Premier message envoyé, pas encore de réponse.", source: "saisie" },
+];
+
+export const demoContacts: Contact[] = [
+  { id: "ct-1", cible_id: "c-tony", kind: "agence", valeur: "Infinity Nine — relations presse", label: "Via l'agence", source: "Site officiel (démo)", confiance: 4, verifie: false },
+  { id: "ct-2", cible_id: "c-michelin", kind: "telephone", valeur: "+33 4 73 XX XX XX", label: "Standard groupe", source: "Page contact (démo)", confiance: 3, verifie: false },
+  { id: "ct-3", cible_id: "c-michelin", kind: "email", valeur: "presse@exemple-michelin.com", label: "Service de presse", source: "Espace presse (démo)", confiance: 4, verifie: false },
 ];
 
 export const demoSignals: Signal[] = [

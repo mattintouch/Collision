@@ -13,6 +13,7 @@ import {
 } from "@/lib/domain";
 import { CaptureForm } from "@/components/CaptureForm";
 import { ValidateButton } from "@/components/ValidateButton";
+import { ContactsSection } from "@/components/ContactsSection";
 
 function fmt(date: string | null) {
   if (!date) return "—";
@@ -31,10 +32,8 @@ export default async function CiblePage({
   const show = await getShow(params.show);
   if (!show) notFound();
 
-  const [{ cible, appuis, touches, signals }, stages] = await Promise.all([
-    getCibleDossier(params.id),
-    getStages(show.id),
-  ]);
+  const [{ cible, appuis, touches, signals, contacts }, stages] =
+    await Promise.all([getCibleDossier(params.id), getStages(show.id)]);
   if (!cible) notFound();
 
   const isEntreprise = cible.kind === "entreprise";
@@ -175,6 +174,13 @@ export default async function CiblePage({
               <p className="text-sm">{cible.etat_recherche ?? "—"}</p>
             </section>
           )}
+
+          {/* Contacts — enrichissement (joindre les cibles difficiles) */}
+          <ContactsSection
+            cibleId={cible.id}
+            showSlug={show.slug}
+            contacts={contacts}
+          />
 
           {/* Appuis (§13.4) */}
           <section className="card p-5">

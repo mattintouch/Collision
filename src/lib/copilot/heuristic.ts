@@ -1,8 +1,9 @@
 // Copilote en mode démo (sans clé API) : réponses heuristiques calées sur la
 // même discipline que le vrai copilote. Donne un aperçu complet hors-ligne.
 
-import { getCibles } from "../data";
+import { getCibles, getCibleDossier } from "../data";
 import { getFreeSlots } from "../calendar";
+import { CONTACT_LABELS } from "../domain";
 import {
   ARCHETYPE_LABELS,
   CONSEIL_LABELS,
@@ -55,7 +56,11 @@ function appuisAnswer(cibles: CibleEnrichie[]): string {
   return ["Les portes ouvrables :", "", ...lines].join("\n");
 }
 
-function draftAnswer(show: Show, cibles: CibleEnrichie[], text: string): string {
+async function draftAnswer(
+  show: Show,
+  cibles: CibleEnrichie[],
+  text: string
+): Promise<string> {
   // Cherche une cible nommée dans la demande.
   const target = cibles.find((c) =>
     text.toLowerCase().includes(c.nom.toLowerCase())
@@ -67,6 +72,21 @@ function draftAnswer(show: Show, cibles: CibleEnrichie[], text: string): string 
       ? `votre parcours${sujet ? ` autour de ${sujet}` : ""}`
       : `votre maison${sujet ? ` et son rapport à ${sujet}` : ""}`;
 
+  // Meilleure voie de contact : contacts enrichis, sinon via_qui / canal réel.
+  let route = "";
+  if (target) {
+    const { contacts } = await getCibleDossier(target.id);
+    const best = [...contacts].sort((a, b) => b.confiance - a.confiance)[0];
+    if (best) {
+      route = `Voie conseillée : ${CONTACT_LABELS[best.kind].toLowerCase()} — ${best.valeur}${best.label ? ` (${best.label})` : ""}.`;
+    } else if (target.via_qui) {
+      route = `Voie conseillée : via ${target.via_qui}${target.canal_reel ? ` sur ${target.canal_reel}` : ""}.`;
+    } else {
+      route =
+        "Aucun contact en base : lance « Enrichir » depuis le dossier pour trouver par où passer.";
+    }
+  }
+
   return [
     `Brouillon, style maison (sobre, direct, sans emoji) :`,
     "",
@@ -77,10 +97,8 @@ function draftAnswer(show: Show, cibles: CibleEnrichie[], text: string): string 
     `Si le principe vous parle, je vous propose qu'on en discute dix minutes pour caler le fond et un créneau.`,
     "",
     `Bien à vous,`,
-    "",
-    target?.via_qui
-      ? `Note : passage conseillé via ${target.via_qui}${target.canal_reel ? ` sur ${target.canal_reel}` : ""}.`
-      : "",
+    route ? "" : "",
+    route ? `Note — ${route}` : "",
   ]
     .filter((l) => l !== "")
     .join("\n");

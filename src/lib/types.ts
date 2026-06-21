@@ -19,6 +19,13 @@ export type SignalType =
   | "prix"
   | "passage_media"
   | "mouvement_entreprise";
+export type ContactKind =
+  | "email"
+  | "telephone"
+  | "reseau"
+  | "agence"
+  | "site"
+  | "autre";
 export type UserType = "admin" | "interne" | "externe";
 export type ShowRole = "admin" | "interne" | "externe";
 
@@ -107,6 +114,17 @@ export interface Signal {
   source: string | null;
   pertinence: number;
   resume: string | null;
+}
+
+export interface Contact {
+  id: string;
+  cible_id: string;
+  kind: ContactKind;
+  valeur: string;
+  label: string | null;
+  source: string | null;
+  confiance: number;
+  verifie: boolean;
 }
 
 export interface Episode {

@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from "./config";
 import {
   demoAppuis,
   demoCibles,
+  demoContacts,
   demoShows,
   demoSignals,
   demoStages,
@@ -13,6 +14,7 @@ import { createClient } from "./supabase/server";
 import type {
   Appui,
   CibleEnrichie,
+  Contact,
   Show,
   Signal,
   Stage,
@@ -59,6 +61,7 @@ export interface CibleDossier {
   appuis: Appui[];
   touches: Touche[];
   signals: Signal[];
+  contacts: Contact[];
 }
 
 export async function getCibleDossier(id: string): Promise<CibleDossier> {
@@ -68,19 +71,22 @@ export async function getCibleDossier(id: string): Promise<CibleDossier> {
       appuis: demoAppuis.filter((a) => a.cible_id === id),
       touches: demoTouches.filter((t) => t.cible_id === id),
       signals: demoSignals.filter((s) => s.cible_id === id),
+      contacts: demoContacts.filter((c) => c.cible_id === id),
     };
   }
   const supabase = createClient();
-  const [cible, appuis, touches, signals] = await Promise.all([
+  const [cible, appuis, touches, signals, contacts] = await Promise.all([
     supabase.from("cibles_enrichies").select("*").eq("id", id).single(),
     supabase.from("appuis").select("*").eq("cible_id", id),
     supabase.from("touches").select("*").eq("cible_id", id).order("date", { ascending: false }),
     supabase.from("signals").select("*").eq("cible_id", id).order("date", { ascending: false }),
+    supabase.from("contacts").select("*").eq("cible_id", id).order("confiance", { ascending: false }),
   ]);
   return {
     cible: cible.data ?? null,
     appuis: appuis.data ?? [],
     touches: touches.data ?? [],
     signals: signals.data ?? [],
+    contacts: contacts.data ?? [],
   };
 }

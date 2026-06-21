@@ -4,10 +4,20 @@ import type {
   Archetype,
   AppuiType,
   CibleEnrichie,
+  ContactKind,
   Priorite,
   SignalType,
   Voie,
 } from "./types";
+
+export const CONTACT_LABELS: Record<ContactKind, string> = {
+  email: "Email",
+  telephone: "Téléphone",
+  reseau: "Réseau",
+  agence: "Agence / RP",
+  site: "Site / formulaire",
+  autre: "Autre",
+};
 
 export const ARCHETYPE_LABELS: Record<Archetype, string> = {
   big_fish: "Big Fish",

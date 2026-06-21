@@ -15,7 +15,7 @@ Nom de projet : Magellan (domaine `magellan.collision.studio` branché ultérieu
 | 2 — MCP | Serveur MCP lecture/écriture, connecteur Claude | ✅ `mcp-server/` |
 | 3 — App | Sélecteur de show, board (voie/archétype, ou raison pour Fleurons), dossier cible, capture, dispo classée | ✅ |
 | 4 — Copilote | Panneau conversationnel branché sur la base + Google Calendar (créneaux libres), dispo classée, suggestion d'appuis, rédaction style maison, discipline de relance | ✅ |
-| 5 — Veille | Job d'actualité des cibles, digest | ⏳ à venir |
+| 5 — Veille | Veille web par cible (digest filtré), signaux écrits → résurgence ; **enrichissement contacts** (email/téléphone/agence, sources publiques) pour joindre les cibles difficiles | ✅ |
 | 6 — Continuité | Bascule cible → épisode (RPC `validate_cible` déjà en place) | ◑ amorcé |
 
 ## Stack

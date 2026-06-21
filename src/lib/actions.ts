@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "./supabase/server";
-import { demoMode } from "./data";
+import { demoMode, getCibleDossier, getShow } from "./data";
+import { runVeille, type VeilleItem } from "./veille/engine";
+import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 
 export interface ActionResult {
   ok: boolean;
@@ -123,6 +125,86 @@ export async function validateCible(input: {
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true, id: data as string };
+}
+
+/** Lancer la veille sur un show (§5). Persiste les signaux trouvés. */
+export async function runVeilleAction(input: {
+  show_slug: string;
+}): Promise<{ ok: boolean; demo: boolean; items: VeilleItem[]; error?: string }> {
+  const show = await getShow(input.show_slug);
+  if (!show) return { ok: false, demo: false, items: [], error: "Show introuvable" };
+
+  const { items, demo } = await runVeille(show.id);
+
+  // En mode réel, on matérialise les signaux (alimente la résurgence).
+  if (!demo && items.length > 0) {
+    const supabase = createClient();
+    const rows = items.map((it) => ({
+      cible_id: it.cible_id,
+      type: it.type,
+      date: it.date ?? new Date().toISOString(),
+      source: it.source,
+      pertinence: it.pertinence,
+      resume: it.resume ? `${it.titre} — ${it.resume}` : it.titre,
+    }));
+    const { error } = await supabase.from("signals").insert(rows);
+    if (error) return { ok: false, demo, items, error: error.message };
+    revalidatePath(`/${input.show_slug}/board`);
+    revalidatePath(`/${input.show_slug}/dispo`);
+  }
+
+  return { ok: true, demo, items };
+}
+
+/** Enrichir les contacts d'une cible (§ joindre les cibles difficiles). */
+export async function enrichCibleAction(input: {
+  cible_id: string;
+  show_slug: string;
+}): Promise<{
+  ok: boolean;
+  demo: boolean;
+  contacts: ContactSuggestion[];
+  error?: string;
+}> {
+  const { cible } = await getCibleDossier(input.cible_id);
+  if (!cible)
+    return { ok: false, demo: false, contacts: [], error: "Cible introuvable" };
+
+  const { contacts, demo } = await enrichCible(cible);
+
+  if (!demo && contacts.length > 0) {
+    const supabase = createClient();
+    const rows = contacts.map((c) => ({
+      cible_id: input.cible_id,
+      kind: c.kind,
+      valeur: c.valeur,
+      label: c.label,
+      source: c.source,
+      confiance: c.confiance,
+    }));
+    const { error } = await supabase.from("contacts").insert(rows);
+    if (error) return { ok: false, demo, contacts, error: error.message };
+    revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  }
+
+  return { ok: true, demo, contacts };
+}
+
+/** Supprimer un contact. */
+export async function deleteContact(input: {
+  contact_id: string;
+  cible_id: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("contacts")
+    .delete()
+    .eq("id", input.contact_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  return { ok: true };
 }
 
 /** Mettre une cible sur une étape donnée. */
