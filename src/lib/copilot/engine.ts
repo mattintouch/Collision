@@ -35,7 +35,12 @@ export async function copilotReply(
   }
 
   const client = new Anthropic();
-  const ctx: ToolContext = { showId, showSlug: show.slug, providerToken };
+  const ctx: ToolContext = {
+    showId,
+    showSlug: show.slug,
+    typePipe: show.type_pipe,
+    providerToken,
+  };
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({
     role: m.role,
     content: m.content,

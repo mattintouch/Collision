@@ -161,8 +161,8 @@ export const demoCibles: CibleEnrichie[] = [
 ];
 
 export const demoAppuis: Appui[] = [
-  { id: "a-1", cible_id: "c-tony", nom: "Un ancien invité commun", organisation: "GDIY", type: "ancien_invite", note: "Peut faire une intro chaleureuse" },
-  { id: "a-2", cible_id: "c-trader", nom: "Membre de l'équipe", organisation: "Collision", type: "contact_interne", note: "A déjà échangé en DM" },
+  { id: "a-1", cible_id: "c-tony", nom: "Un ancien invité commun", organisation: "GDIY", type: "ancien_invite", note: "Peut faire une intro chaleureuse", ally_cible_id: null },
+  { id: "a-2", cible_id: "c-trader", nom: "Membre de l'équipe", organisation: "Collision", type: "contact_interne", note: "A déjà échangé en DM", ally_cible_id: null },
 ];
 
 export const demoTouches: Touche[] = [

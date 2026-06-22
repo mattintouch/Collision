@@ -25,7 +25,12 @@ Repo : `mattintouch/Collision` · Branche : `claude/magellan-collision-studio-xs
 - **Étape 4 — Copilote** : panneau conversationnel par show, branché sur la base
   (boucle d'outils API Claude, modèle `claude-opus-4-8`) + Google Calendar
   (créneaux libres) ; style maison, discipline de relance. Repli heuristique
-  hors-ligne (mode démo).
+  hors-ligne (mode démo). **Le copilote ÉCRIT** : créer cible, ajouter un allié
+  (relié à la fiche de l'allié, cible↔cible via appuis.ally_cible_id), ajouter un
+  contact, logger une touche, valider — et **synchronise Folk** (description /
+  alliés, téléphone) en best-effort quand FOLK_API_KEY est posée.
+- **Réglages** : page /settings (compte, show par défaut, déconnexion) ;
+  auto-accueil des nouveaux membres (interne + accès à tous les shows).
 - **Étape 5 — Veille + enrichissement** : veille web par cible (digest filtré →
   signaux → résurgence) ; enrichissement contacts (email/téléphone/agence,
   sources publiques, RGPD) pour joindre les cibles difficiles. Le copilote

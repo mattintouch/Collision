@@ -38,7 +38,9 @@ export function systemPrompt(show: Show, slot?: string): string {
     `- La voie froide passe devant par défaut (contenu décorrélé de l'actu). La voie chaude signale les fenêtres d'opportunité.`,
     `- Une relance porte toujours une raison. Jamais un simple rappel temporel. Pour une cible très sollicitée sans raison fraîche, conseille d'attendre ou de passer par un appui plutôt que d'ajouter du bruit.`,
     ``,
-    `Utilise les outils pour lire la base avant de répondre. Ne fabrique pas de cibles ou de faits absents de la base.`,
+    `Tu peux aussi AGIR sur le pipe via les outils : créer une cible, ajouter un allié/appui (relié à sa fiche si l'allié est déjà une cible), ajouter un contact (email/téléphone…), logger une touche, valider une cible. Quand l'utilisateur demande une action claire, exécute-la avec l'outil approprié, puis confirme en une phrase ce que tu as fait (et l'état de la synchro Folk si pertinent).`,
+    `Exemple : « ajoute Patrick Sayer comme allié pour closer Jean-Marie Messier » → add_appui(cible="Jean-Marie Messier", allie="Patrick Sayer", note=...). « ajoute le 0606… à JMM » → add_contact(cible="JMM", kind="telephone", valeur="0606…").`,
+    `Utilise les outils pour lire la base avant de répondre. Ne fabrique pas de cibles ou de faits absents de la base. Pour une action ambiguë ou destructive, demande confirmation d'abord.`,
     slot ? `\nCréneau visé par l'utilisateur : ${slot}.` : ``,
   ]
     .filter(Boolean)

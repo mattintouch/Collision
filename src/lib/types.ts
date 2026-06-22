@@ -95,6 +95,7 @@ export interface Appui {
   organisation: string | null;
   type: AppuiType;
   note: string | null;
+  ally_cible_id: string | null;
 }
 
 export interface Touche {

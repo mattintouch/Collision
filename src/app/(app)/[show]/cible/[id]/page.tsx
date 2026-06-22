@@ -195,7 +195,16 @@ export default async function CiblePage({
               ) : (
                 appuis.map((a) => (
                   <div key={a.id}>
-                    <p className="text-sm font-medium">{a.nom}</p>
+                    {a.ally_cible_id ? (
+                      <Link
+                        href={`/${show.slug}/cible/${a.ally_cible_id}`}
+                        className="text-sm font-medium text-jaune hover:underline"
+                      >
+                        {a.nom} →
+                      </Link>
+                    ) : (
+                      <p className="text-sm font-medium">{a.nom}</p>
+                    )}
                     <p className="text-xs text-blanc-muted">
                       {APPUI_LABELS[a.type]}
                       {a.organisation && ` · ${a.organisation}`}

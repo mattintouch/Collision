@@ -1,15 +1,70 @@
 // Outils du copilote : lecture de la base (mêmes capacités que le serveur MCP).
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getCibleDossier, getCibles } from "../data";
+import { getCibleDossier, getCibles, demoMode } from "../data";
 import { getFreeSlots } from "../calendar";
+import { createClient } from "../supabase/server";
+import { folkAddAlly, folkAddPhone } from "../folk/write";
 import { computeResurgence, CONSEIL_LABELS, SIGNAL_LABELS } from "../domain";
 import type { CibleEnrichie } from "../types";
 
 export interface ToolContext {
   showId: string;
   showSlug: string;
+  typePipe: "invites" | "thematique";
   providerToken?: string | null;
+}
+
+type SupabaseServer = ReturnType<typeof createClient>;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Résout une cible par id (uuid) ou par nom (ilike) dans le show. */
+async function resolveCible(
+  sb: SupabaseServer,
+  showId: string,
+  ref: string
+): Promise<{ id: string; nom: string } | null> {
+  if (UUID_RE.test(ref)) {
+    const { data } = await sb.from("cibles").select("id, nom").eq("id", ref).maybeSingle();
+    if (data) return data as { id: string; nom: string };
+  }
+  const { data } = await sb
+    .from("cibles")
+    .select("id, nom")
+    .eq("show_id", showId)
+    .ilike("nom", `%${ref}%`)
+    .limit(2);
+  const rows = (data ?? []) as { id: string; nom: string }[];
+  return rows.length === 1 ? rows[0] : null;
+}
+
+async function ensureCible(
+  sb: SupabaseServer,
+  ctx: ToolContext,
+  nom: string
+): Promise<{ id: string; nom: string } | null> {
+  const found = await resolveCible(sb, ctx.showId, nom);
+  if (found) return found;
+  const { data: stage } = await sb
+    .from("stages")
+    .select("id")
+    .eq("show_id", ctx.showId)
+    .order("position")
+    .limit(1)
+    .maybeSingle();
+  const { data } = await sb
+    .from("cibles")
+    .insert({
+      show_id: ctx.showId,
+      kind: ctx.typePipe === "invites" ? "personne" : "entreprise",
+      nom,
+      stage_id: stage?.id ?? null,
+      priorite: "moyenne",
+      voie: "froid",
+    })
+    .select("id, nom")
+    .single();
+  return (data as { id: string; nom: string }) ?? null;
 }
 
 export const toolDefs: Anthropic.Tool[] = [
@@ -45,6 +100,72 @@ export const toolDefs: Anthropic.Tool[] = [
     description:
       "Créneaux libres à venir dans Google Calendar (7 prochains jours, heures ouvrées). À utiliser pour proposer des cibles en face d'une vraie disponibilité.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_cible",
+    description:
+      "Crée une cible dans le show courant (si elle n'existe pas déjà). Retourne son id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        nom: { type: "string" },
+        role: { type: "string" },
+        organisation: { type: "string" },
+      },
+      required: ["nom"],
+    },
+  },
+  {
+    name: "add_appui",
+    description:
+      "Ajoute un allié/appui à une cible (qui ouvre une porte / aide à closer). Si l'allié est lui-même une cible du show, le lien vers sa fiche est créé. Crée la cible visée si elle n'existe pas. Met aussi à jour la fiche Folk si possible.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cible: { type: "string", description: "nom ou id de la cible à aider (ex: Jean-Marie Messier)" },
+        allie: { type: "string", description: "nom de l'allié (ex: Patrick Sayer)" },
+        type: { type: "string", enum: ["ancien_invite", "conseiller", "entourage", "contact_interne"] },
+        note: { type: "string", description: "pourquoi / contexte (ex: mentionné dans son épisode)" },
+      },
+      required: ["cible", "allie"],
+    },
+  },
+  {
+    name: "add_contact",
+    description:
+      "Ajoute un moyen de contact à une cible (email, téléphone, réseau…). Met aussi à jour la fiche Folk pour un téléphone.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cible: { type: "string" },
+        kind: { type: "string", enum: ["email", "telephone", "reseau", "agence", "site", "autre"] },
+        valeur: { type: "string" },
+        label: { type: "string" },
+      },
+      required: ["cible", "kind", "valeur"],
+    },
+  },
+  {
+    name: "log_touche",
+    description: "Logge une touche (interaction) sur une cible. Remet le compteur à zéro.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cible: { type: "string" },
+        contenu: { type: "string" },
+        canal: { type: "string" },
+      },
+      required: ["cible", "contenu"],
+    },
+  },
+  {
+    name: "validate_cible",
+    description: "Valide une cible : la bascule en épisode en emmenant son contexte (appuis inclus).",
+    input_schema: {
+      type: "object",
+      properties: { cible: { type: "string" } },
+      required: ["cible"],
+    },
   },
 ];
 
@@ -114,6 +235,92 @@ export async function runTool(
       null,
       2
     );
+  }
+
+  // --- Écritures (agissent au nom de l'utilisateur connecté, via sa session) ---
+  if (
+    name === "create_cible" ||
+    name === "add_appui" ||
+    name === "add_contact" ||
+    name === "log_touche" ||
+    name === "validate_cible"
+  ) {
+    if (demoMode)
+      return JSON.stringify({ error: "Mode démo : écriture désactivée. Branche Supabase." });
+    const sb = createClient();
+
+    if (name === "create_cible") {
+      const c = await ensureCible(sb, ctx, String(input.nom));
+      if (!c) return JSON.stringify({ error: "Création impossible." });
+      if (input.role || input.organisation) {
+        await sb.from("cibles").update({
+          role: input.role ?? null,
+          organisation: input.organisation ?? null,
+        }).eq("id", c.id);
+      }
+      return JSON.stringify({ ok: true, cible: c });
+    }
+
+    if (name === "add_appui") {
+      const target = await ensureCible(sb, ctx, String(input.cible));
+      if (!target) return JSON.stringify({ error: "Cible introuvable / non créée." });
+      const ally = await resolveCible(sb, ctx.showId, String(input.allie));
+      const { error } = await sb.from("appuis").insert({
+        cible_id: target.id,
+        nom: String(input.allie),
+        type: (input.type as string) ?? "ancien_invite",
+        note: (input.note as string) ?? null,
+        ally_cible_id: ally?.id ?? null,
+      });
+      if (error) return JSON.stringify({ error: error.message });
+      const folk = await folkAddAlly(target.nom, String(input.allie), (input.note as string) ?? undefined);
+      return JSON.stringify({
+        ok: true,
+        appui: { cible: target.nom, allie: input.allie, lie_a_la_fiche: !!ally },
+        folk: folk.detail,
+      });
+    }
+
+    if (name === "add_contact") {
+      const target = await resolveCible(sb, ctx.showId, String(input.cible));
+      if (!target) return JSON.stringify({ error: `Cible « ${input.cible} » introuvable.` });
+      const { error } = await sb.from("contacts").insert({
+        cible_id: target.id,
+        kind: String(input.kind),
+        valeur: String(input.valeur),
+        label: (input.label as string) ?? null,
+        source: "Copilote",
+        confiance: 4,
+      });
+      if (error) return JSON.stringify({ error: error.message });
+      let folkDetail: string | undefined;
+      if (input.kind === "telephone") {
+        const folk = await folkAddPhone(target.nom, String(input.valeur));
+        folkDetail = folk.detail;
+      }
+      return JSON.stringify({ ok: true, cible: target.nom, folk: folkDetail });
+    }
+
+    if (name === "log_touche") {
+      const target = await resolveCible(sb, ctx.showId, String(input.cible));
+      if (!target) return JSON.stringify({ error: `Cible « ${input.cible} » introuvable.` });
+      const { error } = await sb.from("touches").insert({
+        cible_id: target.id,
+        contenu: String(input.contenu),
+        canal: (input.canal as string) ?? null,
+        source: "saisie",
+      });
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify({ ok: true, cible: target.nom });
+    }
+
+    if (name === "validate_cible") {
+      const target = await resolveCible(sb, ctx.showId, String(input.cible));
+      if (!target) return JSON.stringify({ error: `Cible « ${input.cible} » introuvable.` });
+      const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
+      if (error) return JSON.stringify({ error: error.message });
+      return JSON.stringify({ ok: true, cible: target.nom, episode_id: data });
+    }
   }
 
   return JSON.stringify({ error: `Outil inconnu: ${name}` });
