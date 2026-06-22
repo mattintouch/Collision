@@ -15,11 +15,10 @@ export function LoginButton() {
         redirectTo: `${window.location.origin}/auth/callback`,
         // Lecture du calendrier pour le copilote (créneaux libres).
         scopes: "https://www.googleapis.com/auth/calendar.readonly",
-        // access_type=offline + consent pour obtenir un refresh token.
-        // Pas de "hd" : la restriction aux deux domaines (stefani.fr,
-        // collision.studio) est vérifiée côté app dans /auth/callback.
+        // Pas de prompt=consent : on ne re-demande pas l'autorisation à chaque
+        // connexion. access_type=offline permet d'obtenir un refresh token au
+        // premier consentement. Restriction de domaine vérifiée côté app.
         queryParams: {
-          prompt: "consent",
           access_type: "offline",
         },
       },

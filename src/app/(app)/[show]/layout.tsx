@@ -41,6 +41,14 @@ export default async function ShowLayout({
             >
               {show.type_pipe === "invites" ? "Invités" : "Thématique"}
             </span>
+            <Link
+              href="/settings"
+              className="text-sm text-blanc-muted hover:text-blanc"
+              aria-label="Réglages"
+              title="Réglages"
+            >
+              Réglages
+            </Link>
           </div>
         </div>
         {demoMode && (

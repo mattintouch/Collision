@@ -345,6 +345,25 @@ export async function folkImport(input: {
   return { ok: true, dry_run: false, total: mapped.length, created, skipped, preview };
 }
 
+/** Définir le show affiché par défaut à la connexion (préférence perso). */
+export async function setDefaultShow(input: {
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Non connecté." };
+  const { error } = await supabase
+    .from("profiles")
+    .update({ default_show_slug: input.show_slug })
+    .eq("id", user.id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/");
+  return { ok: true };
+}
+
 /** Mettre une cible sur une étape donnée. */
 export async function moveCibleStage(input: {
   cible_id: string;

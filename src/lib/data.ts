@@ -56,6 +56,35 @@ export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
   return data ?? [];
 }
 
+export interface MyProfile {
+  id: string;
+  email: string;
+  nom: string | null;
+  type: "admin" | "interne" | "externe";
+  default_show_slug: string | null;
+}
+
+/** Profil de l'utilisateur connecté (null en démo ou hors session). */
+export async function getMyProfile(): Promise<MyProfile | null> {
+  if (demoMode) return null;
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, email, nom, type, default_show_slug")
+    .eq("id", user.id)
+    .maybeSingle();
+  return (data as MyProfile) ?? null;
+}
+
+export async function getDefaultShowSlug(): Promise<string | null> {
+  const profile = await getMyProfile();
+  return profile?.default_show_slug ?? null;
+}
+
 export interface CibleDossier {
   cible: CibleEnrichie | null;
   appuis: Appui[];
