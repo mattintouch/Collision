@@ -381,3 +381,36 @@ export async function moveCibleStage(input: {
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true };
 }
+
+/** Changer l'archétype d'une cible (colonnes du board invités). */
+export async function setCibleArchetype(input: {
+  cible_id: string;
+  archetype: string | null;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("cibles")
+    .update({ archetype: input.archetype })
+    .eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
+/** Supprimer une cible (et ses données liées en cascade). */
+export async function deleteCible(input: {
+  cible_id: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("cibles")
+    .delete()
+    .eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}

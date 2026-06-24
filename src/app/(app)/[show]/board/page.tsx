@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCibles, getShow, getStages } from "@/lib/data";
 import Link from "next/link";
-import { Board } from "@/components/Board";
+import { BoardDnd } from "@/components/BoardDnd";
 import { NewTargetButton } from "@/components/NewTargetButton";
 
 export default async function BoardPage({
@@ -39,7 +39,7 @@ export default async function BoardPage({
         </div>
       </div>
 
-      <Board show={show} stages={stages} cibles={cibles} />
+      <BoardDnd show={show} stages={stages} cibles={cibles} />
     </div>
   );
 }

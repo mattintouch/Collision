@@ -12,7 +12,7 @@ import {
   computeResurgence,
 } from "@/lib/domain";
 import { CaptureForm } from "@/components/CaptureForm";
-import { ValidateButton } from "@/components/ValidateButton";
+import { FicheActions } from "@/components/FicheActions";
 import { ContactsSection } from "@/components/ContactsSection";
 
 function fmt(date: string | null) {
@@ -78,9 +78,11 @@ export default async function CiblePage({
             )}
           </div>
         </div>
-        <ValidateButton
+        <FicheActions
           cibleId={cible.id}
           showSlug={show.slug}
+          stages={stages}
+          currentStageId={cible.stage_id}
           finalLabel={finalStage?.label ?? "Validé"}
         />
       </div>

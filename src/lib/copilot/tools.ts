@@ -118,14 +118,22 @@ export const toolDefs: Anthropic.Tool[] = [
   {
     name: "add_appui",
     description:
-      "Ajoute un allié/appui à une cible (qui ouvre une porte / aide à closer). Si l'allié est lui-même une cible du show, le lien vers sa fiche est créé. Crée la cible visée si elle n'existe pas. Met aussi à jour la fiche Folk si possible.",
+      "Ajoute un allié/appui à une cible (qui ouvre une porte / aide à closer). Si l'allié est lui-même une cible du show, le lien vers sa fiche est créé. Si l'allié est un invité (déjà enregistré ou à inviter) pas encore dans le pipe, mets creer_allie_comme_cible=true pour créer sa fiche et relier les deux. Crée aussi la cible visée si elle n'existe pas. Met à jour la fiche Folk si possible.",
     input_schema: {
       type: "object",
       properties: {
         cible: { type: "string", description: "nom ou id de la cible à aider (ex: Jean-Marie Messier)" },
         allie: { type: "string", description: "nom de l'allié (ex: Patrick Sayer)" },
         type: { type: "string", enum: ["ancien_invite", "conseiller", "entourage", "contact_interne"] },
-        note: { type: "string", description: "pourquoi / contexte (ex: mentionné dans son épisode)" },
+        note: { type: "string", description: "pourquoi / contexte (ex: enregistré lundi, épisode à venir)" },
+        creer_allie_comme_cible: {
+          type: "boolean",
+          description: "true si l'allié est un invité à avoir aussi comme cible (crée sa fiche + relie)",
+        },
+        etape_allie: {
+          type: "string",
+          description: "étape de l'allié si on le crée (ex: enregistre, publie, confirme) — défaut: étape initiale",
+        },
       },
       required: ["cible", "allie"],
     },
@@ -264,7 +272,20 @@ export async function runTool(
     if (name === "add_appui") {
       const target = await ensureCible(sb, ctx, String(input.cible));
       if (!target) return JSON.stringify({ error: "Cible introuvable / non créée." });
-      const ally = await resolveCible(sb, ctx.showId, String(input.allie));
+      let ally = await resolveCible(sb, ctx.showId, String(input.allie));
+      // Allié invité pas encore dans le pipe : on crée sa fiche pour relier.
+      if (!ally && input.creer_allie_comme_cible) {
+        ally = await ensureCible(sb, ctx, String(input.allie));
+        if (ally && input.etape_allie) {
+          const { data: st } = await sb
+            .from("stages")
+            .select("id")
+            .eq("show_id", ctx.showId)
+            .eq("key", String(input.etape_allie))
+            .maybeSingle();
+          if (st) await sb.from("cibles").update({ stage_id: st.id }).eq("id", ally.id);
+        }
+      }
       const { error } = await sb.from("appuis").insert({
         cible_id: target.id,
         nom: String(input.allie),
