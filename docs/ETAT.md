@@ -34,6 +34,12 @@ Repo : `mattintouch/Collision` · Branche : `claude/magellan-collision-studio-xs
 - **Board** : glisser-déposer des cartes (archétype/étape), réordonnancement des
   colonnes d'archétype (◀▶, persisté par show), menu ⋯ par carte (confirmer /
   supprimer). Fiche : statut (orange) / confirmer (vert) / supprimer (rouge).
+- **Connecteur MCP distant (app Claude)** : OAuth 2.1 + PKCE maison co-localisé
+  (`/.well-known/oauth-*`, `/api/oauth/{register,authorize,token}`), authentifié
+  via la session Supabase ; endpoint MCP `/api/mcp` (mcp-handler + withMcpAuth)
+  exposant les outils (list/dossier/create/add_appui/add_contact/log/validate)
+  via le client service. Conversation sur l'abonnement Claude (pas de tokens API).
+  Requiert SUPABASE_SERVICE_ROLE_KEY (sert aussi de secret de signature).
 - **Validation → épisode** : modale date/heure/lieu (défaut Studio 71) + emails
   (préremplis depuis les contacts) → crée l'épisode ET l'invitation Google
   Calendar (scope calendar.events ; nécessite reconnexion pour l'autoriser).

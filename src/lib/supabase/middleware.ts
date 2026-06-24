@@ -37,6 +37,10 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/login") ||
     path.startsWith("/auth") ||
     path.startsWith("/_next") ||
+    path.startsWith("/.well-known") ||
+    path.startsWith("/api/well-known") ||
+    path.startsWith("/api/oauth") ||
+    path.startsWith("/api/mcp") ||
     path === "/manifest.webmanifest";
 
   if (!user && !isPublic) {

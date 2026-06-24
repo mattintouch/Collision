@@ -9,10 +9,15 @@ export function LoginButton() {
   async function signIn() {
     setLoading(true);
     const supabase = createClient();
+    // Conserve une éventuelle destination (ex: flux OAuth du connecteur MCP).
+    const next = new URLSearchParams(window.location.search).get("next");
+    const callback = next
+      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
+      : `${window.location.origin}/auth/callback`;
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callback,
         // Calendrier : lecture (créneaux libres) + écriture (créer les
         // invitations d'enregistrement à la validation d'un invité).
         scopes:
