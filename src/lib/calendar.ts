@@ -116,6 +116,60 @@ export interface FreeSlotsResult {
   demo: boolean;
 }
 
+export interface CreateEventInput {
+  summary: string;
+  startISO: string;
+  endISO: string;
+  location?: string;
+  attendees?: string[]; // emails
+  description?: string;
+  sendInvites?: boolean;
+}
+
+export interface CreateEventResult {
+  ok: boolean;
+  detail: string;
+  htmlLink?: string;
+}
+
+/** Crée un événement (l'invitation d'enregistrement) dans Google Calendar. */
+export async function createCalendarEvent(
+  providerToken: string | null | undefined,
+  input: CreateEventInput
+): Promise<CreateEventResult> {
+  if (!providerToken)
+    return { ok: false, detail: "Pas de connexion Google active (reconnecte-toi pour autoriser le calendrier)." };
+  try {
+    const send = input.sendInvites === false ? "none" : "all";
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=${send}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${providerToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          summary: input.summary,
+          location: input.location,
+          description: input.description,
+          start: { dateTime: input.startISO, timeZone: TZ },
+          end: { dateTime: input.endISO, timeZone: TZ },
+          attendees: (input.attendees ?? []).map((email) => ({ email })),
+        }),
+      }
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      return { ok: false, detail: `Échec création événement (${res.status}). ${body.slice(0, 150)}` };
+    }
+    const data = (await res.json()) as { htmlLink?: string };
+    return { ok: true, detail: "Invitation créée dans Google Calendar.", htmlLink: data.htmlLink };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
 export async function getFreeSlots(
   providerToken?: string | null
 ): Promise<FreeSlotsResult> {

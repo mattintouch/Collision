@@ -15,9 +15,9 @@ const now = Date.now();
 const daysAgo = (n: number) => new Date(now - n * 86400000).toISOString();
 
 export const demoShows: Show[] = [
-  { id: "show-gdiy", slug: "gdiy", nom: "Génération Do It Yourself", type_pipe: "invites", couleur: "#1FB46A" },
-  { id: "show-ccg", slug: "ccg", nom: "Combien ça gagne", type_pipe: "invites", couleur: "#3B82F6" },
-  { id: "show-fleurons", slug: "fleurons", nom: "Fleuron(s)", type_pipe: "thematique", couleur: "#B45CFF" },
+  { id: "show-gdiy", slug: "gdiy", nom: "Génération Do It Yourself", type_pipe: "invites", couleur: "#1FB46A", archetype_order: null },
+  { id: "show-ccg", slug: "ccg", nom: "Combien ça gagne", type_pipe: "invites", couleur: "#3B82F6", archetype_order: null },
+  { id: "show-fleurons", slug: "fleurons", nom: "Fleuron(s)", type_pipe: "thematique", couleur: "#B45CFF", archetype_order: null },
 ];
 
 const invitesStages = (showId: string): Stage[] =>

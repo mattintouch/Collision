@@ -31,6 +31,12 @@ Repo : `mattintouch/Collision` · Branche : `claude/magellan-collision-studio-xs
   alliés, téléphone) en best-effort quand FOLK_API_KEY est posée.
 - **Réglages** : page /settings (compte, show par défaut, déconnexion) ;
   auto-accueil des nouveaux membres (interne + accès à tous les shows).
+- **Board** : glisser-déposer des cartes (archétype/étape), réordonnancement des
+  colonnes d'archétype (◀▶, persisté par show), menu ⋯ par carte (confirmer /
+  supprimer). Fiche : statut (orange) / confirmer (vert) / supprimer (rouge).
+- **Validation → épisode** : modale date/heure/lieu (défaut Studio 71) + emails
+  (préremplis depuis les contacts) → crée l'épisode ET l'invitation Google
+  Calendar (scope calendar.events ; nécessite reconnexion pour l'autoriser).
 - **Étape 5 — Veille + enrichissement** : veille web par cible (digest filtré →
   signaux → résurgence) ; enrichissement contacts (email/téléphone/agence,
   sources publiques, RGPD) pour joindre les cibles difficiles. Le copilote

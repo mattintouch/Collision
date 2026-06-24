@@ -2,39 +2,36 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { validateCible, moveCibleStage, deleteCible } from "@/lib/actions";
+import { moveCibleStage, deleteCible } from "@/lib/actions";
+import { ConfirmEpisodeModal } from "./ConfirmEpisodeModal";
 import type { Stage } from "@/lib/types";
 
 export function FicheActions({
   cibleId,
   showSlug,
+  cibleNom,
+  defaultEmails,
   stages,
   currentStageId,
   finalLabel,
 }: {
   cibleId: string;
   showSlug: string;
+  cibleNom: string;
+  defaultEmails: string[];
   stages: Stage[];
   currentStageId: string | null;
   finalLabel: string;
 }) {
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const router = useRouter();
 
   function changeStage(stageId: string) {
     start(async () => {
       const r = await moveCibleStage({ cible_id: cibleId, stage_id: stageId, show_slug: showSlug });
       setMsg(r.ok ? "Statut mis à jour." : r.error ?? "Erreur");
-      router.refresh();
-    });
-  }
-
-  function validate() {
-    if (!confirm("Confirmer cette cible ? Elle devient un épisode en emmenant son contexte.")) return;
-    start(async () => {
-      const r = await validateCible({ cible_id: cibleId, show_slug: showSlug });
-      setMsg(r.ok ? "Confirmé — épisode créé." : r.error ?? "Erreur");
       router.refresh();
     });
   }
@@ -66,7 +63,7 @@ export function FicheActions({
         </select>
 
         <button
-          onClick={validate}
+          onClick={() => setConfirmOpen(true)}
           disabled={pending}
           className="btn bg-emerald-600 font-medium text-white hover:bg-emerald-500"
         >
@@ -82,6 +79,15 @@ export function FicheActions({
         </button>
       </div>
       {msg && <p className="text-xs text-blanc-muted">{msg}</p>}
+
+      <ConfirmEpisodeModal
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        cibleId={cibleId}
+        showSlug={showSlug}
+        cibleNom={cibleNom}
+        defaultEmails={defaultEmails}
+      />
     </div>
   );
 }

@@ -81,6 +81,8 @@ export default async function CiblePage({
         <FicheActions
           cibleId={cible.id}
           showSlug={show.slug}
+          cibleNom={cible.nom}
+          defaultEmails={contacts.filter((c) => c.kind === "email").map((c) => c.valeur)}
           stages={stages}
           currentStageId={cible.stage_id}
           finalLabel={finalStage?.label ?? "Validé"}

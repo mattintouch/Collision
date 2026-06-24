@@ -7,11 +7,13 @@ import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
 import { mapPerson, type MappedTarget } from "./folk/map";
+import { createCalendarEvent } from "./calendar";
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
   id?: string;
+  detail?: string;
 }
 
 const DEMO_BLOCK: ActionResult = {
@@ -113,20 +115,83 @@ export async function logTouche(input: {
   return { ok: true };
 }
 
-/** Valider une cible : bascule en épisode en emmenant son contexte (§13.7). */
+const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
+
+/**
+ * Valider une cible : bascule en épisode (§13.7), enregistre date/lieu/participants,
+ * et crée l'invitation dans Google Calendar.
+ */
 export async function validateCible(input: {
   cible_id: string;
   show_slug: string;
+  cible_nom?: string;
+  start_iso?: string; // date+heure d'enregistrement
+  duree_min?: number;
+  lieu?: string;
+  attendees?: string[]; // emails à inviter
+  send_invite?: boolean;
 }): Promise<ActionResult> {
   if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
-  const { data, error } = await supabase.rpc("validate_cible", {
+
+  const { data: episodeId, error } = await supabase.rpc("validate_cible", {
     target_cible: input.cible_id,
   });
   if (error) return { ok: false, error: error.message };
+
+  const lieu = input.lieu?.trim() || DEFAULT_LIEU;
+  const attendees = (input.attendees ?? []).filter((e) => e.includes("@"));
+
+  // Détails sur l'épisode.
+  if (episodeId) {
+    await supabase
+      .from("episodes")
+      .update({
+        date_enregistrement: input.start_iso ?? null,
+        lieu,
+        attendees,
+        statut_prod: input.start_iso ? "programme" : "a_programmer",
+      })
+      .eq("id", episodeId as string);
+  }
+
+  // Invitation Google Calendar (si une date est fournie).
+  let detail = "Validé — épisode créé.";
+  if (input.start_iso) {
+    const start = new Date(input.start_iso);
+    const end = new Date(start.getTime() + (input.duree_min ?? 90) * 60000);
+    const { data: sess } = await supabase.auth.getSession();
+    const ev = await createCalendarEvent(sess.session?.provider_token, {
+      summary: `Enregistrement — ${input.cible_nom ?? "invité"}`,
+      startISO: start.toISOString(),
+      endISO: end.toISOString(),
+      location: lieu,
+      attendees,
+      description: `Enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
+      sendInvites: input.send_invite,
+    });
+    detail = ev.ok ? `Validé — épisode créé. ${ev.detail}` : `Validé — épisode créé. Calendrier : ${ev.detail}`;
+  }
+
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
-  return { ok: true, id: data as string };
+  return { ok: true, id: episodeId as string, detail };
+}
+
+/** Ordre des colonnes d'archétype du board (par show). */
+export async function setArchetypeOrder(input: {
+  show_slug: string;
+  order: string[];
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("shows")
+    .update({ archetype_order: input.order })
+    .eq("slug", input.show_slug);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
 }
 
 /** Lancer la veille sur un show (§5). Persiste les signaux trouvés. */

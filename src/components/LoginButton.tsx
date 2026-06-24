@@ -13,8 +13,10 @@ export function LoginButton() {
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        // Lecture du calendrier pour le copilote (créneaux libres).
-        scopes: "https://www.googleapis.com/auth/calendar.readonly",
+        // Calendrier : lecture (créneaux libres) + écriture (créer les
+        // invitations d'enregistrement à la validation d'un invité).
+        scopes:
+          "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
         // Pas de prompt=consent : on ne re-demande pas l'autorisation à chaque
         // connexion. access_type=offline permet d'obtenir un refresh token au
         // premier consentement. Restriction de domaine vérifiée côté app.

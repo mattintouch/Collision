@@ -35,6 +35,7 @@ export interface Show {
   nom: string;
   type_pipe: PipeType;
   couleur: string | null;
+  archetype_order: string[] | null;
 }
 
 export interface Stage {
