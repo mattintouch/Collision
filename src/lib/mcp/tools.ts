@@ -14,22 +14,20 @@ function text(payload: unknown) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function showId(sb: SB, ref: string): Promise<string | null> {
-  const { data } = await sb
-    .from("shows")
-    .select("id, slug, type_pipe")
-    .or(`slug.eq.${ref},id.eq.${ref}`)
-    .maybeSingle();
-  return data?.id ?? null;
-}
-
 async function showRow(sb: SB, ref: string) {
+  // `id` est un uuid : comparer id.eq à un slug ("gdiy") fait échouer toute la
+  // requête côté PostgREST. On cible donc la bonne colonne selon le format.
+  const col = UUID_RE.test(ref) ? "id" : "slug";
   const { data } = await sb
     .from("shows")
     .select("id, slug, type_pipe")
-    .or(`slug.eq.${ref},id.eq.${ref}`)
+    .eq(col, ref)
     .maybeSingle();
   return data as { id: string; slug: string; type_pipe: "invites" | "thematique" } | null;
+}
+
+async function showId(sb: SB, ref: string): Promise<string | null> {
+  return (await showRow(sb, ref))?.id ?? null;
 }
 
 async function resolveCible(sb: SB, sid: string, ref: string) {
