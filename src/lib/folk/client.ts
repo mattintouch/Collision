@@ -57,6 +57,55 @@ export async function fetchFolkGroups(): Promise<FolkGroup[]> {
   return json.data?.items ?? [];
 }
 
+/** Dernière interaction Folk, normalisée pour l'affichage fiche. */
+export interface FolkInteraction {
+  date: string | null;
+  channel: string | null;
+  summary: string | null;
+}
+
+function normalizeInteraction(raw: Record<string, unknown>): FolkInteraction {
+  const pick = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = raw[k];
+      if (typeof v === "string" && v.trim()) return v;
+    }
+    return null;
+  };
+  return {
+    date: pick("date", "occurredAt", "happenedAt", "createdAt", "timestamp"),
+    channel: pick("channel", "type", "kind", "medium"),
+    summary: pick("summary", "subject", "title", "note", "description"),
+  };
+}
+
+/**
+ * Dernière interaction connue de Folk pour une personne (Folk = source de
+ * vérité). L'endpoint exact de lecture des interactions n'est pas dans la doc
+ * publique (portail protégé) : on tente les deux formes REST canoniques et on
+ * renvoie null si rien ne répond, pour que la fiche se dégrade proprement.
+ * À confirmer/figer dès qu'on a la référence Folk « Interactions ».
+ */
+export async function fetchLatestFolkInteraction(
+  personId: string
+): Promise<FolkInteraction | null> {
+  if (!hasFolkKey() || !personId) return null;
+  const candidates = [
+    `${FOLK_BASE}/people/${encodeURIComponent(personId)}/interactions?limit=1`,
+    `${FOLK_BASE}/interactions?personId=${encodeURIComponent(personId)}&limit=1`,
+  ];
+  for (const url of candidates) {
+    try {
+      const json = await folkGet<FolkList<Record<string, unknown>>>(url);
+      const items = json.data?.items ?? [];
+      if (items.length > 0) return normalizeInteraction(items[0]);
+    } catch {
+      // endpoint absent / non autorisé : on essaie la forme suivante
+    }
+  }
+  return null;
+}
+
 /** Récupère toutes les personnes (toutes les pages), filtrées par groupe si fourni. */
 export async function fetchFolkPeople(groupId?: string): Promise<FolkPerson[]> {
   const out: FolkPerson[] = [];

@@ -72,6 +72,7 @@ const base = {
   envergure: null,
   raison_de_selection: null,
   etat_recherche: null,
+  folk_id: null,
   created_at: daysAgo(40),
   updated_at: daysAgo(2),
   stage_position: null as number | null,

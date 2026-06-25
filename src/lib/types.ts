@@ -72,6 +72,9 @@ export interface Cible {
   raison_de_selection: string | null;
   etat_recherche: string | null;
 
+  // Lien Folk (source de vérité coordonnées + interactions)
+  folk_id: string | null;
+
   created_at: string;
   updated_at: string;
 }

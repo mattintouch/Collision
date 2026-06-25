@@ -375,6 +375,7 @@ export async function folkImport(input: {
         voie: "froid",
         role: isPers ? m.role : null,
         organisation: isPers ? m.organisation : null,
+        folk_id: m.folk_id,
       })
       .select("id")
       .single();

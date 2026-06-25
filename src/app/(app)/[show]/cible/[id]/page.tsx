@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCibleDossier, getShow, getStages } from "@/lib/data";
+import { fetchLatestFolkInteraction } from "@/lib/folk/client";
 import {
   APPUI_LABELS,
   ARCHETYPE_HINTS,
@@ -41,6 +42,10 @@ export default async function CiblePage({
   const finalStage = stages.find((s) => s.is_final);
   const emails = contacts.filter((c) => c.kind === "email");
   const phones = contacts.filter((c) => c.kind === "telephone");
+  // Folk = source de vérité : dernière interaction connue (si la fiche y est liée).
+  const folkInteraction = cible.folk_id
+    ? await fetchLatestFolkInteraction(cible.folk_id)
+    : null;
 
   return (
     <div>
@@ -76,6 +81,13 @@ export default async function CiblePage({
                 </a>
               ))}
             </div>
+          )}
+          {folkInteraction && (
+            <p className="mt-2 text-xs text-blanc-muted">
+              Dernière interaction Folk : {fmt(folkInteraction.date)}
+              {folkInteraction.channel && ` · ${folkInteraction.channel}`}
+              {folkInteraction.summary && ` — ${folkInteraction.summary}`}
+            </p>
           )}
           <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
             {cible.stage_label && (
