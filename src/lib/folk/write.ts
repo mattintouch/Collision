@@ -86,6 +86,51 @@ export async function folkAddAlly(
   }
 }
 
+/** Mappe un canal Magellan vers un type d'interaction Folk (défaut : message). */
+function folkInteractionType(canal?: string | null): string {
+  const c = (canal ?? "").toLowerCase();
+  const apps = ["whatsapp", "twitter", "linkedin", "skype", "slack", "signal", "discord", "wechat", "telegram", "viber"];
+  for (const a of apps) if (c.includes(a)) return a;
+  if (c.includes("imessage")) return "iMessage";
+  if (c.includes("call") || c.includes("appel") || c.includes("téléphone") || c.includes("phone")) return "call";
+  if (c.includes("rdv") || c.includes("réunion") || c.includes("rendez") || c.includes("meeting")) return "meeting";
+  if (c.includes("café") || c.includes("coffee")) return "coffee";
+  if (c.includes("event") || c.includes("événement") || c.includes("evenement")) return "event";
+  return "message";
+}
+
+/**
+ * Écrit une touche Magellan comme interaction dans Folk (POST /v1/interactions).
+ * L'API Folk ne permet que d'écrire les interactions : c'est le seul moyen de
+ * garder Folk à jour. Best effort — n'interrompt jamais la touche Magellan.
+ */
+export async function folkLogTouche(
+  cibleNom: string,
+  contenu: string,
+  canal?: string | null
+): Promise<FolkSyncResult> {
+  if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };
+  try {
+    const person = await findPersonByName(cibleNom);
+    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » introuvable.` };
+    const title = (contenu.split("\n")[0] || "Touche Magellan").slice(0, 255);
+    const res = await folk("POST", "/interactions", {
+      entity: { id: person.id },
+      dateTime: new Date().toISOString(),
+      title,
+      content: (contenu.trim() || title).slice(0, 100000),
+      type: folkInteractionType(canal),
+    });
+    return {
+      ok: res.ok,
+      matched: true,
+      detail: res.ok ? `Touche loggée dans Folk pour ${cibleNom}.` : `Échec interaction Folk (${res.status}).`,
+    };
+  } catch (e) {
+    return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
+  }
+}
+
 /** Ajoute un téléphone à la fiche Folk. */
 export async function folkAddPhone(cibleNom: string, phone: string): Promise<FolkSyncResult> {
   if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };

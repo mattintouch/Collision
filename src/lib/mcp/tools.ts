@@ -4,7 +4,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createServiceClient } from "../supabase/service";
-import { folkAddAlly, folkAddPhone } from "../folk/write";
+import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -199,7 +199,9 @@ export function registerMagellanTools(server: McpServer) {
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { error } = await sb.from("touches").insert({ cible_id: target.id, contenu: a.contenu, canal: a.canal ?? null, source: "saisie" });
-      return error ? text({ error: error.message }) : text({ ok: true, cible: target.nom });
+      if (error) return text({ error: error.message });
+      const folk = await folkLogTouche(target.nom, a.contenu, a.canal);
+      return text({ ok: true, cible: target.nom, folk: folk.detail });
     }
   );
 

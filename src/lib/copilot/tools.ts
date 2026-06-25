@@ -4,7 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { getCibleDossier, getCibles, demoMode } from "../data";
 import { getFreeSlots } from "../calendar";
 import { createClient } from "../supabase/server";
-import { folkAddAlly, folkAddPhone } from "../folk/write";
+import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { computeResurgence, CONSEIL_LABELS, SIGNAL_LABELS } from "../domain";
 import type { CibleEnrichie } from "../types";
 
@@ -332,7 +332,8 @@ export async function runTool(
         source: "saisie",
       });
       if (error) return JSON.stringify({ error: error.message });
-      return JSON.stringify({ ok: true, cible: target.nom });
+      const folk = await folkLogTouche(target.nom, String(input.contenu), (input.canal as string) ?? null);
+      return JSON.stringify({ ok: true, cible: target.nom, folk: folk.detail });
     }
 
     if (name === "validate_cible") {

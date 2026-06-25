@@ -7,6 +7,7 @@ import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
 import { mapPerson, type MappedTarget } from "./folk/map";
+import { folkLogTouche } from "./folk/write";
 import { createCalendarEvent } from "./calendar";
 
 export interface ActionResult {
@@ -110,6 +111,11 @@ export async function logTouche(input: {
   });
 
   if (error) return { ok: false, error: error.message };
+
+  // Miroir Folk : on écrit la touche comme interaction (best effort).
+  const { data: c } = await supabase.from("cibles").select("nom").eq("id", input.cible_id).maybeSingle();
+  if (c?.nom) await folkLogTouche(c.nom, input.contenu.trim(), input.canal);
+
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true };
