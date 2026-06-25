@@ -9,11 +9,19 @@ export function LoginButton() {
   async function signIn() {
     setLoading(true);
     const supabase = createClient();
-    // Conserve une éventuelle destination (ex: flux OAuth du connecteur MCP).
+    // Conserve une éventuelle destination (ex: flux OAuth du connecteur MCP)
+    // dans un cookie, et garde `redirectTo` sur le callback nu. Ainsi l'URL
+    // envoyée à Supabase ne porte pas de query string : elle correspond
+    // toujours à l'entrée d'allowlist (sinon Supabase retombe sur la Site URL
+    // et le flux OAuth du connecteur ne reprend jamais après le login Google).
     const next = new URLSearchParams(window.location.search).get("next");
-    const callback = next
-      ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`
-      : `${window.location.origin}/auth/callback`;
+    if (next) {
+      const secure = window.location.protocol === "https:" ? "; secure" : "";
+      document.cookie = `mcp_next=${encodeURIComponent(
+        next
+      )}; path=/; max-age=600; samesite=lax${secure}`;
+    }
+    const callback = `${window.location.origin}/auth/callback`;
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
