@@ -303,6 +303,7 @@ export interface FolkImportResult {
   total: number;
   created: number;
   skipped: number;
+  linked: number;
   preview: FolkImportPreviewRow[];
 }
 
@@ -315,7 +316,7 @@ export async function folkImport(input: {
   group_id: string;
   dry_run: boolean;
 }): Promise<FolkImportResult> {
-  const empty = { total: 0, created: 0, skipped: 0, preview: [] as FolkImportPreviewRow[] };
+  const empty = { total: 0, created: 0, skipped: 0, linked: 0, preview: [] as FolkImportPreviewRow[] };
   if (!hasFolkKey())
     return { ok: false, dry_run: input.dry_run, ...empty, error: "Clé Folk absente (FOLK_API_KEY)." };
 
@@ -338,30 +339,42 @@ export async function folkImport(input: {
   }));
 
   if (input.dry_run) {
-    return { ok: true, dry_run: true, total: mapped.length, created: 0, skipped: 0, preview };
+    return { ok: true, dry_run: true, total: mapped.length, created: 0, skipped: 0, linked: 0, preview };
   }
 
   // Écriture : nécessite Supabase branché.
   if (demoMode)
-    return { ok: false, dry_run: false, total: mapped.length, created: 0, skipped: 0, preview, error: DEMO_BLOCK.error };
+    return { ok: false, dry_run: false, total: mapped.length, created: 0, skipped: 0, linked: 0, preview, error: DEMO_BLOCK.error };
 
   const supabase = createClient();
 
-  // Étape initiale du show + dédoublonnage par nom.
+  // Étape initiale du show + index des cibles existantes (nom -> {id, folk_id}).
   const [{ data: firstStage }, { data: existing }] = await Promise.all([
     supabase.from("stages").select("id").eq("show_id", show.id).order("position").limit(1).maybeSingle(),
-    supabase.from("cibles").select("nom").eq("show_id", show.id),
+    supabase.from("cibles").select("id, nom, folk_id").eq("show_id", show.id),
   ]);
-  const seen = new Set((existing ?? []).map((c) => c.nom.trim().toLowerCase()));
+  const byName = new Map(
+    (existing ?? []).map((c) => [c.nom.trim().toLowerCase(), c as { id: string; nom: string; folk_id: string | null }])
+  );
 
   let created = 0;
   let skipped = 0;
+  let linked = 0;
   for (const m of mapped) {
-    if (seen.has(m.nom.trim().toLowerCase())) {
-      skipped++;
+    const key = m.nom.trim().toLowerCase();
+    const found = byName.get(key);
+    if (found) {
+      // Cible déjà là : on relie à Folk si le lien manque (backfill), sinon on saute.
+      if (!found.folk_id) {
+        await supabase.from("cibles").update({ folk_id: m.folk_id }).eq("id", found.id);
+        found.folk_id = m.folk_id;
+        linked++;
+      } else {
+        skipped++;
+      }
       continue;
     }
-    seen.add(m.nom.trim().toLowerCase());
+    byName.set(key, { id: "", nom: m.nom, folk_id: m.folk_id });
 
     const isPers = m.kind === "personne";
     const { data: cible, error } = await supabase
@@ -408,7 +421,7 @@ export async function folkImport(input: {
   }
 
   revalidatePath(`/${input.show_slug}/board`);
-  return { ok: true, dry_run: false, total: mapped.length, created, skipped, preview };
+  return { ok: true, dry_run: false, total: mapped.length, created, skipped, linked, preview };
 }
 
 /** Définir le show affiché par défaut à la connexion (préférence perso). */

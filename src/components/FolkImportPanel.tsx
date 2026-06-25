@@ -109,8 +109,10 @@ export function FolkImportPanel({ showSlug }: { showSlug: string }) {
           ) : (
             <p className="text-sm">
               Import terminé : <span className="font-medium text-jaune">{result.created}</span> créée
-              {result.created > 1 ? "s" : ""}, {result.skipped} ignorée
-              {result.skipped > 1 ? "s" : ""} (doublons) sur {result.total}.
+              {result.created > 1 ? "s" : ""},{" "}
+              <span className="font-medium text-jaune">{result.linked}</span> reliée
+              {result.linked > 1 ? "s" : ""} à Folk, {result.skipped} ignorée
+              {result.skipped > 1 ? "s" : ""} sur {result.total}.
             </p>
           )}
 
