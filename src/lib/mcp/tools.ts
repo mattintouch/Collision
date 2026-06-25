@@ -204,6 +204,48 @@ export function registerMagellanTools(server: McpServer) {
   );
 
   server.tool(
+    "update_cible",
+    "Met à jour les champs d'une cible (rôle, organisation, secteur, priorité, voie, archétype, sujets…). Ne touche que les champs fournis.",
+    {
+      show: z.string(),
+      cible: z.string().describe("nom ou id de la cible"),
+      nom: z.string().optional().describe("renommer la cible"),
+      role: z.string().optional(),
+      organisation: z.string().optional(),
+      secteur: z.string().optional(),
+      pays: z.string().optional(),
+      envergure: z.enum(["fr", "international"]).optional(),
+      priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
+      voie: z.enum(["froid", "chaud"]).optional(),
+      archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
+      sujets: z.array(z.string()).optional(),
+      raison_de_selection: z.string().optional(),
+      etat_recherche: z.string().optional(),
+    },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+
+      const fields = [
+        "nom", "role", "organisation", "secteur", "pays", "envergure",
+        "priorite", "voie", "archetype", "sujets", "raison_de_selection", "etat_recherche",
+      ] as const;
+      const patch: Record<string, unknown> = {};
+      for (const f of fields) if (a[f] !== undefined) patch[f] = a[f];
+      if (Object.keys(patch).length === 0) {
+        return text({ error: "Aucun champ à mettre à jour." });
+      }
+
+      const { error } = await sb.from("cibles").update(patch).eq("id", target.id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, cible: target.nom, modifie: Object.keys(patch) });
+    }
+  );
+
+  server.tool(
     "validate_cible",
     "Valide une cible : bascule en épisode avec son contexte.",
     { show: z.string(), cible: z.string() },

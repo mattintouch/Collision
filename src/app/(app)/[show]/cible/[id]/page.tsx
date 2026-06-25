@@ -39,6 +39,8 @@ export default async function CiblePage({
   const isEntreprise = cible.kind === "entreprise";
   const r = computeResurgence(cible);
   const finalStage = stages.find((s) => s.is_final);
+  const emails = contacts.filter((c) => c.kind === "email");
+  const phones = contacts.filter((c) => c.kind === "telephone");
 
   return (
     <div>
@@ -61,6 +63,20 @@ export default async function CiblePage({
                   .join(" · ")
               : [cible.role, cible.organisation].filter(Boolean).join(" · ")}
           </p>
+          {(emails.length > 0 || phones.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              {emails.map((c) => (
+                <a key={c.id} href={`mailto:${c.valeur}`} className="text-jaune hover:underline">
+                  ✉ {c.valeur}
+                </a>
+              ))}
+              {phones.map((c) => (
+                <a key={c.id} href={`tel:${c.valeur}`} className="text-jaune hover:underline">
+                  ☎ {c.valeur}
+                </a>
+              ))}
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
             {cible.stage_label && (
               <span className="chip border-noir-600 text-blanc-muted">{cible.stage_label}</span>
