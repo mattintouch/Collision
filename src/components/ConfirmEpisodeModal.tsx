@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { validateCible } from "@/lib/actions";
 import { Modal } from "./Modal";
 import { Field, Input } from "./form";
+import { MiniCalendar } from "./MiniCalendar";
 
 const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
 
@@ -63,14 +64,12 @@ export function ConfirmEpisodeModal({
           La cible devient un épisode. Renseigne l&apos;enregistrement pour créer
           l&apos;invitation Google Calendar (laisse vide pour valider sans planifier).
         </p>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Date d'enregistrement">
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </Field>
-          <Field label="Heure">
-            <Input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
-          </Field>
-        </div>
+        <Field label="Date d'enregistrement">
+          <MiniCalendar value={date} onChange={setDate} />
+        </Field>
+        <Field label="Heure">
+          <Input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
+        </Field>
         <Field label="Lieu">
           <Input value={lieu} onChange={(e) => setLieu(e.target.value)} />
         </Field>
