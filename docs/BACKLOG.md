@@ -17,9 +17,17 @@
 
 - **Lot 1** (annotations MCP : readOnly/destructive/idempotent/openWorld par outil).
 - **Lot 2** (watchlist : tables + seed CAC40… + MCP create/update/list + chips ; migration 0011).
-- **Lot 3** (filtres : `list_cibles` secteur/pays/envergure/sujet + **barre de filtres board** watchlist/voie/recherche). **Décision** : la watchlist est une **facette de filtre**, pas une colonne — les colonnes gardent l'axe avancement (archétype/étape).
+- **Lot 3** (filtres : `list_cibles` secteur/pays/envergure/sujet + **barre de filtres board** watchlist/voie/recherche). **Décision** : la watchlist est une **facette de filtre**, pas une colonne.
+- **Multi-sélection board** : cases à cocher + actions de masse (Archiver/Désarchiver, Supprimer, Tagger une watchlist) ; **archivage** (cibles.archive, migration 0013) → sortir une fiche du board sans la détruire. Correctif : le board réel est `BoardDnd` (Board.tsx était mort, supprimé).
+- **Lot 4** (appui : `nature` + `est_relais`, alias `type` déprécié, voie chaude si relais ; migration 0012).
+- **Lot 5** (coordonnées portées par l'appui : contacts.appui_id, add_appui inline tel/email, affichées sur la fiche ; migration 0014).
 
-Migrations appliquées en prod : **0009**, **0010**, **0011**.
+Migrations appliquées en prod : **0009**, **0010**, **0011** ; à appliquer : **0012**, **0013** (faites), **0014**.
+
+### Reste du brief
+- **Lot 8** (synchro Google Contacts) — P1, **bloqué sur info Workspace** (collision.studio sur Google Workspace ? → compte de service + délégation vs app Internal).
+- **Lot 6** (enrichissement sourcé — étendre l'existant) — P2.
+- **Lot 7** (exposer la pose du stage dans update_cible) — P2.
 
 ---
 
