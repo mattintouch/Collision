@@ -89,6 +89,7 @@ export interface CibleEnrichie extends Cible {
   dernier_signal_date: string | null;
   dernier_signal_pertinence: number | null;
   signal_frais: boolean;
+  watchlist_keys: string[] | null;
   nb_appuis: number;
 }
 

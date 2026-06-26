@@ -71,6 +71,11 @@ export function TargetCard({
             {cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}
           </span>
         )}
+        {(cible.watchlist_keys ?? []).map((w) => (
+          <span key={w} className="chip border-jaune/40 text-jaune">
+            {w.toUpperCase()}
+          </span>
+        ))}
       </div>
 
       {/* Pourquoi maintenant — moteur de résurgence */}

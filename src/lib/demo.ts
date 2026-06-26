@@ -80,6 +80,7 @@ const base = {
   dernier_signal_date: null,
   dernier_signal_pertinence: null,
   signal_frais: false,
+  watchlist_keys: null,
   nb_appuis: 0,
 };
 

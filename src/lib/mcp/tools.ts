@@ -65,6 +65,34 @@ async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom:
   return (data as { id: string; nom: string }) ?? null;
 }
 
+/** Résout des clés/libellés de watchlist en ids ; signale les inconnus. */
+async function resolveWatchlistIds(sb: SB, refs: string[]): Promise<{ ids: string[]; unknown: string[] }> {
+  const wanted = refs.map((r) => r.trim()).filter(Boolean);
+  if (wanted.length === 0) return { ids: [], unknown: [] };
+  const { data } = await sb.from("watchlists").select("id, key, label");
+  const rows = (data ?? []) as { id: string; key: string; label: string }[];
+  const ids: string[] = [];
+  const unknown: string[] = [];
+  for (const ref of wanted) {
+    const low = ref.toLowerCase();
+    const hit = rows.find((w) => w.key.toLowerCase() === low || w.label.toLowerCase() === low);
+    if (hit) ids.push(hit.id);
+    else unknown.push(ref);
+  }
+  return { ids: Array.from(new Set(ids)), unknown };
+}
+
+/** Remplace les watchlists d'une cible. Renvoie un message d'erreur si clé inconnue. */
+async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Promise<string | null> {
+  const { ids, unknown } = await resolveWatchlistIds(sb, refs);
+  if (unknown.length) return `Watchlist inconnue : ${unknown.join(", ")}. Crée-la d'abord (pas de création implicite).`;
+  await sb.from("cible_watchlists").delete().eq("cible_id", cibleId);
+  if (ids.length) {
+    await sb.from("cible_watchlists").insert(ids.map((watchlist_id) => ({ cible_id: cibleId, watchlist_id })));
+  }
+  return null;
+}
+
 export function registerMagellanTools(server: McpServer) {
   server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
@@ -81,6 +109,7 @@ export function registerMagellanTools(server: McpServer) {
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
       stage_key: z.string().optional(),
       kind: z.enum(["personne", "entreprise"]).optional(),
+      watchlist: z.string().optional().describe("clé ou libellé (ex. cac40) — cibles appartenant à cette watchlist"),
     },
     { readOnlyHint: true },
     async (a) => {
@@ -92,6 +121,13 @@ export function registerMagellanTools(server: McpServer) {
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
       if (a.kind) q = q.eq("kind", a.kind);
+      if (a.watchlist) {
+        const { ids, unknown } = await resolveWatchlistIds(sb, [a.watchlist]);
+        if (unknown.length) return text({ error: `Watchlist inconnue : ${a.watchlist}` });
+        const { data: links } = await sb.from("cible_watchlists").select("cible_id").eq("watchlist_id", ids[0]);
+        const cibleIds = (links ?? []).map((l) => l.cible_id as string);
+        q = q.in("id", cibleIds.length ? cibleIds : ["00000000-0000-0000-0000-000000000000"]);
+      }
       const { data, error } = await q;
       return error ? text({ error: error.message }) : text(data);
     }
@@ -119,7 +155,13 @@ export function registerMagellanTools(server: McpServer) {
   server.tool(
     "create_cible",
     "Crée une cible dans un show (si absente).",
-    { show: z.string(), nom: z.string(), role: z.string().optional(), organisation: z.string().optional() },
+    {
+      show: z.string(),
+      nom: z.string(),
+      role: z.string().optional(),
+      organisation: z.string().optional(),
+      watchlist: z.array(z.string()).optional().describe("clés/libellés (ex. ['cac40'])"),
+    },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -129,7 +171,11 @@ export function registerMagellanTools(server: McpServer) {
       if (c && (a.role || a.organisation)) {
         await sb.from("cibles").update({ role: a.role ?? null, organisation: a.organisation ?? null }).eq("id", c.id);
       }
-      return text({ ok: true, cible: c });
+      if (c && a.watchlist) {
+        const err = await setCibleWatchlists(sb, c.id, a.watchlist);
+        if (err) return text({ error: err });
+      }
+      return text({ ok: true, cible: c, watchlist: a.watchlist });
     }
   );
 
@@ -229,6 +275,7 @@ export function registerMagellanTools(server: McpServer) {
       sujets: z.array(z.string()).optional(),
       raison_de_selection: z.string().optional(),
       etat_recherche: z.string().optional(),
+      watchlist: z.array(z.string()).optional().describe("remplace les watchlists (clés/libellés)"),
     },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
@@ -244,13 +291,21 @@ export function registerMagellanTools(server: McpServer) {
       ] as const;
       const patch: Record<string, unknown> = {};
       for (const f of fields) if (a[f] !== undefined) patch[f] = a[f];
-      if (Object.keys(patch).length === 0) {
+      if (Object.keys(patch).length === 0 && a.watchlist === undefined) {
         return text({ error: "Aucun champ à mettre à jour." });
       }
 
-      const { error } = await sb.from("cibles").update(patch).eq("id", target.id);
-      if (error) return text({ error: error.message });
-      return text({ ok: true, cible: target.nom, modifie: Object.keys(patch) });
+      if (Object.keys(patch).length > 0) {
+        const { error } = await sb.from("cibles").update(patch).eq("id", target.id);
+        if (error) return text({ error: error.message });
+      }
+      const modifie = Object.keys(patch);
+      if (a.watchlist !== undefined) {
+        const err = await setCibleWatchlists(sb, target.id, a.watchlist);
+        if (err) return text({ error: err });
+        modifie.push("watchlist");
+      }
+      return text({ ok: true, cible: target.nom, modifie });
     }
   );
 
