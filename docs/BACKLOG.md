@@ -30,6 +30,12 @@ Migrations : appliquées **0009-0013** ; **à appliquer : 0014 (Lot 5), 0015 (Lo
 - **Lot 6** (enrichissement sourcé — étendre l'existant `enrichment/engine.ts`) — P2.
 - **Lot 7** (exposer la pose du stage dans `update_cible` avec garde-fous) — P2.
 
+### Roadmap « Fiche v2 / Board v2 / Enrichissement » (demandé 26/06)
+- **Fiche v2** : édition inline du nom (+ rôle/orga/secteur) ; coordonnées 100 % cliquables (mailto/tel/site) ; éditeur de tags sur la fiche (politique/CAC40/sport) ; liens vers fiches d'alliés (déjà en place, à soigner). *(Note : `cibles.nom` est un champ unique ; prénom/nom séparés = petit changement de schéma à décider.)*
+- **Board v2 — désengorger** : sélecteur **« grouper par »** (archétype / étape / voie / watchlist / secteur) = le `group_by` différé du Lot 3 ; + **épingler** 5-10 fiches en tête de colonne (priorisation manuelle).
+- **Enrichissement via MCP** (Lot 6 étendu) : outils `enrich_cible` (une fiche) et `enrich_colonne` (toute une colonne) → recherche web, propositions sourcées (rôle, orga, secteur, réseaux sociaux, sujets), écrites après validation.
+- **Refonte UI 2026** (design Cockpit) : en cours — fondations + carte board faites ; reste header/wordmark, fiche, login, copilote, dispo, veille, import, réglages.
+
 ---
 
 ## 🔭 Backlog issu du brief « retour de tests » (Lots 1-8)
