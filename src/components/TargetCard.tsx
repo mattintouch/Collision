@@ -28,8 +28,8 @@ export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }
   return (
     <Link href={`/${show.slug}/cible/${cible.id}`} className="card block p-[14px] transition-colors hover:bg-noir-700">
       <div className="flex flex-col gap-[11px]">
-        {/* 1 — Titre + voie */}
-        <div className="flex items-start justify-between gap-2">
+        {/* 1 — Titre + voie (gouttières pl/pr pour la case à cocher et le menu ⋯) */}
+        <div className="flex items-start justify-between gap-2 pl-6 pr-6">
           <div className="min-w-0">
             <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{cible.nom}</h3>
             {subtitle && <p className="truncate text-[12.5px] text-blanc-muted">{subtitle}</p>}

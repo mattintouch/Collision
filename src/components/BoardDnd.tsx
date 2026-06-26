@@ -13,6 +13,7 @@ import {
   bulkSetArchive,
   bulkDeleteCibles,
   bulkAddWatchlist,
+  bulkCreateAndTagWatchlist,
 } from "@/lib/actions";
 import { TargetCard } from "./TargetCard";
 import { ConfirmEpisodeModal } from "./ConfirmEpisodeModal";
@@ -62,6 +63,7 @@ export function BoardDnd({
   // Multi-sélection + actions de masse.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagKey, setTagKey] = useState("");
+  const [newTag, setNewTag] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
   const isInvites = show.type_pipe === "invites";
@@ -247,6 +249,28 @@ export function BoardDnd({
               </button>
             </span>
           )}
+          <span className="flex items-center gap-1">
+            <input
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              placeholder="Nouveau tag (Sport…)"
+              className="w-36 rounded-lg border border-noir-600 bg-noir-900 px-2 py-1 text-sm outline-none placeholder:text-blanc-muted/60 focus:border-jaune"
+            />
+            <button
+              onClick={() =>
+                newTag.trim() &&
+                runBulk(async () => {
+                  const r = await bulkCreateAndTagWatchlist({ ids: selIds, label: newTag.trim(), show_slug: show.slug });
+                  if (r.ok) setNewTag("");
+                  return r;
+                })
+              }
+              disabled={pending || !newTag.trim()}
+              className="btn-ghost px-2 py-1 text-sm disabled:opacity-40"
+            >
+              Créer & tagger
+            </button>
+          </span>
           <button onClick={() => setSelected(new Set())} className="ml-auto text-sm text-blanc-muted hover:text-blanc">
             Désélectionner
           </button>

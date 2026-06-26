@@ -386,6 +386,43 @@ export async function bulkAddWatchlist(input: {
   return { ok: true, detail: `${input.ids.length} fiche(s) taguées « ${input.watchlist_key} ».` };
 }
 
+function slugifyTag(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+/** Crée un tag (watchlist) s'il n'existe pas, puis l'applique aux fiches sélectionnées. */
+export async function bulkCreateAndTagWatchlist(input: {
+  ids: string[];
+  label: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
+  const label = input.label.trim();
+  const key = slugifyTag(label);
+  if (!key) return { ok: false, error: "Nom de tag invalide." };
+  const supabase = createClient();
+  let { data: w } = await supabase.from("watchlists").select("id").eq("key", key).maybeSingle();
+  if (!w) {
+    const ins = await supabase.from("watchlists").insert({ key, label, color: "#FFD200" }).select("id").single();
+    if (ins.error) return { ok: false, error: ins.error.message };
+    w = ins.data;
+  }
+  const rows = input.ids.map((cible_id) => ({ cible_id, watchlist_id: (w as { id: string }).id }));
+  const { error } = await supabase
+    .from("cible_watchlists")
+    .upsert(rows, { onConflict: "cible_id,watchlist_id", ignoreDuplicates: true });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `${input.ids.length} fiche(s) taguées « ${label} ».` };
+}
+
 /** Ordre des colonnes d'archétype du board (par show). */
 export async function setArchetypeOrder(input: {
   show_slug: string;
