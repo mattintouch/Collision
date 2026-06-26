@@ -29,6 +29,20 @@ interface AppuiRow {
   google_etag: string | null;
 }
 
+/** Exécute fn sur items avec une concurrence bornée (évite le timeout 60s). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 function splitContacts(rows: ContactRow[]) {
   const phones: string[] = [], emails: string[] = [], urls: string[] = [];
   for (const c of rows) {
@@ -90,16 +104,17 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   }
 
   const errors: string[] = [];
-  let cibleCount = 0;
 
-  for (const c of cibles) {
+  // Pré-résolution des groupes watchlist (séquentiel, peu nombreux) pour ne pas
+  // appeler Google dans la boucle parallèle.
+  const allLabels = new Set<string>();
+  wlByCible.forEach((arr) => arr.forEach((l) => allLabels.add(l)));
+  for (const label of allLabels) await ensureGroup(token, label, groupCache);
+
+  const cibleResults = await mapLimit(cibles, 8, async (c) => {
     const own = ((cibleContacts ?? []) as ContactRow[]).filter((ct) => ct.cible_id === c.id);
     const { phones, emails, urls } = splitContacts(own);
-    const groups = [pipelineGroup].filter(Boolean) as string[];
-    for (const label of wlByCible.get(c.id) ?? []) {
-      const g = await ensureGroup(token, label, groupCache);
-      if (g) groups.push(g);
-    }
+    const groups = [pipelineGroup, ...(wlByCible.get(c.id) ?? []).map((l) => groupCache.get(l) ?? null)].filter(Boolean) as string[];
     const input: PersonInput = {
       fullName: c.nom,
       organisation: c.organisation,
@@ -111,11 +126,12 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     const r = await upsertPerson(token, { resourceName: c.google_resource_name, etag: c.google_etag }, input);
     if (r.ok && r.resourceName) {
       await sb.from("cibles").update({ google_resource_name: r.resourceName, google_etag: r.etag }).eq("id", c.id);
-      cibleCount++;
-    } else if (!r.ok) {
-      errors.push(`${c.nom}: ${r.detail}`);
+      return true;
     }
-  }
+    if (!r.ok) errors.push(`${c.nom}: ${r.detail}`);
+    return false;
+  });
+  const cibleCount = cibleResults.filter(Boolean).length;
 
   // Relais (appuis est_relais) avec coordonnées.
   const { data: appuiData } = cibleIds.length
@@ -127,11 +143,10 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     ? await sb.from("contacts").select("cible_id, appui_id, kind, valeur").in("appui_id", appuiIds)
     : { data: [] };
   const relaisGroup = await ensureGroup(token, `${show.nom} Relais`, groupCache);
-  let relaisCount = 0;
+  const relaisAvecContacts = appuis.filter((a) => ((appuiContacts ?? []) as ContactRow[]).some((ct) => ct.appui_id === a.id));
 
-  for (const a of appuis) {
+  const relaisResults = await mapLimit(relaisAvecContacts, 8, async (a) => {
     const own = ((appuiContacts ?? []) as ContactRow[]).filter((ct) => ct.appui_id === a.id);
-    if (own.length === 0) continue; // pas de coordonnées → rien à synchroniser
     const { phones, emails, urls } = splitContacts(own);
     const input: PersonInput = {
       fullName: a.nom,
@@ -143,11 +158,12 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     const r = await upsertPerson(token, { resourceName: a.google_resource_name, etag: a.google_etag }, input);
     if (r.ok && r.resourceName) {
       await sb.from("appuis").update({ google_resource_name: r.resourceName, google_etag: r.etag }).eq("id", a.id);
-      relaisCount++;
-    } else if (!r.ok) {
-      errors.push(`${a.nom} (relais): ${r.detail}`);
+      return true;
     }
-  }
+    if (!r.ok) errors.push(`${a.nom} (relais): ${r.detail}`);
+    return false;
+  });
+  const relaisCount = relaisResults.filter(Boolean).length;
 
   return {
     ok: errors.length === 0,
