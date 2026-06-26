@@ -59,6 +59,7 @@ export function BoardDnd({
   const [voie, setVoie] = useState<"all" | "froid" | "chaud">("all");
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [groupBy, setGroupBy] = useState<string>(show.type_pipe === "invites" ? "archetype" : "stage");
 
   // Multi-sélection + actions de masse.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -66,28 +67,47 @@ export function BoardDnd({
   const [newTag, setNewTag] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
-  const isInvites = show.type_pipe === "invites";
-
   const stored = show.archetype_order ?? [];
   const archOrder = [
     ...stored.filter((k) => ALL_ARCH.includes(k)),
     ...ALL_ARCH.filter((k) => !stored.includes(k)),
   ];
 
-  const columns: Column[] = isInvites
-    ? archOrder.map((key) => ({
-        key,
-        title: archLabel(key),
-        hint: key === "none" ? "archétype manquant" : undefined,
-        match: (c: CibleEnrichie) => (key === "none" ? !c.archetype : c.archetype === key),
-        archetype: key === "none" ? null : key,
-      }))
-    : stages.map((st) => ({
-        key: st.id,
-        title: st.label,
-        match: (c: CibleEnrichie) => c.stage_id === st.id,
-        stageId: st.id,
-      }));
+  // Colonnes pilotées par « grouper par » (axe choisi). Le glisser-déposer
+  // n'agit que sur archétype et étape (les axes qu'on peut écrire).
+  function buildColumns(): Column[] {
+    if (groupBy === "stage") {
+      return stages.map((st) => ({ key: st.id, title: st.label, match: (c) => c.stage_id === st.id, stageId: st.id }));
+    }
+    if (groupBy === "voie") {
+      return [
+        { key: "froid", title: "Froid", match: (c) => c.voie === "froid" },
+        { key: "chaud", title: "Chaud", match: (c) => c.voie === "chaud" },
+      ];
+    }
+    if (groupBy === "watchlist") {
+      const keys = Array.from(new Set(cibles.flatMap((c) => c.watchlist_keys ?? []))).sort();
+      const cols: Column[] = keys.map((k) => ({ key: k, title: k.toUpperCase(), match: (c) => (c.watchlist_keys ?? []).includes(k) }));
+      cols.push({ key: "__none", title: "Sans tag", match: (c) => (c.watchlist_keys ?? []).length === 0 });
+      return cols;
+    }
+    if (groupBy === "secteur") {
+      const secteurs = Array.from(new Set(cibles.map((c) => c.secteur).filter(Boolean) as string[])).sort();
+      const cols: Column[] = secteurs.map((s) => ({ key: s, title: s, match: (c) => c.secteur === s }));
+      cols.push({ key: "__none", title: "Sans secteur", match: (c) => !c.secteur });
+      return cols;
+    }
+    // archétype (défaut)
+    return archOrder.map((key) => ({
+      key,
+      title: archLabel(key),
+      hint: key === "none" ? "archétype manquant" : undefined,
+      match: (c) => (key === "none" ? !c.archetype : c.archetype === key),
+      archetype: key === "none" ? null : key,
+    }));
+  }
+  const columns = buildColumns();
+  const canReorder = groupBy === "archetype";
 
   const availableWatchlists = useMemo(() => {
     const set = new Set<string>();
@@ -144,10 +164,12 @@ export function BoardDnd({
     const cible = cibles.find((c) => c.id === cibleId);
     if (!cible || col.match(cible)) return;
     start(async () => {
-      if (isInvites) {
+      if (groupBy === "archetype") {
         await setCibleArchetype({ cible_id: cibleId, archetype: col.archetype ?? null, show_slug: show.slug });
-      } else if (col.stageId) {
+      } else if (groupBy === "stage" && col.stageId) {
         await moveCibleStage({ cible_id: cibleId, stage_id: col.stageId, show_slug: show.slug });
+      } else {
+        return; // axe non éditable par glisser-déposer
       }
       router.refresh();
     });
@@ -182,6 +204,18 @@ export function BoardDnd({
           placeholder="Rechercher un nom…"
           className="w-44 rounded-lg border border-noir-600 bg-noir-900 px-3 py-1.5 text-sm outline-none placeholder:text-blanc-muted/60 focus:border-jaune"
         />
+        <span className="ml-1 text-xs text-blanc-muted">Grouper par</span>
+        <select
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value)}
+          className="rounded-lg border border-noir-600 bg-noir-900 px-2 py-1.5 text-sm outline-none focus:border-jaune"
+        >
+          <option value="archetype">Archétype</option>
+          <option value="stage">Étape</option>
+          <option value="voie">Voie</option>
+          <option value="watchlist">Watchlist</option>
+          <option value="secteur">Secteur</option>
+        </select>
         <span className="ml-1 text-xs text-blanc-muted">Voie</span>
         {(["all", "froid", "chaud"] as const).map((v) => (
           <button
@@ -297,7 +331,7 @@ export function BoardDnd({
             >
               <div className="flex items-baseline justify-between px-1">
                 <div className="flex items-center gap-1.5">
-                  {isInvites && (
+                  {canReorder && (
                     <button
                       onClick={() => moveColumn(i, -1)}
                       disabled={i === 0 || pending}
@@ -311,7 +345,7 @@ export function BoardDnd({
                     <h2 className="font-display text-sm font-semibold uppercase tracking-wide">{col.title}</h2>
                     {col.hint && <p className="text-xs text-blanc-muted">{col.hint}</p>}
                   </div>
-                  {isInvites && (
+                  {canReorder && (
                     <button
                       onClick={() => moveColumn(i, 1)}
                       disabled={i === columns.length - 1 || pending}
