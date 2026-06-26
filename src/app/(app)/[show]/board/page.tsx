@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getCibles, getShow, getStages } from "@/lib/data";
+import { getCibles, getShow, getStages, getWatchlists } from "@/lib/data";
 import Link from "next/link";
 import { BoardDnd } from "@/components/BoardDnd";
 import { NewTargetButton } from "@/components/NewTargetButton";
@@ -12,9 +12,10 @@ export default async function BoardPage({
   const show = await getShow(params.show);
   if (!show) notFound();
 
-  const [stages, cibles] = await Promise.all([
+  const [stages, cibles, watchlists] = await Promise.all([
     getStages(show.id),
     getCibles(show.id),
+    getWatchlists(),
   ]);
 
   return (
@@ -39,7 +40,7 @@ export default async function BoardPage({
         </div>
       </div>
 
-      <BoardDnd show={show} stages={stages} cibles={cibles} />
+      <BoardDnd show={show} stages={stages} cibles={cibles} watchlists={watchlists} />
     </div>
   );
 }

@@ -32,6 +32,14 @@ export interface EpisodeRow {
   gcal_studio_event_id: string | null;
 }
 
+/** Watchlists disponibles (vocabulaire de curation). */
+export async function getWatchlists(): Promise<{ key: string; label: string }[]> {
+  if (demoMode) return [];
+  const supabase = createClient();
+  const { data } = await supabase.from("watchlists").select("key, label").order("label");
+  return (data as { key: string; label: string }[]) ?? [];
+}
+
 /** Épisode le plus récent rattaché à une cible (null si aucun / mode démo). */
 export async function getEpisodeForCible(cibleId: string): Promise<EpisodeRow | null> {
   if (demoMode) return null;

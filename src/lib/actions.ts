@@ -337,6 +337,55 @@ export async function rescheduleEpisode(input: {
   return { ok: true, detail: `Reprogrammé. ${notes.join(", ")}`.trim() };
 }
 
+/** Archive (ou désarchive) plusieurs cibles d'un coup. Non destructif. */
+export async function bulkSetArchive(input: {
+  ids: string[];
+  archive: boolean;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").update({ archive: input.archive }).in("id", input.ids);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `${input.ids.length} fiche(s) ${input.archive ? "archivée(s)" : "désarchivée(s)"}.` };
+}
+
+/** Supprime définitivement plusieurs cibles (et leur dossier en cascade). */
+export async function bulkDeleteCibles(input: {
+  ids: string[];
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").delete().in("id", input.ids);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `${input.ids.length} fiche(s) supprimée(s).` };
+}
+
+/** Ajoute une watchlist (par clé) à plusieurs cibles. Idempotent. */
+export async function bulkAddWatchlist(input: {
+  ids: string[];
+  watchlist_key: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
+  const supabase = createClient();
+  const { data: w } = await supabase.from("watchlists").select("id").eq("key", input.watchlist_key).maybeSingle();
+  if (!w) return { ok: false, error: `Watchlist inconnue : ${input.watchlist_key}` };
+  const rows = input.ids.map((cible_id) => ({ cible_id, watchlist_id: (w as { id: string }).id }));
+  const { error } = await supabase
+    .from("cible_watchlists")
+    .upsert(rows, { onConflict: "cible_id,watchlist_id", ignoreDuplicates: true });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `${input.ids.length} fiche(s) taguées « ${input.watchlist_key} ».` };
+}
+
 /** Ordre des colonnes d'archétype du board (par show). */
 export async function setArchetypeOrder(input: {
   show_slug: string;

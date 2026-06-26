@@ -75,6 +75,9 @@ export interface Cible {
   // Lien Folk (source de vérité coordonnées + interactions)
   folk_id: string | null;
 
+  // Archivée : sortie du board (gardée, reliable comme appui)
+  archive: boolean;
+
   created_at: string;
   updated_at: string;
 }
