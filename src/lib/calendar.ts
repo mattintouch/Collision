@@ -171,6 +171,58 @@ export async function createCalendarEvent(
   }
 }
 
+/** Supprime un événement (annulation). notify=true prévient les invités. */
+export async function deleteCalendarEvent(
+  providerToken: string | null | undefined,
+  eventId: string,
+  notify = true
+): Promise<{ ok: boolean; detail: string }> {
+  if (!providerToken) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const send = notify ? "all" : "none";
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=${send}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${providerToken}` } }
+    );
+    // 410/404 : déjà supprimé côté Google — on considère que c'est fait.
+    if (res.ok || res.status === 410 || res.status === 404) return { ok: true, detail: "Événement supprimé." };
+    const body = await res.text().catch(() => "");
+    return { ok: false, detail: `Échec suppression (${res.status}). ${body.slice(0, 120)}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** Déplace un événement (report) : nouveaux start/end. */
+export async function updateCalendarEventTimes(
+  providerToken: string | null | undefined,
+  eventId: string,
+  startISO: string,
+  endISO: string,
+  notify = true
+): Promise<{ ok: boolean; detail: string }> {
+  if (!providerToken) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const send = notify ? "all" : "none";
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=${send}`,
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${providerToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: { dateTime: startISO, timeZone: TZ },
+          end: { dateTime: endISO, timeZone: TZ },
+        }),
+      }
+    );
+    if (res.ok) return { ok: true, detail: "Événement déplacé." };
+    const body = await res.text().catch(() => "");
+    return { ok: false, detail: `Échec mise à jour (${res.status}). ${body.slice(0, 120)}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
 export async function getFreeSlots(
   providerToken?: string | null
 ): Promise<FreeSlotsResult> {

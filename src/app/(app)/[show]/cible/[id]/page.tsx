@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCibleDossier, getShow, getStages } from "@/lib/data";
+import { getCibleDossier, getEpisodeForCible, getShow, getStages } from "@/lib/data";
 import {
   APPUI_LABELS,
   ARCHETYPE_HINTS,
@@ -14,6 +14,7 @@ import {
 import { CaptureForm } from "@/components/CaptureForm";
 import { FicheActions } from "@/components/FicheActions";
 import { ContactsSection } from "@/components/ContactsSection";
+import { RecordingActions } from "@/components/RecordingActions";
 
 function fmt(date: string | null) {
   if (!date) return "—";
@@ -32,9 +33,11 @@ export default async function CiblePage({
   const show = await getShow(params.show);
   if (!show) notFound();
 
-  const [{ cible, appuis, touches, signals, contacts }, stages] =
-    await Promise.all([getCibleDossier(params.id), getStages(show.id)]);
+  const [{ cible, appuis, touches, signals, contacts }, stages, episode] =
+    await Promise.all([getCibleDossier(params.id), getStages(show.id), getEpisodeForCible(params.id)]);
   if (!cible) notFound();
+
+  const showRecording = episode && (episode.date_enregistrement || episode.statut_prod === "annule");
 
   const isEntreprise = cible.kind === "entreprise";
   const r = computeResurgence(cible);
@@ -190,6 +193,16 @@ export default async function CiblePage({
 
         {/* Colonne latérale : appuis, signaux, recherche (Fleurons) */}
         <div className="space-y-5">
+          {showRecording && episode && (
+            <RecordingActions
+              cibleId={cible.id}
+              showSlug={show.slug}
+              dateEnregistrement={episode.date_enregistrement}
+              lieu={episode.lieu}
+              statut={episode.statut_prod}
+            />
+          )}
+
           {isEntreprise && (
             <section className="card p-5">
               <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">

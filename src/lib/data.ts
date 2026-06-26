@@ -23,6 +23,29 @@ import type {
 
 export const demoMode = !isSupabaseConfigured();
 
+export interface EpisodeRow {
+  id: string;
+  date_enregistrement: string | null;
+  lieu: string | null;
+  statut_prod: string;
+  gcal_event_id: string | null;
+  gcal_studio_event_id: string | null;
+}
+
+/** Épisode le plus récent rattaché à une cible (null si aucun / mode démo). */
+export async function getEpisodeForCible(cibleId: string): Promise<EpisodeRow | null> {
+  if (demoMode) return null;
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("episodes")
+    .select("id, date_enregistrement, lieu, statut_prod, gcal_event_id, gcal_studio_event_id")
+    .eq("cible_id", cibleId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as EpisodeRow) ?? null;
+}
+
 export async function getShows(): Promise<Show[]> {
   if (demoMode) return demoShows;
   const supabase = createClient();

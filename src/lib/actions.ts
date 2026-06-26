@@ -8,7 +8,7 @@ import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
 import { mapPerson, type MappedTarget } from "./folk/map";
 import { folkLogTouche } from "./folk/write";
-import { createCalendarEvent } from "./calendar";
+import { createCalendarEvent, deleteCalendarEvent, updateCalendarEventTimes } from "./calendar";
 
 export interface ActionResult {
   ok: boolean;
@@ -238,6 +238,95 @@ export async function validateCible(input: {
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true, id: episodeId as string, detail, claudeUrl };
+}
+
+/** Annule l'enregistrement : supprime les 2 événements Google et libère l'épisode. */
+export async function cancelEpisodeRecording(input: {
+  cible_id: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { data: ep } = await supabase
+    .from("episodes")
+    .select("id, gcal_event_id, gcal_studio_event_id")
+    .eq("cible_id", input.cible_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!ep) return { ok: false, error: "Aucun épisode à annuler." };
+
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.provider_token;
+  const notes: string[] = [];
+  if (ep.gcal_event_id) {
+    const r = await deleteCalendarEvent(token, ep.gcal_event_id, true);
+    notes.push(r.ok ? "enregistrement supprimé" : r.detail);
+  }
+  if (ep.gcal_studio_event_id) {
+    const r = await deleteCalendarEvent(token, ep.gcal_studio_event_id, false);
+    notes.push(r.ok ? "studio libéré" : r.detail);
+  }
+
+  await supabase
+    .from("episodes")
+    .update({ statut_prod: "annule", date_enregistrement: null, gcal_event_id: null, gcal_studio_event_id: null })
+    .eq("id", ep.id);
+
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `Enregistrement annulé. ${notes.join(", ")}`.trim() };
+}
+
+/** Reporte l'enregistrement : déplace les 2 événements (-1h/+1h pour le studio). */
+export async function rescheduleEpisode(input: {
+  cible_id: string;
+  show_slug: string;
+  start_iso: string;
+  duree_min?: number;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { data: ep } = await supabase
+    .from("episodes")
+    .select("id, gcal_event_id, gcal_studio_event_id")
+    .eq("cible_id", input.cible_id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!ep) return { ok: false, error: "Aucun épisode à reporter." };
+
+  const start = new Date(input.start_iso);
+  const end = new Date(start.getTime() + (input.duree_min ?? 90) * 60000);
+  const { data: sess } = await supabase.auth.getSession();
+  const token = sess.session?.provider_token;
+  const notes: string[] = [];
+  if (ep.gcal_event_id) {
+    const r = await updateCalendarEventTimes(token, ep.gcal_event_id, start.toISOString(), end.toISOString(), true);
+    notes.push(r.ok ? "enregistrement déplacé" : r.detail);
+  }
+  if (ep.gcal_studio_event_id) {
+    const r = await updateCalendarEventTimes(
+      token,
+      ep.gcal_studio_event_id,
+      new Date(start.getTime() - 60 * 60000).toISOString(),
+      new Date(end.getTime() + 60 * 60000).toISOString(),
+      false
+    );
+    notes.push(r.ok ? "studio déplacé" : r.detail);
+  }
+  if (!ep.gcal_event_id && !ep.gcal_studio_event_id) {
+    notes.push("aucun événement à déplacer (revalide la fiche pour en créer)");
+  }
+
+  await supabase
+    .from("episodes")
+    .update({ date_enregistrement: start.toISOString(), statut_prod: "programme" })
+    .eq("id", ep.id);
+
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `Reprogrammé. ${notes.join(", ")}`.trim() };
 }
 
 /** Ordre des colonnes d'archétype du board (par show). */
