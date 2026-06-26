@@ -130,6 +130,7 @@ export interface CreateEventResult {
   ok: boolean;
   detail: string;
   htmlLink?: string;
+  eventId?: string;
 }
 
 /** Crée un événement (l'invitation d'enregistrement) dans Google Calendar. */
@@ -163,8 +164,8 @@ export async function createCalendarEvent(
       const body = await res.text().catch(() => "");
       return { ok: false, detail: `Échec création événement (${res.status}). ${body.slice(0, 150)}` };
     }
-    const data = (await res.json()) as { htmlLink?: string };
-    return { ok: true, detail: "Invitation créée dans Google Calendar.", htmlLink: data.htmlLink };
+    const data = (await res.json()) as { htmlLink?: string; id?: string };
+    return { ok: true, detail: "Invitation créée dans Google Calendar.", htmlLink: data.htmlLink, eventId: data.id };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
   }

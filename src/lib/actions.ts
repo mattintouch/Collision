@@ -180,26 +180,18 @@ export async function validateCible(input: {
   const lieu = input.lieu?.trim() || DEFAULT_LIEU;
   const attendees = (input.attendees ?? []).filter((e) => e.includes("@"));
 
-  // Détails sur l'épisode.
-  if (episodeId) {
-    await supabase
-      .from("episodes")
-      .update({
-        date_enregistrement: input.start_iso ?? null,
-        lieu,
-        attendees,
-        statut_prod: input.start_iso ? "programme" : "a_programmer",
-      })
-      .eq("id", episodeId as string);
-  }
-
-  // Invitation Google Calendar (si une date est fournie).
+  // Invitation Google Calendar + réservation studio (si une date est fournie).
   let detail = "Validé — épisode créé.";
+  let gcalEventId: string | undefined;
+  let gcalStudioEventId: string | undefined;
   if (input.start_iso) {
     const start = new Date(input.start_iso);
     const end = new Date(start.getTime() + (input.duree_min ?? 90) * 60000);
     const { data: sess } = await supabase.auth.getSession();
-    const ev = await createCalendarEvent(sess.session?.provider_token, {
+    const token = sess.session?.provider_token;
+
+    // 1) L'enregistrement : invitation envoyée aux participants.
+    const ev = await createCalendarEvent(token, {
       summary: `Enregistrement — ${input.cible_nom ?? "invité"}`,
       startISO: start.toISOString(),
       endISO: end.toISOString(),
@@ -208,7 +200,39 @@ export async function validateCible(input: {
       description: `Enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
       sendInvites: input.send_invite,
     });
-    detail = ev.ok ? `Validé — épisode créé. ${ev.detail}` : `Validé — épisode créé. Calendrier : ${ev.detail}`;
+    gcalEventId = ev.eventId;
+
+    // 2) La réservation Studio 71 : bloc d'1h avant à 1h après, sans invités.
+    const studio = await createCalendarEvent(token, {
+      summary: `Studio 71 réservé — ${input.cible_nom ?? "invité"}`,
+      startISO: new Date(start.getTime() - 60 * 60000).toISOString(),
+      endISO: new Date(end.getTime() + 60 * 60000).toISOString(),
+      location: lieu,
+      attendees: [],
+      description: `Réservation studio (installation/débrief) pour l'enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
+      sendInvites: false,
+    });
+    gcalStudioEventId = studio.eventId;
+
+    const studioNote = studio.ok ? " Studio 71 réservé (-1h/+1h)." : ` Studio : ${studio.detail}`;
+    detail = ev.ok
+      ? `Validé — épisode créé. ${ev.detail}${studioNote}`
+      : `Validé — épisode créé. Calendrier : ${ev.detail}`;
+  }
+
+  // Détails sur l'épisode (dont les ids d'événements pour annuler/reporter).
+  if (episodeId) {
+    await supabase
+      .from("episodes")
+      .update({
+        date_enregistrement: input.start_iso ?? null,
+        lieu,
+        attendees,
+        statut_prod: input.start_iso ? "programme" : "a_programmer",
+        gcal_event_id: gcalEventId ?? null,
+        gcal_studio_event_id: gcalStudioEventId ?? null,
+      })
+      .eq("id", episodeId as string);
   }
 
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
