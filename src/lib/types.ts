@@ -98,7 +98,8 @@ export interface Appui {
   cible_id: string;
   nom: string;
   organisation: string | null;
-  type: AppuiType;
+  nature: AppuiType; // ce qu'est l'appui (anciennement « type »)
+  est_relais: boolean; // ouvre-t-il la porte vers la cible
   note: string | null;
   ally_cible_id: string | null;
 }

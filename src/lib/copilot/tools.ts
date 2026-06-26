@@ -124,7 +124,9 @@ export const toolDefs: Anthropic.Tool[] = [
       properties: {
         cible: { type: "string", description: "nom ou id de la cible à aider (ex: Jean-Marie Messier)" },
         allie: { type: "string", description: "nom de l'allié (ex: Patrick Sayer)" },
-        type: { type: "string", enum: ["ancien_invite", "conseiller", "entourage", "contact_interne"] },
+        nature: { type: "string", enum: ["ancien_invite", "conseiller", "entourage", "contact_interne"], description: "ce qu'est l'appui" },
+        type: { type: "string", enum: ["ancien_invite", "conseiller", "entourage", "contact_interne"], description: "DÉPRÉCIÉ : alias de nature" },
+        est_relais: { type: "boolean", description: "true si l'allié ouvre la porte (relais d'introduction) — passe la cible en voie chaude" },
         note: { type: "string", description: "pourquoi / contexte (ex: enregistré lundi, épisode à venir)" },
         creer_allie_comme_cible: {
           type: "boolean",
@@ -286,14 +288,18 @@ export async function runTool(
           if (st) await sb.from("cibles").update({ stage_id: st.id }).eq("id", ally.id);
         }
       }
+      const est_relais = Boolean(input.est_relais);
       const { error } = await sb.from("appuis").insert({
         cible_id: target.id,
         nom: String(input.allie),
-        type: (input.type as string) ?? "ancien_invite",
+        nature: (input.nature as string) ?? (input.type as string) ?? "ancien_invite",
+        est_relais,
         note: (input.note as string) ?? null,
         ally_cible_id: ally?.id ?? null,
       });
       if (error) return JSON.stringify({ error: error.message });
+      // Règle transverse : un relais → voie chaud par défaut.
+      if (est_relais) await sb.from("cibles").update({ voie: "chaud" }).eq("id", target.id);
       const folk = await folkAddAlly(target.nom, String(input.allie), (input.note as string) ?? undefined);
       return JSON.stringify({
         ok: true,

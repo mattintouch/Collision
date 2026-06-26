@@ -194,7 +194,9 @@ export function registerMagellanTools(server: McpServer) {
       show: z.string(),
       cible: z.string(),
       allie: z.string(),
-      type: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional(),
+      nature: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional().describe("ce qu'est l'appui"),
+      type: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional().describe("DÉPRÉCIÉ : alias de nature"),
+      est_relais: z.boolean().optional().describe("true si l'appui ouvre la porte (relais d'introduction)"),
       note: z.string().optional(),
       creer_allie_comme_cible: z.boolean().optional(),
     },
@@ -207,16 +209,20 @@ export function registerMagellanTools(server: McpServer) {
       if (!target) return text({ error: "Cible introuvable" });
       let ally = await resolveCible(sb, show.id, a.allie);
       if (!ally && a.creer_allie_comme_cible) ally = await ensureCible(sb, show, a.allie);
+      const est_relais = a.est_relais ?? false;
       const { error } = await sb.from("appuis").insert({
         cible_id: target.id,
         nom: a.allie,
-        type: a.type ?? "ancien_invite",
+        nature: a.nature ?? a.type ?? "ancien_invite",
+        est_relais,
         note: a.note ?? null,
         ally_cible_id: ally?.id ?? null,
       });
       if (error) return text({ error: error.message });
+      // Règle transverse : un relais qui ouvre la porte → voie chaud par défaut.
+      if (est_relais) await sb.from("cibles").update({ voie: "chaud" }).eq("id", target.id);
       const folk = await folkAddAlly(target.nom, a.allie, a.note);
-      return text({ ok: true, cible: target.nom, allie: a.allie, lie: !!ally, folk: folk.detail });
+      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, lie: !!ally, folk: folk.detail });
     }
   );
 

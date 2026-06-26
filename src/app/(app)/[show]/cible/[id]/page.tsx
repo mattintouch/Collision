@@ -246,7 +246,8 @@ export default async function CiblePage({
                       <p className="text-sm font-medium">{a.nom}</p>
                     )}
                     <p className="text-xs text-blanc-muted">
-                      {APPUI_LABELS[a.type]}
+                      {APPUI_LABELS[a.nature]}
+                      {a.est_relais && <span className="ml-1 text-jaune">· relais</span>}
                       {a.organisation && ` · ${a.organisation}`}
                     </p>
                     {a.note && <p className="mt-0.5 text-xs text-blanc-muted">{a.note}</p>}
