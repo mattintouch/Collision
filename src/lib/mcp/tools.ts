@@ -148,7 +148,7 @@ export function registerMagellanTools(server: McpServer) {
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
-      const [c, appuis, touches, signals, contacts] = await Promise.all([
+      const [c, appuisRes, touches, signals, contacts] = await Promise.all([
         sb.from("cibles_enrichies").select("*").eq("id", a.cible_id).maybeSingle(),
         sb.from("appuis").select("*").eq("cible_id", a.cible_id),
         sb.from("touches").select("*").eq("cible_id", a.cible_id).order("date", { ascending: false }),
@@ -156,7 +156,14 @@ export function registerMagellanTools(server: McpServer) {
         sb.from("contacts").select("*").eq("cible_id", a.cible_id),
       ]);
       if (!c.data) return text({ error: "Cible introuvable" });
-      return text({ cible: c.data, appuis: appuis.data, touches: touches.data, signals: signals.data, contacts: contacts.data });
+      // Rattache à chaque appui ses propres coordonnées (Lot 5).
+      const appuis = (appuisRes.data ?? []) as { id: string }[];
+      const appuiIds = appuis.map((x) => x.id);
+      const appuiContacts = appuiIds.length
+        ? (((await sb.from("contacts").select("*").in("appui_id", appuiIds)).data ?? []) as { appui_id: string | null }[])
+        : [];
+      const appuisWithContacts = appuis.map((x) => ({ ...x, contacts: appuiContacts.filter((ct) => ct.appui_id === x.id) }));
+      return text({ cible: c.data, appuis: appuisWithContacts, touches: touches.data, signals: signals.data, contacts: contacts.data });
     }
   );
 
@@ -197,6 +204,8 @@ export function registerMagellanTools(server: McpServer) {
       nature: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional().describe("ce qu'est l'appui"),
       type: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional().describe("DÉPRÉCIÉ : alias de nature"),
       est_relais: z.boolean().optional().describe("true si l'appui ouvre la porte (relais d'introduction)"),
+      telephone: z.string().optional().describe("téléphone du relais (stocké comme coordonnée de l'appui)"),
+      email: z.string().optional().describe("email du relais"),
       note: z.string().optional(),
       creer_allie_comme_cible: z.boolean().optional(),
     },
@@ -210,19 +219,29 @@ export function registerMagellanTools(server: McpServer) {
       let ally = await resolveCible(sb, show.id, a.allie);
       if (!ally && a.creer_allie_comme_cible) ally = await ensureCible(sb, show, a.allie);
       const est_relais = a.est_relais ?? false;
-      const { error } = await sb.from("appuis").insert({
-        cible_id: target.id,
-        nom: a.allie,
-        nature: a.nature ?? a.type ?? "ancien_invite",
-        est_relais,
-        note: a.note ?? null,
-        ally_cible_id: ally?.id ?? null,
-      });
-      if (error) return text({ error: error.message });
+      const { data: appui, error } = await sb
+        .from("appuis")
+        .insert({
+          cible_id: target.id,
+          nom: a.allie,
+          nature: a.nature ?? a.type ?? "ancien_invite",
+          est_relais,
+          note: a.note ?? null,
+          ally_cible_id: ally?.id ?? null,
+        })
+        .select("id")
+        .single();
+      if (error || !appui) return text({ error: error?.message ?? "Échec création appui" });
       // Règle transverse : un relais qui ouvre la porte → voie chaud par défaut.
       if (est_relais) await sb.from("cibles").update({ voie: "chaud" }).eq("id", target.id);
+      // Coordonnées portées par l'appui (le relais est joint en premier).
+      const coords = [
+        a.telephone ? { appui_id: appui.id, kind: "telephone", valeur: a.telephone, source: "Claude", confiance: 4 } : null,
+        a.email ? { appui_id: appui.id, kind: "email", valeur: a.email, source: "Claude", confiance: 4 } : null,
+      ].filter(Boolean) as { appui_id: string; kind: string; valeur: string; source: string; confiance: number }[];
+      if (coords.length) await sb.from("contacts").insert(coords);
       const folk = await folkAddAlly(target.nom, a.allie, a.note);
-      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, lie: !!ally, folk: folk.detail });
+      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, lie: !!ally, folk: folk.detail });
     }
   );
 

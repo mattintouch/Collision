@@ -142,9 +142,23 @@ export async function getCibleDossier(id: string): Promise<CibleDossier> {
     supabase.from("signals").select("*").eq("cible_id", id).order("date", { ascending: false }),
     supabase.from("contacts").select("*").eq("cible_id", id).order("confiance", { ascending: false }),
   ]);
+
+  // Rattache à chaque appui ses coordonnées propres (Lot 5).
+  const appuiRows = (appuis.data ?? []) as Appui[];
+  const appuiIds = appuiRows.map((a) => a.id);
+  let appuiContacts: Contact[] = [];
+  if (appuiIds.length) {
+    const { data } = await supabase.from("contacts").select("*").in("appui_id", appuiIds);
+    appuiContacts = (data as Contact[]) ?? [];
+  }
+  const appuisWithContacts = appuiRows.map((a) => ({
+    ...a,
+    contacts: appuiContacts.filter((c) => c.appui_id === a.id),
+  }));
+
   return {
     cible: cible.data ?? null,
-    appuis: appuis.data ?? [],
+    appuis: appuisWithContacts,
     touches: touches.data ?? [],
     signals: signals.data ?? [],
     contacts: contacts.data ?? [],

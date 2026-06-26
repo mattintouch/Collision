@@ -105,6 +105,7 @@ export interface Appui {
   est_relais: boolean; // ouvre-t-il la porte vers la cible
   note: string | null;
   ally_cible_id: string | null;
+  contacts?: Contact[]; // coordonnées portées par l'appui (joint via get_dossier)
 }
 
 export interface Touche {
@@ -128,7 +129,8 @@ export interface Signal {
 
 export interface Contact {
   id: string;
-  cible_id: string;
+  cible_id: string | null;
+  appui_id: string | null;
   kind: ContactKind;
   valeur: string;
   label: string | null;

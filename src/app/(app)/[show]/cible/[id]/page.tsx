@@ -251,6 +251,19 @@ export default async function CiblePage({
                       {a.organisation && ` · ${a.organisation}`}
                     </p>
                     {a.note && <p className="mt-0.5 text-xs text-blanc-muted">{a.note}</p>}
+                    {(a.contacts ?? []).length > 0 && (
+                      <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs">
+                        {(a.contacts ?? []).map((ct) => (
+                          <a
+                            key={ct.id}
+                            href={ct.kind === "telephone" ? `tel:${ct.valeur}` : ct.kind === "email" ? `mailto:${ct.valeur}` : "#"}
+                            className="text-jaune hover:underline"
+                          >
+                            {ct.valeur}
+                          </a>
+                        ))}
+                      </p>
+                    )}
                   </div>
                 ))
               )}

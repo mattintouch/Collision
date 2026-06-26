@@ -173,9 +173,9 @@ export const demoTouches: Touche[] = [
 ];
 
 export const demoContacts: Contact[] = [
-  { id: "ct-1", cible_id: "c-tony", kind: "agence", valeur: "Infinity Nine — relations presse", label: "Via l'agence", source: "Site officiel (démo)", confiance: 4, verifie: false },
-  { id: "ct-2", cible_id: "c-michelin", kind: "telephone", valeur: "+33 4 73 XX XX XX", label: "Standard groupe", source: "Page contact (démo)", confiance: 3, verifie: false },
-  { id: "ct-3", cible_id: "c-michelin", kind: "email", valeur: "presse@exemple-michelin.com", label: "Service de presse", source: "Espace presse (démo)", confiance: 4, verifie: false },
+  { id: "ct-1", cible_id: "c-tony", appui_id: null, kind: "agence", valeur: "Infinity Nine — relations presse", label: "Via l'agence", source: "Site officiel (démo)", confiance: 4, verifie: false },
+  { id: "ct-2", cible_id: "c-michelin", appui_id: null, kind: "telephone", valeur: "+33 4 73 XX XX XX", label: "Standard groupe", source: "Page contact (démo)", confiance: 3, verifie: false },
+  { id: "ct-3", cible_id: "c-michelin", appui_id: null, kind: "email", valeur: "presse@exemple-michelin.com", label: "Service de presse", source: "Espace presse (démo)", confiance: 4, verifie: false },
 ];
 
 export const demoSignals: Signal[] = [
