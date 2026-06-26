@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "./supabase/server";
-import { demoMode, getCibleDossier, getShow } from "./data";
+import { demoMode, getCibleDossier, getShow, type CibleDossier } from "./data";
 import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
@@ -15,6 +15,7 @@ export interface ActionResult {
   error?: string;
   id?: string;
   detail?: string;
+  claudeUrl?: string;
 }
 
 const DEMO_BLOCK: ActionResult = {
@@ -127,6 +128,29 @@ const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
  * Valider une cible : bascule en épisode (§13.7), enregistre date/lieu/participants,
  * et crée l'invitation dans Google Calendar.
  */
+/**
+ * Construit un lien claude.ai pré-rempli avec le brief de prépa de l'invité
+ * (le chat à plusieurs n'étant pas créable via API, on ouvre une nouvelle
+ * conversation prête à partager).
+ */
+function buildClaudePrepUrl(d: CibleDossier, showSlug: string): string | undefined {
+  const c = d.cible;
+  if (!c) return undefined;
+  const lines: string[] = [
+    `Tu es mon copilote de prépa podcast. Aide-moi à préparer la fiche invité et l'angle d'enregistrement pour ${c.nom}.`,
+  ];
+  const ident = [c.role, c.organisation].filter(Boolean).join(", ");
+  if (ident) lines.push(`Qui : ${ident}.`);
+  lines.push(`Émission : ${showSlug.toUpperCase()}.`);
+  if (c.sujets?.length) lines.push(`Sujets : ${c.sujets.join(", ")}.`);
+  if (c.raison_de_selection) lines.push(`Raison de sélection : ${c.raison_de_selection}.`);
+  if (d.appuis.length) lines.push(`Appuis : ${d.appuis.map((a) => a.nom).join(", ")}.`);
+  const touches = d.touches.slice(0, 3).map((t) => (t.contenu ?? "").trim()).filter(Boolean);
+  if (touches.length) lines.push(`Dernières touches :\n- ${touches.join("\n- ")}`);
+  lines.push("Propose un angle d'épisode, 8-10 questions, et les points à creuser avant l'enregistrement.");
+  return `https://claude.ai/new?q=${encodeURIComponent(lines.join("\n"))}`;
+}
+
 export async function validateCible(input: {
   cible_id: string;
   show_slug: string;
@@ -139,6 +163,14 @@ export async function validateCible(input: {
 }): Promise<ActionResult> {
   if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
+
+  // Brief de prépa (lien Claude) construit avant la bascule, tant que la cible existe.
+  let claudeUrl: string | undefined;
+  try {
+    claudeUrl = buildClaudePrepUrl(await getCibleDossier(input.cible_id), input.show_slug);
+  } catch {
+    // best effort : la validation n'échoue pas si le brief ne se construit pas
+  }
 
   const { data: episodeId, error } = await supabase.rpc("validate_cible", {
     target_cible: input.cible_id,
@@ -181,7 +213,7 @@ export async function validateCible(input: {
 
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
-  return { ok: true, id: episodeId as string, detail };
+  return { ok: true, id: episodeId as string, detail, claudeUrl };
 }
 
 /** Ordre des colonnes d'archétype du board (par show). */

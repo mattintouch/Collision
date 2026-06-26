@@ -30,6 +30,7 @@ export function ConfirmEpisodeModal({
   const [emails, setEmails] = useState(defaultEmails.join(", "));
   const [send, setSend] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const [claudeUrl, setClaudeUrl] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
 
@@ -50,7 +51,9 @@ export function ConfirmEpisodeModal({
       if (r.ok) {
         setMsg(r.detail ?? "Validé.");
         router.refresh();
-        setTimeout(onClose, 1200);
+        // S'il y a un brief Claude, on garde la modale ouverte pour le clic.
+        if (r.claudeUrl) setClaudeUrl(r.claudeUrl);
+        else setTimeout(onClose, 1200);
       } else {
         setMsg(r.error ?? "Erreur");
       }
@@ -86,6 +89,17 @@ export function ConfirmEpisodeModal({
         </label>
 
         {msg && <p className="text-sm text-jaune">{msg}</p>}
+
+        {claudeUrl && (
+          <a
+            href={claudeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn block w-full bg-jaune text-center font-medium text-noir-900 hover:opacity-90"
+          >
+            Préparer la fiche invité dans Claude →
+          </a>
+        )}
 
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="btn-ghost">
