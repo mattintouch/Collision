@@ -22,12 +22,13 @@
 - **Lot 4** (appui : `nature` + `est_relais`, alias `type` déprécié, voie chaude si relais ; migration 0012).
 - **Lot 5** (coordonnées portées par l'appui : contacts.appui_id, add_appui inline tel/email, affichées sur la fiche ; migration 0014).
 
-Migrations appliquées en prod : **0009**, **0010**, **0011** ; à appliquer : **0012**, **0013** (faites), **0014**.
+- **Lot 8** (synchro Google Contacts) — **code livré** : compte de service (JWT jose, impersonation), upsert People API (champs gérés + etag), groupes par show/watchlist/relais ; outil MCP `sync_google_contacts`. **Reste la config** : créer le compte de service, activer People API, clé JSON → `GOOGLE_SA_KEY`, délégation domaine côté Workspace (scope `auth/contacts`), `GOOGLE_IMPERSONATE_EMAIL`. À vérifier en réel une fois branché.
+
+Migrations : appliquées **0009-0013** ; **à appliquer : 0014 (Lot 5), 0015 (Lot 8)**.
 
 ### Reste du brief
-- **Lot 8** (synchro Google Contacts) — P1, **bloqué sur info Workspace** (collision.studio sur Google Workspace ? → compte de service + délégation vs app Internal).
-- **Lot 6** (enrichissement sourcé — étendre l'existant) — P2.
-- **Lot 7** (exposer la pose du stage dans update_cible) — P2.
+- **Lot 6** (enrichissement sourcé — étendre l'existant `enrichment/engine.ts`) — P2.
+- **Lot 7** (exposer la pose du stage dans `update_cible` avec garde-fous) — P2.
 
 ---
 
