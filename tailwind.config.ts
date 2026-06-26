@@ -1,50 +1,64 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Identité Collision. Palette : noir, blanc, jaune (signature).
- * Le vert appartient au show GDIY, pas au studio.
- *
- * TODO (décision ouverte §14.1) : confirmer les hex et les typographies
- * exacts depuis le Figma identité (id ZI56QbnEsPRDjL5JXJ7oEz) au build.
- * Les valeurs ci-dessous sont des placeholders calés sur la DA du site
- * collision.studio en attendant les tokens définitifs.
+ * Identité Magellan 2026 — direction « Cockpit ».
+ * Sombre, technique ; noir encre froid (jamais de pur noir) ; accent jaune→ambre
+ * ponctuel ; hairlines blanches en rgba (cf. globals.css). Tokens du handoff
+ * design 2026 (Space Grotesk + JetBrains Mono).
  */
 const config: Config = {
-  content: [
-    "./src/app/**/*.{ts,tsx}",
-    "./src/components/**/*.{ts,tsx}",
-  ],
+  content: ["./src/app/**/*.{ts,tsx}", "./src/components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
+        // Fonds (remappés sur l'échelle « noir » existante pour propager partout).
         noir: {
-          DEFAULT: "#0A0A0A",
-          900: "#0A0A0A",
-          800: "#141414",
-          700: "#1E1E1E",
-          600: "#2A2A2A",
+          DEFAULT: "#0B0C10", // bg/page
+          900: "#0B0C10",
+          800: "#14161D", // surface/card
+          700: "#1b1e26", // hover / sous-panneau
+          600: "#262a33", // approximation solide des hairlines (bordures)
+          500: "#2f3440",
         },
         blanc: {
-          DEFAULT: "#FAFAFA",
+          DEFAULT: "#F3F4F6", // text/primary
           pure: "#FFFFFF",
-          muted: "#9CA3AF",
+          muted: "#9aa0ac", // text/muted
+          dim: "#6b7280", // text/dim
+          faint: "#5b616b", // text/faint
         },
         jaune: {
-          DEFAULT: "#FFD200",
+          DEFAULT: "#FFD200", // accent Collision
           600: "#E6BD00",
+          pale: "#FFE680", // glint shimmer
         },
-        // Couleurs par show (signalétique, pas couleur studio).
+        amber: "#FF9F1C", // fin du dégradé jaune→ambre
+        // Voie d'approche.
+        froid: "#5DB4FF",
+        chaud: "#FF8C42",
+        // Conseils de relance.
+        relancer: "#5fe0a0",
+        appui: "#9fd0ff",
+        // Signalétique par show.
         gdiy: "#1FB46A",
         ccg: "#3B82F6",
         fleurons: "#B45CFF",
       },
       fontFamily: {
-        // TODO: remplacer par les polices du Figma identité.
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
         card: "14px",
+        control: "9px",
+        chip: "7px",
+        pill: "20px",
+      },
+      boxShadow: {
+        cta: "0 6px 18px -6px rgba(255,210,0,.5)",
+        fab: "0 8px 24px -4px rgba(255,210,0,.5)",
+        frame: "0 24px 60px -20px rgba(0,0,0,.6)",
       },
     },
   },

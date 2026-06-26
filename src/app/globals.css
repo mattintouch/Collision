@@ -3,30 +3,32 @@
 @tailwind utilities;
 
 :root {
-  /* TODO §14.1 : remplacer par les typographies du Figma identité. */
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-sans);
+  /* Hairlines & surfaces verre (direction Cockpit). */
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --glass-1: rgba(255, 255, 255, 0.025);
+  --glass-2: rgba(255, 255, 255, 0.04);
+  --accent-gradient: linear-gradient(135deg, #ffd200, #ff9f1c);
 }
 
 html,
 body {
-  background-color: #0a0a0a;
-  color: #fafafa;
+  background-color: #0b0c10;
+  color: #f3f4f6;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
-/* Scrollbars sobres, dans la lignée premium/éditoriale. */
 ::-webkit-scrollbar {
   height: 10px;
   width: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
+  background: #262a33;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-track {
@@ -35,18 +37,88 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-card border border-noir-600 bg-noir-800;
+    @apply rounded-card bg-noir-800;
+    border: 1px solid var(--line);
   }
+  .hairline {
+    border: 1px solid var(--line);
+  }
+  .hairline-strong {
+    border: 1px solid var(--line-strong);
+  }
+
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs;
+    @apply inline-flex items-center gap-1 rounded-chip border px-2 py-0.5 text-xs;
   }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-pill border px-2.5 py-0.5 text-xs;
+  }
+
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors;
+    @apply inline-flex items-center justify-center gap-2 rounded-control px-3 py-2 text-sm font-medium transition-colors;
   }
+  /* CTA primaire : dégradé jaune→ambre, texte encre. */
   .btn-jaune {
-    @apply btn bg-jaune text-noir hover:bg-jaune-600;
+    @apply btn text-noir-900;
+    background: var(--accent-gradient);
+    box-shadow: 0 6px 18px -6px rgba(255, 210, 0, 0.5);
+  }
+  .btn-jaune:hover {
+    opacity: 0.95;
   }
   .btn-ghost {
-    @apply btn border border-noir-600 text-blanc hover:bg-noir-700;
+    @apply btn text-blanc;
+    border: 1px solid var(--line-strong);
+  }
+  .btn-ghost:hover {
+    background: var(--glass-2);
+  }
+
+  /* Micro-labels cockpit (JetBrains Mono, uppercase, tracking large). */
+  .mono {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+  }
+  .label {
+    @apply mono uppercase text-blanc-muted;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+  }
+  .meta {
+    @apply mono uppercase text-blanc-dim;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* Shimmer — réservé au wordmark et au titre hero de la Fiche. */
+@keyframes mgShine {
+  0% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+.shimmer {
+  background: linear-gradient(100deg, #f3f4f6 0%, #f3f4f6 38%, #ffe680 50%, #f3f4f6 62%, #f3f4f6 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: mgShine 7s linear infinite;
+}
+
+/* Pastille logo (losange dégradé). */
+.logo-dot {
+  background: var(--accent-gradient);
+  box-shadow: 0 0 10px rgba(255, 210, 0, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
   }
 }

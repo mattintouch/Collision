@@ -1,103 +1,106 @@
 import Link from "next/link";
-import clsx from "clsx";
-import type { CibleEnrichie, Show } from "@/lib/types";
+import type { CibleEnrichie, Show, Priorite } from "@/lib/types";
 import {
-  ARCHETYPE_LABELS,
   CONSEIL_LABELS,
-  PRIORITE_LABELS,
   SIGNAL_LABELS,
   VOIE_LABELS,
+  type Resurgence,
   computeResurgence,
 } from "@/lib/domain";
 
-export function TargetCard({
-  cible,
-  show,
-}: {
-  cible: CibleEnrichie;
-  show: Show;
-}) {
+const ADVICE: Record<Resurgence["conseil"], { icon: string; cls: string; bg: string }> = {
+  relancer: { icon: "→", cls: "text-relancer", bg: "rgba(31,180,106,.12)" },
+  passer_par_appui: { icon: "↳", cls: "text-appui", bg: "rgba(93,180,255,.1)" },
+  attendre: { icon: "◷", cls: "text-blanc-muted", bg: "rgba(255,255,255,.04)" },
+};
+const PRIO_DOT: Record<Priorite, string> = { haute: "#FFD200", moyenne: "#9aa0ac", basse: "#5b616b" };
+
+export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }) {
   const r = computeResurgence(cible);
   const isEntreprise = cible.kind === "entreprise";
+  const subtitle = isEntreprise
+    ? [cible.secteur, cible.pays].filter(Boolean).join(" · ")
+    : [cible.role, cible.organisation].filter(Boolean).join(" · ");
+  const froid = cible.voie === "froid";
+  const voieColor = froid ? "#5DB4FF" : "#FF8C42";
+  const advice = ADVICE[r.conseil];
 
   return (
-    <Link
-      href={`/${show.slug}/cible/${cible.id}`}
-      className="card block p-4 transition-colors hover:border-noir-600 hover:bg-noir-700"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <h3 className="font-medium leading-tight">{cible.nom}</h3>
-          <p className="mt-0.5 text-xs text-blanc-muted">
-            {isEntreprise
-              ? [cible.secteur, cible.pays].filter(Boolean).join(" · ")
-              : [cible.role, cible.organisation].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <span
-          className={clsx(
-            "chip shrink-0 border-transparent",
-            cible.voie === "froid"
-              ? "bg-sky-500/15 text-sky-300"
-              : "bg-orange-500/15 text-orange-300"
-          )}
-        >
-          {VOIE_LABELS[cible.voie]}
-        </span>
-      </div>
-
-      {isEntreprise && cible.raison_de_selection && (
-        <p className="mt-2 line-clamp-2 text-sm text-blanc">
-          {cible.raison_de_selection}
-        </p>
-      )}
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
-        {cible.stage_label && (
-          <span className="chip border-noir-600 text-blanc-muted">
-            {cible.stage_label}
-          </span>
-        )}
-        <span className="chip border-noir-600 text-blanc-muted">
-          Priorité {PRIORITE_LABELS[cible.priorite].toLowerCase()}
-        </span>
-        {!isEntreprise && cible.archetype && (
-          <span className="chip border-jaune/40 text-jaune">
-            {ARCHETYPE_LABELS[cible.archetype]}
-          </span>
-        )}
-        {cible.nb_appuis > 0 && (
-          <span className="chip border-noir-600 text-blanc-muted">
-            {cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}
-          </span>
-        )}
-        {(cible.watchlist_keys ?? []).map((w) => (
-          <span key={w} className="chip border-jaune/40 text-jaune">
-            {w.toUpperCase()}
-          </span>
-        ))}
-      </div>
-
-      {/* Pourquoi maintenant — moteur de résurgence */}
-      {r.raison && (
-        <div className="mt-3 border-t border-noir-600 pt-2 text-xs">
+    <Link href={`/${show.slug}/cible/${cible.id}`} className="card block p-[14px] transition-colors hover:bg-noir-700">
+      <div className="flex flex-col gap-[11px]">
+        {/* 1 — Titre + voie */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{cible.nom}</h3>
+            {subtitle && <p className="truncate text-[12.5px] text-blanc-muted">{subtitle}</p>}
+          </div>
           <span
-            className={clsx(
-              cible.signal_frais ? "text-jaune" : "text-blanc-muted"
-            )}
+            className="chip mono shrink-0"
+            style={{
+              color: voieColor,
+              borderColor: froid ? "rgba(93,180,255,.3)" : "rgba(255,140,66,.3)",
+              background: froid ? "rgba(93,180,255,.07)" : "rgba(255,140,66,.07)",
+              fontSize: "9.5px",
+              fontWeight: 600,
+              letterSpacing: ".1em",
+            }}
           >
-            {r.conseil !== "relancer" && (
-              <span className="font-medium">{CONSEIL_LABELS[r.conseil]} — </span>
-            )}
-            {r.raison}
+            <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: voieColor }} />
+            {VOIE_LABELS[cible.voie].toUpperCase()}
           </span>
         </div>
-      )}
-      {cible.signal_frais && cible.dernier_signal_type && (
-        <p className="mt-1 text-xs text-blanc-muted">
-          Signal : {SIGNAL_LABELS[cible.dernier_signal_type]}
-        </p>
-      )}
+
+        {/* 2 — Méta */}
+        <div className="meta flex flex-wrap items-center gap-x-[13px] gap-y-1">
+          {cible.stage_label && <span>{cible.stage_label}</span>}
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: PRIO_DOT[cible.priorite] }} />
+            {cible.priorite}
+          </span>
+          {cible.nb_appuis > 0 && (
+            <span>{cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}</span>
+          )}
+          {(cible.watchlist_keys ?? []).map((w) => (
+            <span key={w} style={{ color: "#FFD200" }}>{w.toUpperCase()}</span>
+          ))}
+        </div>
+
+        {/* 3 — Pourquoi maintenant (le cœur) */}
+        {r.raison && (
+          <div
+            className="relative rounded-[10px] p-[11px] pl-[14px]"
+            style={
+              cible.signal_frais
+                ? { background: "linear-gradient(90deg,rgba(255,210,0,.08),rgba(255,210,0,.015))", border: "1px solid rgba(255,210,0,.16)" }
+                : { background: "rgba(255,255,255,.025)", border: "1px solid var(--line)" }
+            }
+          >
+            {cible.signal_frais && (
+              <span className="absolute bottom-[9px] left-0 top-[9px] w-[2px] rounded-full" style={{ background: "var(--accent-gradient)" }} />
+            )}
+            <div
+              className="label"
+              style={cible.signal_frais ? { color: "#FFD200", fontSize: "9px", letterSpacing: ".16em" } : { color: "#6b7280", fontSize: "9px" }}
+            >
+              {cible.signal_frais ? "● Signal frais" : "Pourquoi maintenant"}
+            </div>
+            <p className="mt-1 text-[13px] leading-[1.35]" style={{ color: cible.signal_frais ? "#F3F4F6" : "#cfd2d8" }}>
+              {r.raison}
+            </p>
+            <span className={`mono mt-[9px] inline-flex items-center gap-1 rounded-[7px] px-[9px] py-[5px] text-[10.5px] font-medium ${advice.cls}`} style={{ background: advice.bg }}>
+              {advice.icon} {CONSEIL_LABELS[r.conseil]}
+            </span>
+          </div>
+        )}
+
+        {/* 4 — Pied */}
+        <div className="meta flex items-center justify-between" style={{ color: "#565B66" }}>
+          <span>
+            {cible.jours_depuis_touche !== null ? `Dernière touche · ${cible.jours_depuis_touche} j` : "Jamais touché"}
+          </span>
+          {cible.dernier_signal_type && <span>{SIGNAL_LABELS[cible.dernier_signal_type]}</span>}
+        </div>
+      </div>
     </Link>
   );
 }
