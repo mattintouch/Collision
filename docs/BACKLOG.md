@@ -15,7 +15,11 @@
 - **Folk** : lien `folk_id` sur les cibles (migration 0009) + backfill à l'import + push des touches Magellan → interactions Folk (l'API Folk est write-only pour les interactions, donc pas de lecture possible).
 - **Validation / calendrier** : mini-calendrier, lien claude.ai pré-rempli (brief invité), réservation Studio 71 (-1h/+1h), annuler/reprogrammer (sync Google Calendar, migration 0010), gabarit d'invitation GDIY (objet + corps FR/EN, équipe par défaut, date mardi/jeudi 9h30, studio conditionnel au lieu).
 
-Migrations appliquées en prod : **0009**, **0010**.
+- **Lot 1** (annotations MCP : readOnly/destructive/idempotent/openWorld par outil).
+- **Lot 2** (watchlist : tables + seed CAC40… + MCP create/update/list + chips ; migration 0011).
+- **Lot 3** (filtres : `list_cibles` secteur/pays/envergure/sujet + **barre de filtres board** watchlist/voie/recherche). **Décision** : la watchlist est une **facette de filtre**, pas une colonne — les colonnes gardent l'axe avancement (archétype/étape).
+
+Migrations appliquées en prod : **0009**, **0010**, **0011**.
 
 ---
 
