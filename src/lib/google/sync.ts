@@ -49,7 +49,15 @@ export interface SyncResult {
 
 export async function syncShowContacts(sb: SB, show: { id: string; nom: string }): Promise<SyncResult> {
   const empty = { cibles: 0, relais: 0, erreurs: [] as string[] };
-  if (!hasGoogleSync()) return { ok: false, detail: "Synchro Google non configurée (GOOGLE_SA_KEY / GOOGLE_IMPERSONATE_EMAIL).", ...empty };
+  if (!hasGoogleSync()) {
+    const len = (process.env.GOOGLE_SA_KEY ?? "").length;
+    const email = process.env.GOOGLE_IMPERSONATE_EMAIL ? "présent" : "absent";
+    return {
+      ok: false,
+      detail: `Synchro Google non configurée. GOOGLE_SA_KEY = ${len} caractères (attendu : plusieurs milliers) ; GOOGLE_IMPERSONATE_EMAIL = ${email}.`,
+      ...empty,
+    };
+  }
   const token = await googleAccessToken();
   if (!token) return { ok: false, detail: "Authentification Google échouée (clé de service / délégation).", ...empty };
 
