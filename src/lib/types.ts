@@ -72,6 +72,10 @@ export interface Cible {
   raison_de_selection: string | null;
   etat_recherche: string | null;
 
+  // Note de fond (contexte durable) + priorité manuelle 1-5 (tri en tête de colonne)
+  note: string | null;
+  note_priorite: number | null;
+
   // Lien Folk (source de vérité coordonnées + interactions)
   folk_id: string | null;
 

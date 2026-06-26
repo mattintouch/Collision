@@ -94,6 +94,25 @@ async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Prom
   return null;
 }
 
+const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
+const ENTREPRISE_ONLY = ["secteur", "pays", "envergure", "raison_de_selection", "etat_recherche"] as const;
+const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui"] as const;
+
+/**
+ * Construit un patch de cible selon le kind (personne/entreprise) et signale les
+ * champs refusés (illégaux pour ce kind) — pour une erreur lisible plutôt qu'une
+ * violation de contrainte Postgres brute.
+ */
+function kindAwarePatch(kind: string, a: Record<string, unknown>): { patch: Record<string, unknown>; rejected: string[]; allowed: string[] } {
+  const allowed = [...SHARED_FIELDS, ...(kind === "personne" ? PERSONNE_ONLY : ENTREPRISE_ONLY)];
+  const forbidden = (kind === "personne" ? ENTREPRISE_ONLY : PERSONNE_ONLY) as readonly string[];
+  const patch: Record<string, unknown> = {};
+  const rejected: string[] = [];
+  for (const f of forbidden) if (a[f] !== undefined) rejected.push(f);
+  for (const f of allowed) if (a[f] !== undefined) patch[f] = a[f];
+  return { patch, rejected, allowed: [...allowed] };
+}
+
 export function registerMagellanTools(server: McpServer) {
   server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
@@ -198,12 +217,23 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "create_cible",
-    "Crée une cible dans un show (si absente).",
+    "Crée et qualifie une cible (si absente). Le kind (personne/entreprise) découle du show ; les champs sont validés selon le kind.",
     {
       show: z.string(),
       nom: z.string(),
       role: z.string().optional(),
       organisation: z.string().optional(),
+      archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
+      secteur: z.string().optional(),
+      pays: z.string().optional(),
+      envergure: z.enum(["fr", "international"]).optional(),
+      priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
+      voie: z.enum(["froid", "chaud"]).optional(),
+      sujets: z.array(z.string()).optional(),
+      raison_de_selection: z.string().optional(),
+      etat_recherche: z.string().optional(),
+      note: z.string().optional().describe("contexte de fond durable"),
+      note_priorite: z.number().int().min(1).max(5).optional().describe("priorité manuelle 1-5"),
       watchlist: z.array(z.string()).optional().describe("clés/libellés (ex. ['cac40'])"),
     },
     { destructiveHint: false, idempotentHint: true },
@@ -211,15 +241,20 @@ export function registerMagellanTools(server: McpServer) {
       const sb = createServiceClient();
       const show = await showRow(sb, a.show);
       if (!show) return text({ error: "Show introuvable" });
-      const c = await ensureCible(sb, show, a.nom);
-      if (c && (a.role || a.organisation)) {
-        await sb.from("cibles").update({ role: a.role ?? null, organisation: a.organisation ?? null }).eq("id", c.id);
+      const kind = show.type_pipe === "invites" ? "personne" : "entreprise";
+      const { patch, rejected, allowed } = kindAwarePatch(kind, a as Record<string, unknown>);
+      if (rejected.length) {
+        return text({ error: `Champs non autorisés pour une ${kind} : ${rejected.join(", ")}. Champs autorisés : ${allowed.join(", ")}.` });
       }
-      if (c && a.watchlist) {
+      const c = await ensureCible(sb, show, a.nom);
+      if (!c) return text({ error: "Création échouée" });
+      delete patch.nom; // déjà posé par ensureCible
+      if (Object.keys(patch).length) await sb.from("cibles").update(patch).eq("id", c.id);
+      if (a.watchlist) {
         const err = await setCibleWatchlists(sb, c.id, a.watchlist);
         if (err) return text({ error: err });
       }
-      return text({ ok: true, cible: c, watchlist: a.watchlist });
+      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist });
     }
   );
 
@@ -303,8 +338,8 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "log_touche",
-    "Logge une touche sur une cible (remet le compteur à zéro).",
-    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional() },
+    "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater une touche réelle (ISO, ex. 2026-01-07).",
+    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)") },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -312,7 +347,13 @@ export function registerMagellanTools(server: McpServer) {
       if (!sid) return text({ error: "Show introuvable" });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
-      const { error } = await sb.from("touches").insert({ cible_id: target.id, contenu: a.contenu, canal: a.canal ?? null, source: "saisie" });
+      const { error } = await sb.from("touches").insert({
+        cible_id: target.id,
+        contenu: a.contenu,
+        canal: a.canal ?? null,
+        source: "saisie",
+        ...(a.date ? { date: a.date } : {}),
+      });
       if (error) return text({ error: error.message });
       const folk = await folkLogTouche(target.nom, a.contenu, a.canal);
       return text({ ok: true, cible: target.nom, folk: folk.detail });
@@ -337,6 +378,8 @@ export function registerMagellanTools(server: McpServer) {
       sujets: z.array(z.string()).optional(),
       raison_de_selection: z.string().optional(),
       etat_recherche: z.string().optional(),
+      note: z.string().optional().describe("contexte de fond durable (distinct du journal)"),
+      note_priorite: z.number().int().min(1).max(5).optional().describe("priorité manuelle 1-5"),
       watchlist: z.array(z.string()).optional().describe("remplace les watchlists (clés/libellés)"),
     },
     { destructiveHint: false, idempotentHint: true },
@@ -346,13 +389,14 @@ export function registerMagellanTools(server: McpServer) {
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      const { data: row } = await sb.from("cibles").select("kind").eq("id", target.id).single();
+      const kind = ((row as { kind?: string } | null)?.kind ?? "personne") as string;
 
-      const fields = [
-        "nom", "role", "organisation", "secteur", "pays", "envergure",
-        "priorite", "voie", "archetype", "sujets", "raison_de_selection", "etat_recherche",
-      ] as const;
-      const patch: Record<string, unknown> = {};
-      for (const f of fields) if (a[f] !== undefined) patch[f] = a[f];
+      // Validation lisible et sensible au kind (pas de violation Postgres brute).
+      const { patch, rejected, allowed } = kindAwarePatch(kind, a as Record<string, unknown>);
+      if (rejected.length) {
+        return text({ error: `Champs non autorisés pour une ${kind} : ${rejected.join(", ")}. Champs autorisés : ${allowed.join(", ")}.` });
+      }
       if (Object.keys(patch).length === 0 && a.watchlist === undefined) {
         return text({ error: "Aucun champ à mettre à jour." });
       }

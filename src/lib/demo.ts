@@ -72,6 +72,8 @@ const base = {
   envergure: null,
   raison_de_selection: null,
   etat_recherche: null,
+  note: null,
+  note_priorite: null,
   folk_id: null,
   archive: false,
   created_at: daysAgo(40),
