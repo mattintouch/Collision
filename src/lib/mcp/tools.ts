@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
+import { syncShowContacts } from "../google/sync";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -355,6 +356,22 @@ export function registerMagellanTools(server: McpServer) {
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
       return error ? text({ error: error.message }) : text({ ok: true, cible: target.nom, episode_id: data });
+    }
+  );
+
+  server.tool(
+    "sync_google_contacts",
+    "Synchronise les cibles (non archivées) et les relais d'un show vers Google Contacts. Magellan reste la source de vérité ; crée/met à jour sans doublon, groupés par show et par watchlist.",
+    { show: z.string() },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const { data: show } = await sb.from("shows").select("id, nom").eq("id", sid).single();
+      if (!show) return text({ error: "Show introuvable" });
+      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom });
+      return text(res);
     }
   );
 }
