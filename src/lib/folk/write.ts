@@ -52,6 +52,20 @@ async function findPersonByName(name: string): Promise<FolkPerson | null> {
   return null;
 }
 
+/** Crée une fiche Folk minimale (fullName). */
+async function createPerson(name: string): Promise<FolkPerson | null> {
+  const res = await folk("POST", "/people", { fullName: name });
+  if (!res.ok) return null;
+  const json = (await res.json()) as { data?: FolkPerson };
+  return json.data ?? null;
+}
+
+/** Trouve la fiche Folk par nom, sinon la crée (pont idempotent — ne plus échouer
+ *  sur « fiche introuvable »). */
+async function findOrCreatePerson(name: string): Promise<FolkPerson | null> {
+  return (await findPersonByName(name)) ?? (await createPerson(name));
+}
+
 /** PATCH puis PUT en secours (le verbe d'update varie selon les API). */
 async function updatePerson(id: string, patch: Record<string, unknown>): Promise<boolean> {
   let res = await folk("PATCH", `/people/${id}`, patch);
@@ -75,8 +89,8 @@ export async function folkAddAlly(
 ): Promise<FolkSyncResult> {
   if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };
   try {
-    const person = await findPersonByName(cibleNom);
-    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » introuvable.` };
+    const person = await findOrCreatePerson(cibleNom);
+    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
     const line = `Allié : ${allyNom}${context ? ` — ${context}` : ""}`;
     const description = [person.description?.trim(), line].filter(Boolean).join("\n");
     const ok = await updatePerson(person.id, { description });
@@ -111,8 +125,8 @@ export async function folkLogTouche(
 ): Promise<FolkSyncResult> {
   if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };
   try {
-    const person = await findPersonByName(cibleNom);
-    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » introuvable.` };
+    const person = await findOrCreatePerson(cibleNom);
+    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
     const title = (contenu.split("\n")[0] || "Touche Magellan").slice(0, 255);
     const res = await folk("POST", "/interactions", {
       entity: { id: person.id },
@@ -135,8 +149,8 @@ export async function folkLogTouche(
 export async function folkAddPhone(cibleNom: string, phone: string): Promise<FolkSyncResult> {
   if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };
   try {
-    const person = await findPersonByName(cibleNom);
-    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » introuvable.` };
+    const person = await findOrCreatePerson(cibleNom);
+    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
     const phones = Array.from(new Set([...(person.phones ?? []), phone]));
     const ok = await updatePerson(person.id, { phones });
     return { ok, matched: true, detail: ok ? `Téléphone ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
