@@ -4,10 +4,16 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { validateCible } from "@/lib/actions";
 import { Modal } from "./Modal";
-import { Field, Input } from "./form";
+import { Field, Input, Textarea } from "./form";
 import { MiniCalendar } from "./MiniCalendar";
-
-const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
+import {
+  GDIY_TEAM_EMAILS,
+  STUDIO_71,
+  defaultRecordingDate,
+  invitationBody,
+  invitationSubject,
+  type InviteLang,
+} from "@/lib/invitation";
 
 export function ConfirmEpisodeModal({
   open,
@@ -24,15 +30,27 @@ export function ConfirmEpisodeModal({
   cibleNom: string;
   defaultEmails?: string[];
 }) {
-  const [date, setDate] = useState("");
-  const [heure, setHeure] = useState("");
-  const [lieu, setLieu] = useState(DEFAULT_LIEU);
-  const [emails, setEmails] = useState(defaultEmails.join(", "));
+  const [date, setDate] = useState(() => defaultRecordingDate().date);
+  const [heure, setHeure] = useState("09:30");
+  const [lieu, setLieu] = useState(STUDIO_71);
+  const [lang, setLang] = useState<InviteLang>("fr");
+  const [subject, setSubject] = useState(() => invitationSubject(cibleNom));
+  const [body, setBody] = useState(() => invitationBody(cibleNom, "fr"));
+  const [emails, setEmails] = useState(() =>
+    Array.from(new Set([...defaultEmails, ...GDIY_TEAM_EMAILS])).join(", ")
+  );
   const [send, setSend] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
   const [claudeUrl, setClaudeUrl] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
+
+  const studioReserve = lieu.trim() === STUDIO_71;
+
+  function switchLang(next: InviteLang) {
+    setLang(next);
+    setBody(invitationBody(cibleNom, next)); // réinitialise le corps dans la langue choisie
+  }
 
   function submit() {
     setMsg(null);
@@ -47,11 +65,12 @@ export function ConfirmEpisodeModal({
         lieu,
         attendees,
         send_invite: send,
+        summary: subject,
+        description: body,
       });
       if (r.ok) {
         setMsg(r.detail ?? "Validé.");
         router.refresh();
-        // S'il y a un brief Claude, on garde la modale ouverte pour le clic.
         if (r.claudeUrl) setClaudeUrl(r.claudeUrl);
         else setTimeout(onClose, 1200);
       } else {
@@ -65,19 +84,51 @@ export function ConfirmEpisodeModal({
       <div className="space-y-3">
         <p className="text-xs text-blanc-muted">
           La cible devient un épisode. Renseigne l&apos;enregistrement pour créer
-          l&apos;invitation Google Calendar (laisse vide pour valider sans planifier).
+          l&apos;invitation Google Calendar (laisse la date vide pour valider sans planifier).
         </p>
-        <Field label="Date d'enregistrement">
+
+        <Field label="Date d'enregistrement (mardi/jeudi 9h30 par défaut)">
           <MiniCalendar value={date} onChange={setDate} />
         </Field>
         <Field label="Heure">
           <Input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
         </Field>
+
         <Field label="Lieu">
           <Input value={lieu} onChange={(e) => setLieu(e.target.value)} />
         </Field>
-        <Field label="Emails des participants (séparés par des virgules)">
-          <Input
+        <p className="-mt-1 text-[11px] text-blanc-muted">
+          {studioReserve
+            ? "Studio 71 → la réservation studio (-1h/+1h) sera créée."
+            : "Lieu modifié → pas de réservation du Studio 71."}
+        </p>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-blanc-muted">Langue de l&apos;invitation</span>
+          <div className="flex gap-1 text-xs">
+            {(["fr", "en"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => switchLang(l)}
+                className={`rounded px-2 py-1 ${lang === l ? "bg-jaune text-noir-900" : "text-blanc-muted hover:bg-noir-700"}`}
+              >
+                {l.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Field label="Objet">
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+        </Field>
+        <Field label="Message d'invitation (modifiable)">
+          <Textarea rows={12} value={body} onChange={(e) => setBody(e.target.value)} />
+        </Field>
+
+        <Field label="Participants (invité + équipe, séparés par des virgules)">
+          <Textarea
+            rows={2}
             value={emails}
             onChange={(e) => setEmails(e.target.value)}
             placeholder="invite@exemple.com, equipe@collision.studio"
@@ -103,7 +154,7 @@ export function ConfirmEpisodeModal({
 
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="btn-ghost">
-            Annuler
+            Fermer
           </button>
           <button onClick={submit} disabled={pending} className="btn bg-emerald-600 text-white hover:bg-emerald-500">
             {pending ? "Validation…" : "Confirmer l'épisode"}

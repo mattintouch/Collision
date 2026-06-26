@@ -160,6 +160,8 @@ export async function validateCible(input: {
   lieu?: string;
   attendees?: string[]; // emails à inviter
   send_invite?: boolean;
+  summary?: string; // objet de l'invitation
+  description?: string; // corps de l'invitation
 }): Promise<ActionResult> {
   if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
@@ -190,31 +192,37 @@ export async function validateCible(input: {
     const { data: sess } = await supabase.auth.getSession();
     const token = sess.session?.provider_token;
 
-    // 1) L'enregistrement : invitation envoyée aux participants.
+    // 1) L'enregistrement : invitation (objet + corps du gabarit) aux participants.
     const ev = await createCalendarEvent(token, {
-      summary: `Enregistrement — ${input.cible_nom ?? "invité"}`,
+      summary: input.summary?.trim() || `Enregistrement — ${input.cible_nom ?? "invité"}`,
       startISO: start.toISOString(),
       endISO: end.toISOString(),
       location: lieu,
       attendees,
-      description: `Enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
+      description: input.description?.trim() || `Enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
       sendInvites: input.send_invite,
     });
     gcalEventId = ev.eventId;
 
-    // 2) La réservation Studio 71 : bloc d'1h avant à 1h après, sans invités.
-    const studio = await createCalendarEvent(token, {
-      summary: `Studio 71 réservé — ${input.cible_nom ?? "invité"}`,
-      startISO: new Date(start.getTime() - 60 * 60000).toISOString(),
-      endISO: new Date(end.getTime() + 60 * 60000).toISOString(),
-      location: lieu,
-      attendees: [],
-      description: `Réservation studio (installation/débrief) pour l'enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
-      sendInvites: false,
-    });
-    gcalStudioEventId = studio.eventId;
+    // 2) La réservation Studio 71 : seulement si le lieu est bien le Studio 71
+    //    (lieu modifié → pas de réservation). Bloc d'1h avant à 1h après.
+    let studioNote = "";
+    if (lieu === DEFAULT_LIEU) {
+      const studio = await createCalendarEvent(token, {
+        summary: `Studio 71 réservé — ${input.cible_nom ?? "invité"}`,
+        startISO: new Date(start.getTime() - 60 * 60000).toISOString(),
+        endISO: new Date(end.getTime() + 60 * 60000).toISOString(),
+        location: lieu,
+        attendees: [],
+        description: `Réservation studio (installation/débrief) pour l'enregistrement ${input.show_slug.toUpperCase()} avec ${input.cible_nom ?? ""}.`,
+        sendInvites: false,
+      });
+      gcalStudioEventId = studio.eventId;
+      studioNote = studio.ok ? " Studio 71 réservé (-1h/+1h)." : ` Studio : ${studio.detail}`;
+    } else {
+      studioNote = " (lieu hors Studio 71 : pas de réservation studio).";
+    }
 
-    const studioNote = studio.ok ? " Studio 71 réservé (-1h/+1h)." : ` Studio : ${studio.detail}`;
     detail = ev.ok
       ? `Validé — épisode créé. ${ev.detail}${studioNote}`
       : `Validé — épisode créé. Calendrier : ${ev.detail}`;
