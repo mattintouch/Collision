@@ -66,7 +66,7 @@ async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom:
 }
 
 export function registerMagellanTools(server: McpServer) {
-  server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, async () => {
+  server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
     const { data } = await sb.from("shows").select("*, stages(key, label, position, is_final)").order("nom");
     return text(data);
@@ -82,6 +82,7 @@ export function registerMagellanTools(server: McpServer) {
       stage_key: z.string().optional(),
       kind: z.enum(["personne", "entreprise"]).optional(),
     },
+    { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -100,6 +101,7 @@ export function registerMagellanTools(server: McpServer) {
     "get_dossier",
     "Dossier complet d'une cible : champs, appuis, journal, signaux, contacts.",
     { cible_id: z.string() },
+    { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
       const [c, appuis, touches, signals, contacts] = await Promise.all([
@@ -118,6 +120,7 @@ export function registerMagellanTools(server: McpServer) {
     "create_cible",
     "Crée une cible dans un show (si absente).",
     { show: z.string(), nom: z.string(), role: z.string().optional(), organisation: z.string().optional() },
+    { destructiveHint: false, idempotentHint: true },
     async (a) => {
       const sb = createServiceClient();
       const show = await showRow(sb, a.show);
@@ -141,6 +144,7 @@ export function registerMagellanTools(server: McpServer) {
       note: z.string().optional(),
       creer_allie_comme_cible: z.boolean().optional(),
     },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const show = await showRow(sb, a.show);
@@ -172,6 +176,7 @@ export function registerMagellanTools(server: McpServer) {
       valeur: z.string(),
       label: z.string().optional(),
     },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -192,6 +197,7 @@ export function registerMagellanTools(server: McpServer) {
     "log_touche",
     "Logge une touche sur une cible (remet le compteur à zéro).",
     { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional() },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -224,6 +230,7 @@ export function registerMagellanTools(server: McpServer) {
       raison_de_selection: z.string().optional(),
       etat_recherche: z.string().optional(),
     },
+    { destructiveHint: false, idempotentHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -251,6 +258,7 @@ export function registerMagellanTools(server: McpServer) {
     "validate_cible",
     "Valide une cible : bascule en épisode avec son contexte.",
     { show: z.string(), cible: z.string() },
+    { destructiveHint: false, idempotentHint: false },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
