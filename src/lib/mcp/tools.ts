@@ -115,13 +115,19 @@ export function registerMagellanTools(server: McpServer) {
       envergure: z.enum(["fr", "international"]).optional(),
       sujet: z.string().optional().describe("cibles dont les sujets contiennent cette valeur"),
       watchlist: z.string().optional().describe("clé ou libellé (ex. cac40) — cibles appartenant à cette watchlist"),
+      q: z.string().optional().describe("filtre par nom (recherche partielle)"),
+      limit: z.number().optional().describe("nombre max de cibles (défaut 50)"),
+      full: z.boolean().optional().describe("true = toutes les colonnes ; défaut = projection compacte"),
     },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      let q = sb.from("cibles_enrichies").select("*").eq("show_id", sid);
+      // Projection compacte par défaut (éviter de tirer des centaines de lignes complètes).
+      const COMPACT =
+        "id, nom, kind, role, organisation, secteur, pays, voie, priorite, archetype, stage_key, jours_depuis_touche, signal_frais, nb_appuis, watchlist_keys";
+      let q = sb.from("cibles_enrichies").select(a.full ? "*" : COMPACT).eq("show_id", sid);
       if (a.voie) q = q.eq("voie", a.voie);
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
@@ -130,6 +136,7 @@ export function registerMagellanTools(server: McpServer) {
       if (a.pays) q = q.eq("pays", a.pays);
       if (a.envergure) q = q.eq("envergure", a.envergure);
       if (a.sujet) q = q.contains("sujets", [a.sujet]);
+      if (a.q) q = q.ilike("nom", `%${a.q}%`);
       if (a.watchlist) {
         const { ids, unknown } = await resolveWatchlistIds(sb, [a.watchlist]);
         if (unknown.length) return text({ error: `Watchlist inconnue : ${a.watchlist}` });
@@ -137,8 +144,29 @@ export function registerMagellanTools(server: McpServer) {
         const cibleIds = (links ?? []).map((l) => l.cible_id as string);
         q = q.in("id", cibleIds.length ? cibleIds : ["00000000-0000-0000-0000-000000000000"]);
       }
+      q = q.limit(Math.min(a.limit ?? 50, 200));
       const { data, error } = await q;
       return error ? text({ error: error.message }) : text(data);
+    }
+  );
+
+  server.tool(
+    "find_cible",
+    "Cherche une cible par nom dans un show et renvoie id + résumé. À utiliser pour vérifier l'existence d'une personne sans tirer toute la liste.",
+    { show: z.string(), query: z.string().describe("nom ou fragment de nom") },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const { data, error } = await sb
+        .from("cibles_enrichies")
+        .select("id, nom, kind, role, organisation, secteur, pays, stage_key, archetype")
+        .eq("show_id", sid)
+        .ilike("nom", `%${a.query}%`)
+        .limit(15);
+      if (error) return text({ error: error.message });
+      return text({ count: (data ?? []).length, cibles: data });
     }
   );
 
