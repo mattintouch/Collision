@@ -109,6 +109,10 @@ export function registerMagellanTools(server: McpServer) {
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
       stage_key: z.string().optional(),
       kind: z.enum(["personne", "entreprise"]).optional(),
+      secteur: z.string().optional(),
+      pays: z.string().optional(),
+      envergure: z.enum(["fr", "international"]).optional(),
+      sujet: z.string().optional().describe("cibles dont les sujets contiennent cette valeur"),
       watchlist: z.string().optional().describe("clé ou libellé (ex. cac40) — cibles appartenant à cette watchlist"),
     },
     { readOnlyHint: true },
@@ -121,6 +125,10 @@ export function registerMagellanTools(server: McpServer) {
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
       if (a.kind) q = q.eq("kind", a.kind);
+      if (a.secteur) q = q.eq("secteur", a.secteur);
+      if (a.pays) q = q.eq("pays", a.pays);
+      if (a.envergure) q = q.eq("envergure", a.envergure);
+      if (a.sujet) q = q.contains("sujets", [a.sujet]);
       if (a.watchlist) {
         const { ids, unknown } = await resolveWatchlistIds(sb, [a.watchlist]);
         if (unknown.length) return text({ error: `Watchlist inconnue : ${a.watchlist}` });
