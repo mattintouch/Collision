@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCibleDossier, getEpisodeForCible, getShow, getStages } from "@/lib/data";
+import { getCibleDossier, getEpisodeForCible, getShow, getStages, getWatchlists } from "@/lib/data";
+import { EditableIdentity } from "@/components/EditableIdentity";
+import { TagEditor } from "@/components/TagEditor";
 import {
   APPUI_LABELS,
   ARCHETYPE_HINTS,
@@ -33,8 +35,8 @@ export default async function CiblePage({
   const show = await getShow(params.show);
   if (!show) notFound();
 
-  const [{ cible, appuis, touches, signals, contacts }, stages, episode] =
-    await Promise.all([getCibleDossier(params.id), getStages(show.id), getEpisodeForCible(params.id)]);
+  const [{ cible, appuis, touches, signals, contacts }, stages, episode, watchlists] =
+    await Promise.all([getCibleDossier(params.id), getStages(show.id), getEpisodeForCible(params.id), getWatchlists()]);
   if (!cible) notFound();
 
   const showRecording = episode && (episode.date_enregistrement || episode.statut_prod === "annule");
@@ -56,16 +58,16 @@ export default async function CiblePage({
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-semibold tracking-tight">
-            {cible.nom}
-          </h1>
-          <p className="mt-1 text-sm text-blanc-muted">
-            {isEntreprise
-              ? [cible.secteur, cible.pays, cible.envergure === "international" ? "International" : "France"]
-                  .filter(Boolean)
-                  .join(" · ")
-              : [cible.role, cible.organisation].filter(Boolean).join(" · ")}
-          </p>
+          <EditableIdentity
+            cibleId={cible.id}
+            showSlug={show.slug}
+            isEntreprise={isEntreprise}
+            nom={cible.nom}
+            role={cible.role}
+            organisation={cible.organisation}
+            secteur={cible.secteur}
+            pays={cible.pays}
+          />
           {(emails.length > 0 || phones.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
               {emails.map((c) => (
@@ -214,6 +216,14 @@ export default async function CiblePage({
               <p className="text-sm">{cible.etat_recherche ?? "—"}</p>
             </section>
           )}
+
+          {/* Tags (watchlists) éditables sur la fiche */}
+          <TagEditor
+            cibleId={cible.id}
+            showSlug={show.slug}
+            keys={cible.watchlist_keys ?? []}
+            watchlists={watchlists}
+          />
 
           {/* Contacts — enrichissement (joindre les cibles difficiles) */}
           <ContactsSection

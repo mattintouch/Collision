@@ -11,6 +11,14 @@ function looksLinkable(v: string) {
   return /^https?:\/\//.test(v);
 }
 
+/** Lien cliquable selon le type de coordonnée. */
+function hrefFor(kind: string, v: string): string | null {
+  if (kind === "email") return `mailto:${v.trim()}`;
+  if (kind === "telephone") return `tel:${v.replace(/\s+/g, "")}`;
+  if (kind === "reseau" || kind === "site") return /^https?:\/\//.test(v) ? v : `https://${v}`;
+  return null;
+}
+
 export function ContactsSection({
   cibleId,
   showSlug,
@@ -136,7 +144,18 @@ function ContactRow({
           <span className="chip border-noir-600 text-blanc-muted">
             {CONTACT_LABELS[kind]}
           </span>
-          <span className="truncate text-sm">{valeur}</span>
+          {hrefFor(kind, valeur) ? (
+            <a
+              href={hrefFor(kind, valeur) as string}
+              target={kind === "reseau" || kind === "site" ? "_blank" : undefined}
+              rel="noopener noreferrer"
+              className="truncate text-sm text-appui hover:underline"
+            >
+              {valeur}
+            </a>
+          ) : (
+            <span className="truncate text-sm">{valeur}</span>
+          )}
         </div>
         <p className="text-xs text-blanc-muted">
           {label ? `${label} · ` : ""}confiance {confiance}/5

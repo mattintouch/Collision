@@ -423,6 +423,43 @@ export async function bulkCreateAndTagWatchlist(input: {
   return { ok: true, detail: `${input.ids.length} fiche(s) taguées « ${label} ».` };
 }
 
+/** Édition inline des champs d'identité d'une fiche (selon le kind, géré côté UI). */
+export async function updateCibleInfo(input: {
+  cible_id: string;
+  show_slug: string;
+  patch: Partial<{ nom: string; role: string | null; organisation: string | null; secteur: string | null; pays: string | null; note: string | null }>;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (Object.keys(input.patch).length === 0) return { ok: false, error: "Rien à mettre à jour." };
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").update(input.patch).eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
+/** Retire une watchlist (par clé) d'une cible. */
+export async function removeCibleWatchlist(input: {
+  cible_id: string;
+  watchlist_key: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { data: w } = await supabase.from("watchlists").select("id").eq("key", input.watchlist_key).maybeSingle();
+  if (!w) return { ok: false, error: "Watchlist inconnue." };
+  const { error } = await supabase
+    .from("cible_watchlists")
+    .delete()
+    .eq("cible_id", input.cible_id)
+    .eq("watchlist_id", (w as { id: string }).id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
 /** Note de priorité manuelle 1-5 (ou null) — pilote le tri en tête de colonne. */
 export async function setCibleNotePriorite(input: {
   cible_id: string;
