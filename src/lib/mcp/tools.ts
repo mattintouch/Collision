@@ -3,9 +3,11 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { syncShowContacts } from "../google/sync";
+import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -444,6 +446,72 @@ export function registerMagellanTools(server: McpServer) {
       if (!show) return text({ error: "Show introuvable" });
       const res = await syncShowContacts(sb, { id: show.id, nom: show.nom });
       return text(res);
+    }
+  );
+
+  server.tool(
+    "enrich_cible",
+    "Enrichit une fiche par recherche web sourcée (rôle, organisation, secteur, réseaux sociaux, sujets, angle d'épisode). apply=true pour écrire la proposition ; sinon propose seulement (à valider).",
+    { show: z.string(), cible: z.string(), apply: z.boolean().optional() },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
+      if (!row) return text({ error: "Cible introuvable" });
+      const proposal = await enrichCibleProfile(row as CibleEnrichie);
+      if (!proposal) return text({ error: "Enrichissement indisponible (clé IA absente ou rien trouvé)." });
+      let applied: string[] | undefined;
+      if (a.apply) {
+        const r = row as { kind: string; note: string | null };
+        applied = await applyProfileProposal(sb, { id: target.id, kind: r.kind, note: r.note }, proposal);
+      }
+      return text({ ok: true, cible: target.nom, proposition: proposal, applied });
+    }
+  );
+
+  server.tool(
+    "enrich_colonne",
+    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 5, max 8). apply=true pour écrire.",
+    {
+      show: z.string(),
+      archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
+      watchlist: z.string().optional(),
+      stage_key: z.string().optional(),
+      limit: z.number().optional(),
+      apply: z.boolean().optional(),
+    },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const cap = Math.min(a.limit ?? 5, 8);
+      let q = sb.from("cibles_enrichies").select("*").eq("show_id", sid).eq("archive", false);
+      if (a.archetype) q = q.eq("archetype", a.archetype);
+      if (a.stage_key) q = q.eq("stage_key", a.stage_key);
+      if (a.watchlist) {
+        const { ids, unknown } = await resolveWatchlistIds(sb, [a.watchlist]);
+        if (unknown.length) return text({ error: `Watchlist inconnue : ${a.watchlist}` });
+        const { data: links } = await sb.from("cible_watchlists").select("cible_id").eq("watchlist_id", ids[0]);
+        const cibleIds = (links ?? []).map((l) => l.cible_id as string);
+        q = q.in("id", cibleIds.length ? cibleIds : ["00000000-0000-0000-0000-000000000000"]);
+      }
+      const { data } = await q.limit(cap);
+      const rows = (data ?? []) as CibleEnrichie[];
+      const resultats = await Promise.all(
+        rows.map(async (row) => {
+          const proposal = await enrichCibleProfile(row);
+          if (!proposal) return { cible: row.nom, ok: false };
+          let applied: string[] | undefined;
+          if (a.apply) applied = await applyProfileProposal(sb, { id: row.id, kind: row.kind, note: row.note }, proposal);
+          return { cible: row.nom, ok: true, applied, proposition: a.apply ? undefined : proposal };
+        })
+      );
+      return text({ ok: true, traitees: rows.length, plafond: cap, note: rows.length === cap ? "Plafond atteint — relance pour la suite." : undefined, resultats });
     }
   );
 }
