@@ -14,6 +14,7 @@ import {
   bulkDeleteCibles,
   bulkAddWatchlist,
   bulkCreateAndTagWatchlist,
+  setCibleNotePriorite,
 } from "@/lib/actions";
 import { TargetCard } from "./TargetCard";
 import { ConfirmEpisodeModal } from "./ConfirmEpisodeModal";
@@ -24,6 +25,10 @@ function archLabel(key: string) {
 }
 
 function sortResurgence(a: CibleEnrichie, b: CibleEnrichie) {
+  // Note de priorité manuelle d'abord (5 → 1), puis voie froide, puis résurgence.
+  const pa = a.note_priorite ?? 0;
+  const pb = b.note_priorite ?? 0;
+  if (pa !== pb) return pb - pa;
   if (a.voie !== b.voie) return a.voie === "froid" ? -1 : 1;
   return computeResurgence(b).score - computeResurgence(a).score;
 }
@@ -190,6 +195,13 @@ export function BoardDnd({
     if (!confirm("Supprimer définitivement cette cible et son dossier ?")) return;
     start(async () => {
       await deleteCible({ cible_id: id, show_slug: show.slug });
+      router.refresh();
+    });
+  }
+
+  function setPriorite(id: string, n: number | null) {
+    start(async () => {
+      await setCibleNotePriorite({ cible_id: id, note_priorite: n, show_slug: show.slug });
       router.refresh();
     });
   }
@@ -398,6 +410,8 @@ export function BoardDnd({
                         ✓
                       </button>
                       <CardMenu
+                        priorite={c.note_priorite}
+                        onSetPriorite={(n) => setPriorite(c.id, n)}
                         onConfirm={() => setConfirmTarget({ id: c.id, nom: c.nom })}
                         onDelete={() => removeCible(c.id)}
                       />
@@ -423,7 +437,17 @@ export function BoardDnd({
   );
 }
 
-function CardMenu({ onConfirm, onDelete }: { onConfirm: () => void; onDelete: () => void }) {
+function CardMenu({
+  priorite,
+  onSetPriorite,
+  onConfirm,
+  onDelete,
+}: {
+  priorite: number | null;
+  onSetPriorite: (n: number | null) => void;
+  onConfirm: () => void;
+  onDelete: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute right-2 top-2 z-10">
@@ -441,7 +465,27 @@ function CardMenu({ onConfirm, onDelete }: { onConfirm: () => void; onDelete: ()
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={(e) => { e.preventDefault(); setOpen(false); }} />
-          <div className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-lg border border-noir-600 bg-noir-800 text-sm shadow-xl">
+          <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-noir-600 bg-noir-800 text-sm shadow-xl">
+            <div className="px-3 pt-2 label" style={{ fontSize: "10px" }}>Priorité</div>
+            <div className="flex gap-1 px-3 pb-2 pt-1">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onSetPriorite(n); }}
+                  className={`h-6 w-6 rounded text-xs ${priorite === n ? "bg-jaune text-noir-900" : "border border-noir-600 text-blanc-muted hover:text-blanc"}`}
+                >
+                  {n}
+                </button>
+              ))}
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onSetPriorite(null); }}
+                className="h-6 w-6 rounded border border-noir-600 text-xs text-blanc-muted hover:text-blanc"
+                aria-label="Retirer la priorité"
+              >
+                —
+              </button>
+            </div>
+            <div className="border-t border-noir-600" />
             <button
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); onConfirm(); }}
               className="block w-full px-3 py-2 text-left text-emerald-400 hover:bg-noir-700"

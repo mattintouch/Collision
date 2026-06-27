@@ -52,6 +52,9 @@ export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }
 
         {/* 2 — Méta */}
         <div className="meta flex flex-wrap items-center gap-x-[13px] gap-y-1">
+          {cible.note_priorite != null && (
+            <span style={{ color: "#FFD200" }}>★ P{cible.note_priorite}</span>
+          )}
           {cible.stage_label && <span>{cible.stage_label}</span>}
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: PRIO_DOT[cible.priorite] }} />

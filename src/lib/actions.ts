@@ -423,6 +423,20 @@ export async function bulkCreateAndTagWatchlist(input: {
   return { ok: true, detail: `${input.ids.length} fiche(s) taguées « ${label} ».` };
 }
 
+/** Note de priorité manuelle 1-5 (ou null) — pilote le tri en tête de colonne. */
+export async function setCibleNotePriorite(input: {
+  cible_id: string;
+  note_priorite: number | null;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").update({ note_priorite: input.note_priorite }).eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
 /** Ordre des colonnes d'archétype du board (par show). */
 export async function setArchetypeOrder(input: {
   show_slug: string;
