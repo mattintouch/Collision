@@ -40,6 +40,11 @@ Migrations : appliquées **0009-0013** ; **à appliquer : 0014 (Lot 5), 0015 (Lo
 - create/update sensibles au kind + validation lisible + note + date de touche ✅ (migration 0017)
 - pont Folk idempotent ✅
 
+### Roadmap « Épisodes / questionnaire / tri » (demandé 26/06)
+- **Vue/section Épisodes** : surface dédiée listant les épisodes par statut (programmé / **enregistré** / **publié/released**), distincte du pipeline prospect. Quick fix fait (enregistrés masqués du board). Reste : un onglet **Épisodes**. *« Seconde vie » : un ancien invité peut revenir dans le pipe → réactivation (pas de suppression).* (ex. Robert Gentz : enregistré chez Zalando Berlin, ven. 12 juin midi, pas encore released.)
+- **Mini-questionnaire invité** : formulaire envoyé à l'invité pour qu'il renseigne ses infos (surtout coordonnées pour que Matthieu le joigne), demandé idéalement à la sortie de l'épisode. → formulaire public + stockage. Gros morceau.
+- **Rationaliser les critères de tri** : modèle de tri/scoring précis mais cadré (priorité 1-5 + résurgence + voie déjà en place ; à formaliser). Inclut un **tag « estival »** (programmation août : épisodes légers ou iconiques / personnalités très connues — ex. Valentin Kretz, Carlos Ghosn, Thibaud InShape, Gad Elmaleh). *(le tag est créable dès maintenant via les actions de masse / l'éditeur de tags.)*
+
 ### Reste ouvert
 - **Synchro Google Contacts** : code + parallélisation prêts ; **à re-tester** (redeploy + email `matt@stefani.fr`).
 - **Refonte UI 2026** (Cockpit) : fondations + carte board faites ; reste header/wordmark, fiche, login, copilote, dispo, veille, import, réglages.
