@@ -58,9 +58,19 @@ export function TargetCard({
       <div className="flex flex-col gap-[11px]">
         {/* 1 — Titre + voie (gouttières pl/pr pour la case à cocher et le menu ⋯) */}
         <div className="flex items-start justify-between gap-2 pl-6 pr-6">
-          <div className="min-w-0">
-            <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{cible.nom}</h3>
-            {subtitle && <p className="truncate text-[12.5px] text-blanc-muted">{subtitle}</p>}
+          <div className="flex min-w-0 items-start gap-2.5">
+            {cible.photo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={cible.photo_url}
+                alt=""
+                className="mt-0.5 h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-noir-600"
+              />
+            )}
+            <div className="min-w-0">
+              <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{cible.nom}</h3>
+              {subtitle && <p className="truncate text-[12.5px] text-blanc-muted">{subtitle}</p>}
+            </div>
           </div>
           <span
             className="chip mono shrink-0"
@@ -94,6 +104,7 @@ export function TargetCard({
             <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: PRIO_DOT[cible.priorite] }} />
             {cible.priorite}
           </span>
+          {cible.ville && <span>📍 {cible.ville}</span>}
           {cible.nb_appuis > 0 && (
             <span>{cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}</span>
           )}

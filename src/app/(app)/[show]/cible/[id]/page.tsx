@@ -57,7 +57,16 @@ export default async function CiblePage({
       </Link>
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="flex items-start gap-3">
+          {cible.photo_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={cible.photo_url}
+              alt=""
+              className="mt-1 h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-noir-600"
+            />
+          )}
+          <div>
           <EditableIdentity
             cibleId={cible.id}
             showSlug={show.slug}
@@ -99,11 +108,15 @@ export default async function CiblePage({
             <span className="chip border-noir-600 text-blanc-muted">
               Priorité {PRIORITE_LABELS[cible.priorite].toLowerCase()}
             </span>
+            {cible.ville && (
+              <span className="chip border-noir-600 text-blanc-muted">📍 {cible.ville}</span>
+            )}
             {!isEntreprise && cible.archetype && (
               <span className="chip border-jaune/40 text-jaune">
                 {ARCHETYPE_LABELS[cible.archetype]} — {ARCHETYPE_HINTS[cible.archetype]}
               </span>
             )}
+          </div>
           </div>
         </div>
         <FicheActions

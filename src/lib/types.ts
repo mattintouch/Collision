@@ -76,6 +76,10 @@ export interface Cible {
   note: string | null;
   note_priorite: number | null;
 
+  // Photo (URL publique, remplie par l'enrichissement) + ville/zone de tournage
+  photo_url: string | null;
+  ville: string | null;
+
   // Lien Folk (source de vérité coordonnées + interactions)
   folk_id: string | null;
 

@@ -1,6 +1,10 @@
 // Enrichissement de FICHE (profil) par recherche web sourcée : rôle,
-// organisation, secteur, pays, réseaux sociaux, sujets, angle d'épisode.
+// organisation, secteur, pays, ville, photo, réseaux sociaux, sujets, angle.
 // Sources publiques, jamais d'invention. Propose, puis écrit sur validation.
+//
+// Écriture NON DESTRUCTIVE : on ne remplace jamais un champ déjà rempli à la
+// main, et on FUSIONNE les sujets/tags existants (on n'en ajoute que de
+// nouveaux). Indispensable pour industrialiser sans perdre la saisie manuelle.
 
 import { runWebSearchJSON } from "../ai/websearch";
 import { hasAnthropicKey } from "../copilot/config";
@@ -14,6 +18,8 @@ export interface ProfileProposal {
   organisation?: string | null;
   secteur?: string | null;
   pays?: string | null;
+  ville?: string | null;
+  photo_url?: string | null;
   raison_de_selection?: string | null;
   resume?: string | null;
   sujets?: string[];
@@ -25,9 +31,17 @@ const SYSTEM = [
   "Tu es l'agent d'enrichissement de fiches invités de Magellan (Collision Productions).",
   "Recherche des informations PUBLIQUES et VÉRIFIABLES pour préparer une invitation podcast.",
   "Règles : sources publiques uniquement ; n'invente JAMAIS ; cite les URLs ; reste factuel et concis.",
-  "Réponds UNIQUEMENT en JSON : { role, organisation, secteur, pays, sujets:[...], reseaux:[{label,url}], resume, raison_de_selection, sources:[url] }.",
+  "Réponds UNIQUEMENT en JSON : { role, organisation, secteur, pays, ville, photo_url, sujets:[...], reseaux:[{label,url}], resume, raison_de_selection, sources:[url] }.",
+  "ville = ville principale / base de la personne (pour planifier un tournage), distincte du pays.",
+  "photo_url = URL directe d'une photo publique récente (site officiel, page presse, LinkedIn, Wikipedia) ; null si rien de fiable.",
   "resume = 2-3 phrases de fond. raison_de_selection = pourquoi cette personne ferait un bon épisode. sujets = mots-clés.",
 ].join("\n");
+
+/** Champs de la cible utilisés pour la fusion non destructive. */
+type CibleForApply = Pick<
+  CibleEnrichie,
+  "id" | "kind" | "note" | "role" | "organisation" | "secteur" | "pays" | "ville" | "photo_url" | "raison_de_selection" | "sujets"
+>;
 
 export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfileProposal | null> {
   if (!hasAnthropicKey()) return null;
@@ -35,43 +49,90 @@ export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfilePropo
     c.kind === "entreprise"
       ? `l'entreprise/marque « ${c.nom} »${c.secteur ? ` (${c.secteur})` : ""}`
       : `« ${c.nom} »${c.role ? ` (${c.role}${c.organisation ? `, ${c.organisation}` : ""})` : ""}`;
-  const prompt = `Enrichis la fiche de ${qui}. Parcours et rôle actuel, organisation, secteur, pays, réseaux sociaux (LinkedIn, X, Instagram, site officiel), sujets de prédilection, et un angle d'épisode. JSON strict.`;
+  const prompt = `Enrichis la fiche de ${qui}. Parcours et rôle actuel, organisation, secteur, pays, ville (base), photo publique, réseaux sociaux (LinkedIn, X, Instagram, site officiel), sujets de prédilection, et un angle d'épisode. JSON strict.`;
   return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 5);
 }
 
-/** Applique une proposition (champs autorisés selon le kind) + réseaux en contacts. Renvoie ce qui a été écrit. */
+const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
+
+/**
+ * Applique une proposition de façon NON DESTRUCTIVE (champs autorisés selon le
+ * kind) : ne remplit que ce qui est vide, fusionne les sujets, dédoublonne les
+ * réseaux contre les contacts existants. Renvoie ce qui a été réellement écrit.
+ */
 export async function applyProfileProposal(
   sb: SB,
-  cible: { id: string; kind: string; note: string | null },
+  cible: CibleForApply,
   p: ProfileProposal
 ): Promise<string[]> {
   const patch: Record<string, unknown> = {};
-  if (p.sujets?.length) patch.sujets = p.sujets.slice(0, 12);
-  if (p.resume && !cible.note) patch.note = p.resume.slice(0, 2000);
+  const skipped: string[] = [];
+
+  // N'écrit un scalaire que si la valeur actuelle est vide (préserve la saisie manuelle).
+  const fillIfEmpty = (field: keyof CibleForApply, value: string | null | undefined) => {
+    if (isEmpty(value)) return;
+    if (!isEmpty(cible[field])) {
+      skipped.push(field as string);
+      return;
+    }
+    patch[field] = value;
+  };
+
+  // Champs partagés
+  fillIfEmpty("photo_url", p.photo_url);
+  fillIfEmpty("ville", p.ville);
+  if (!isEmpty(p.resume) && isEmpty(cible.note)) patch.note = (p.resume as string).slice(0, 2000);
+  else if (!isEmpty(p.resume)) skipped.push("note");
+
+  // Champs selon le kind
   if (cible.kind === "personne") {
-    if (p.role) patch.role = p.role;
-    if (p.organisation) patch.organisation = p.organisation;
+    fillIfEmpty("role", p.role);
+    fillIfEmpty("organisation", p.organisation);
   } else {
-    if (p.secteur) patch.secteur = p.secteur;
-    if (p.pays) patch.pays = p.pays;
-    if (p.raison_de_selection) patch.raison_de_selection = p.raison_de_selection;
+    fillIfEmpty("secteur", p.secteur);
+    fillIfEmpty("pays", p.pays);
+    fillIfEmpty("raison_de_selection", p.raison_de_selection);
   }
+  // pays est utile aussi pour une personne ; on le pose s'il est vide.
+  if (cible.kind === "personne") fillIfEmpty("pays", p.pays);
+
+  // Sujets : FUSION (union) — on n'écrase jamais les tags/sujets manuels.
+  if (p.sujets?.length) {
+    const existing = cible.sujets ?? [];
+    const seen = new Set(existing.map((s) => s.toLowerCase()));
+    const merged = [...existing];
+    for (const s of p.sujets) {
+      const k = s.trim().toLowerCase();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        merged.push(s.trim());
+      }
+    }
+    if (merged.length !== existing.length) patch.sujets = merged.slice(0, 12);
+  }
+
   const applied = Object.keys(patch);
   if (applied.length) await sb.from("cibles").update(patch).eq("id", cible.id);
 
+  // Réseaux → contacts, dédoublonnés contre les coordonnées déjà présentes.
   const reseaux = (p.reseaux ?? []).filter((r) => r?.url).slice(0, 6);
   if (reseaux.length) {
-    await sb.from("contacts").insert(
-      reseaux.map((r) => ({
-        cible_id: cible.id,
-        kind: "reseau",
-        valeur: r.url,
-        label: r.label ?? null,
-        source: "Enrichissement",
-        confiance: 3,
-      }))
-    );
-    applied.push(`${reseaux.length} réseau(x)`);
+    const { data: existingContacts } = await sb.from("contacts").select("valeur").eq("cible_id", cible.id);
+    const known = new Set(((existingContacts ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
+    const fresh = reseaux.filter((r) => !known.has(r.url.trim().toLowerCase()));
+    if (fresh.length) {
+      await sb.from("contacts").insert(
+        fresh.map((r) => ({
+          cible_id: cible.id,
+          kind: "reseau",
+          valeur: r.url,
+          label: r.label ?? null,
+          source: "Enrichissement",
+          confiance: 3,
+        }))
+      );
+      applied.push(`${fresh.length} réseau(x)`);
+    }
   }
-  return applied;
+  return applied.length ? applied : (skipped.length ? [`rien de neuf (préservé : ${skipped.join(", ")})`] : []);
 }

@@ -74,6 +74,8 @@ const base = {
   etat_recherche: null,
   note: null,
   note_priorite: null,
+  photo_url: null,
+  ville: null,
   folk_id: null,
   archive: false,
   created_at: daysAgo(40),

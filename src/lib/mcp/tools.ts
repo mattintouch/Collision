@@ -99,7 +99,7 @@ async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Prom
 
 const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
 const ENTREPRISE_ONLY = ["secteur", "pays", "envergure", "raison_de_selection", "etat_recherche"] as const;
-const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui"] as const;
+const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui", "ville", "photo_url"] as const;
 
 /**
  * Construit un patch de cible selon le kind (personne/entreprise) et signale les
@@ -114,6 +114,25 @@ function kindAwarePatch(kind: string, a: Record<string, unknown>): { patch: Reco
   for (const f of forbidden) if (a[f] !== undefined) rejected.push(f);
   for (const f of allowed) if (a[f] !== undefined) patch[f] = a[f];
   return { patch, rejected, allowed: [...allowed] };
+}
+
+/** Course une promesse contre un délai ; renvoie null si le délai est dépassé. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+
+/** Exécute fn sur items avec une concurrence bornée (évite le timeout 60s). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      out[idx] = await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 export function registerMagellanTools(server: McpServer) {
@@ -134,6 +153,7 @@ export function registerMagellanTools(server: McpServer) {
       kind: z.enum(["personne", "entreprise"]).optional(),
       secteur: z.string().optional(),
       pays: z.string().optional(),
+      ville: z.string().optional().describe("ville / zone de tournage (recherche partielle)"),
       envergure: z.enum(["fr", "international"]).optional(),
       sujet: z.string().optional().describe("cibles dont les sujets contiennent cette valeur"),
       watchlist: z.string().optional().describe("clé ou libellé (ex. cac40) — cibles appartenant à cette watchlist"),
@@ -154,7 +174,7 @@ export function registerMagellanTools(server: McpServer) {
       // trie et on coupe à `limit` — sinon un cap SQL enterrerait les cibles
       // qui bougent (défaut n°1 de l'audit).
       const SCORE_COLS =
-        "id, nom, kind, role, organisation, secteur, pays, envergure, voie, priorite, archetype, note_priorite, stage_key, stage_label, jours_depuis_touche, dernier_signal_date, dernier_signal_pertinence, signal_frais, nb_appuis, nb_relais_actionnables, watchlist_keys, archive, sujets";
+        "id, nom, kind, role, organisation, secteur, pays, ville, photo_url, envergure, voie, priorite, archetype, note_priorite, stage_key, stage_label, jours_depuis_touche, dernier_signal_date, dernier_signal_pertinence, signal_frais, nb_appuis, nb_relais_actionnables, watchlist_keys, archive, sujets";
       const sel: string = a.full ? "*" : SCORE_COLS;
       let q = sb.from("cibles_enrichies").select(sel).eq("show_id", sid);
       if (!a.include_archived) q = q.eq("archive", false); // [C3]
@@ -164,6 +184,7 @@ export function registerMagellanTools(server: McpServer) {
       if (a.kind) q = q.eq("kind", a.kind);
       if (a.secteur) q = q.eq("secteur", a.secteur);
       if (a.pays) q = q.eq("pays", a.pays);
+      if (a.ville) q = q.ilike("ville", `%${a.ville}%`);
       if (a.envergure) q = q.eq("envergure", a.envergure);
       if (a.sujet) q = q.contains("sujets", [a.sujet]);
       if (a.q) q = q.ilike("nom", `%${a.q}%`);
@@ -199,7 +220,7 @@ export function registerMagellanTools(server: McpServer) {
       out = out.slice(0, Math.min(a.limit ?? 50, 200));
 
       const COMPACT_KEYS = [
-        "id", "nom", "kind", "role", "organisation", "secteur", "pays", "voie", "priorite",
+        "id", "nom", "kind", "role", "organisation", "secteur", "pays", "ville", "photo_url", "voie", "priorite",
         "archetype", "note_priorite", "stage_key", "jours_depuis_touche", "signal_frais",
         "nb_appuis", "nb_relais_actionnables", "watchlist_keys", "archive",
       ];
@@ -289,6 +310,8 @@ export function registerMagellanTools(server: McpServer) {
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
       secteur: z.string().optional(),
       pays: z.string().optional(),
+      ville: z.string().optional().describe("ville / zone de tournage (distincte du pays)"),
+      photo_url: z.string().optional().describe("URL d'une photo publique"),
       envergure: z.enum(["fr", "international"]).optional(),
       priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
       voie: z.enum(["froid", "chaud"]).optional(),
@@ -435,6 +458,8 @@ export function registerMagellanTools(server: McpServer) {
       organisation: z.string().optional(),
       secteur: z.string().optional(),
       pays: z.string().optional(),
+      ville: z.string().optional().describe("ville / zone de tournage (distincte du pays)"),
+      photo_url: z.string().optional().describe("URL d'une photo publique"),
       envergure: z.enum(["fr", "international"]).optional(),
       priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
       voie: z.enum(["froid", "chaud"]).optional(),
@@ -603,8 +628,7 @@ export function registerMagellanTools(server: McpServer) {
       if (!proposal) return text({ error: "Enrichissement indisponible (clé IA absente ou rien trouvé)." });
       let applied: string[] | undefined;
       if (a.apply) {
-        const r = row as { kind: string; note: string | null };
-        applied = await applyProfileProposal(sb, { id: target.id, kind: r.kind, note: r.note }, proposal);
+        applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
       }
       return text({ ok: true, cible: target.nom, proposition: proposal, applied });
     }
@@ -612,7 +636,7 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "enrich_colonne",
-    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 5, max 8). apply=true pour écrire.",
+    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 4, max 6) pour tenir dans le délai serveur. Robuste : chaque cible a son propre délai (un échec/timeout n'interrompt pas le lot). apply=true écrit de façon NON DESTRUCTIVE (préserve la saisie manuelle, fusionne les sujets).",
     {
       show: z.string(),
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
@@ -626,7 +650,7 @@ export function registerMagellanTools(server: McpServer) {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const cap = Math.min(a.limit ?? 5, 8);
+      const cap = Math.min(a.limit ?? 4, 6);
       let q = sb.from("cibles_enrichies").select("*").eq("show_id", sid).eq("archive", false);
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
@@ -639,16 +663,31 @@ export function registerMagellanTools(server: McpServer) {
       }
       const { data } = await q.limit(cap);
       const rows = (data ?? []) as CibleEnrichie[];
-      const resultats = await Promise.all(
-        rows.map(async (row) => {
-          const proposal = await enrichCibleProfile(row);
-          if (!proposal) return { cible: row.nom, ok: false };
+
+      // Chaque cible : délai par cible (22 s) + try/catch isolé ; concurrence
+      // bornée à 3. Un échec/timeout ne fait pas tomber tout le lot.
+      const PER_CIBLE_MS = 22_000;
+      const resultats = await mapLimit(rows, 3, async (row) => {
+        try {
+          const proposal = await withTimeout(enrichCibleProfile(row), PER_CIBLE_MS);
+          if (!proposal) return { cible: row.nom, ok: false, erreur: "délai dépassé ou rien trouvé" };
           let applied: string[] | undefined;
-          if (a.apply) applied = await applyProfileProposal(sb, { id: row.id, kind: row.kind, note: row.note }, proposal);
+          if (a.apply) applied = await applyProfileProposal(sb, row, proposal);
           return { cible: row.nom, ok: true, applied, proposition: a.apply ? undefined : proposal };
-        })
-      );
-      return text({ ok: true, traitees: rows.length, plafond: cap, note: rows.length === cap ? "Plafond atteint — relance pour la suite." : undefined, resultats });
+        } catch (e) {
+          return { cible: row.nom, ok: false, erreur: e instanceof Error ? e.message : String(e) };
+        }
+      });
+      const reussies = resultats.filter((r) => r.ok).length;
+      return text({
+        ok: true,
+        traitees: rows.length,
+        reussies,
+        echecs: rows.length - reussies,
+        plafond: cap,
+        note: rows.length === cap ? "Plafond atteint — relance pour la suite." : undefined,
+        resultats,
+      });
     }
   );
 }
