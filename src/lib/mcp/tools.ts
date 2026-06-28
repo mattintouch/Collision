@@ -100,8 +100,10 @@ async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Prom
 }
 
 const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
-const ENTREPRISE_ONLY = ["secteur", "pays", "envergure", "raison_de_selection", "etat_recherche"] as const;
-const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui", "ville", "photo_url"] as const;
+// raison_de_selection / etat_recherche restent réservés aux entreprises (workflow recherche) ;
+// secteur / pays / envergure sont désormais partagés (cf. migration 0020).
+const ENTREPRISE_ONLY = ["raison_de_selection", "etat_recherche"] as const;
+const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui", "ville", "photo_url", "secteur", "pays", "envergure"] as const;
 
 /**
  * Construit un patch de cible selon le kind (personne/entreprise) et signale les
@@ -498,9 +500,8 @@ export function registerMagellanTools(server: McpServer) {
           patch.role = null;
           patch.archetype = null;
         } else {
-          patch.secteur = null;
-          patch.pays = null;
-          patch.envergure = null;
+          // secteur/pays/envergure restent valides sur une personne (0020) ;
+          // seuls les champs de workflow recherche sont incompatibles.
           patch.raison_de_selection = null;
           patch.etat_recherche = null;
         }
@@ -647,13 +648,16 @@ export function registerMagellanTools(server: McpServer) {
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
       if (!row) return text({ error: "Cible introuvable" });
-      const proposal = await enrichCibleProfile(row as CibleEnrichie);
-      if (!proposal) return text({ error: "Enrichissement indisponible (clé IA absente ou rien trouvé)." });
-      let applied: string[] | undefined;
-      if (a.apply) {
-        applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
+      try {
+        const proposal = await withTimeout(enrichCibleProfile(row as CibleEnrichie), 45_000);
+        if (!proposal) return text({ error: "Enrichissement indisponible (clé IA absente, délai dépassé, ou rien trouvé)." });
+        let applied: string[] | undefined;
+        if (a.apply) applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
+        return text({ ok: true, cible: target.nom, proposition: proposal, applied });
+      } catch (e) {
+        // Surface la vraie cause (ex. violation de contrainte) au lieu d'un crash opaque.
+        return text({ error: `Échec enrichissement : ${e instanceof Error ? e.message : String(e)}` });
       }
-      return text({ ok: true, cible: target.nom, proposition: proposal, applied });
     }
   );
 

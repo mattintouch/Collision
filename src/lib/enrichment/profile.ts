@@ -78,23 +78,21 @@ export async function applyProfileProposal(
     patch[field] = value;
   };
 
-  // Champs partagés
+  // Champs descriptifs partagés (autorisés sur les deux kinds, cf. migration 0020).
   fillIfEmpty("photo_url", p.photo_url);
   fillIfEmpty("ville", p.ville);
+  fillIfEmpty("secteur", p.secteur);
+  fillIfEmpty("pays", p.pays);
   if (!isEmpty(p.resume) && isEmpty(cible.note)) patch.note = (p.resume as string).slice(0, 2000);
   else if (!isEmpty(p.resume)) skipped.push("note");
 
-  // Champs selon le kind
+  // Champs réservés à un kind
   if (cible.kind === "personne") {
     fillIfEmpty("role", p.role);
     fillIfEmpty("organisation", p.organisation);
   } else {
-    fillIfEmpty("secteur", p.secteur);
-    fillIfEmpty("pays", p.pays);
     fillIfEmpty("raison_de_selection", p.raison_de_selection);
   }
-  // pays est utile aussi pour une personne ; on le pose s'il est vide.
-  if (cible.kind === "personne") fillIfEmpty("pays", p.pays);
 
   // Sujets : FUSION (union) — on n'écrase jamais les tags/sujets manuels.
   if (p.sujets?.length) {
@@ -112,7 +110,10 @@ export async function applyProfileProposal(
   }
 
   const applied = Object.keys(patch);
-  if (applied.length) await sb.from("cibles").update(patch).eq("id", cible.id);
+  if (applied.length) {
+    const { error } = await sb.from("cibles").update(patch).eq("id", cible.id);
+    if (error) throw new Error(`MAJ cible (${applied.join(", ")}) : ${error.message}`);
+  }
 
   // Réseaux → contacts, dédoublonnés contre les coordonnées déjà présentes.
   const reseaux = (p.reseaux ?? []).filter((r) => r?.url).slice(0, 6);
@@ -121,7 +122,7 @@ export async function applyProfileProposal(
     const known = new Set(((existingContacts ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
     const fresh = reseaux.filter((r) => !known.has(r.url.trim().toLowerCase()));
     if (fresh.length) {
-      await sb.from("contacts").insert(
+      const { error } = await sb.from("contacts").insert(
         fresh.map((r) => ({
           cible_id: cible.id,
           kind: "reseau",
@@ -131,6 +132,7 @@ export async function applyProfileProposal(
           confiance: 3,
         }))
       );
+      if (error) throw new Error(`Ajout réseaux : ${error.message}`);
       applied.push(`${fresh.length} réseau(x)`);
     }
   }
