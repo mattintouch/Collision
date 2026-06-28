@@ -6,6 +6,7 @@ import clsx from "clsx";
 
 const tabs = [
   { key: "board", label: "Board" },
+  { key: "episodes", label: "Épisodes" },
   { key: "dispo", label: "Dispo" },
   { key: "veille", label: "Veille" },
   { key: "copilote", label: "Copilote" },

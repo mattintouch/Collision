@@ -32,6 +32,50 @@ export interface EpisodeRow {
   gcal_studio_event_id: string | null;
 }
 
+export interface EpisodeListItem {
+  id: string;
+  nom: string;
+  role: string | null;
+  organisation: string | null;
+  secteur: string | null;
+  pays: string | null;
+  stage_key: string | null;
+  stage_label: string | null;
+  stage_position: number | null;
+  date_enregistrement: string | null;
+  lieu: string | null;
+}
+
+const PRODUCED_STAGES = ["programme", "enregistre", "publie", "produit"];
+
+/** Cibles en phase de production (programmé/enregistré/publié) = les épisodes. */
+export async function getEpisodesForShow(showId: string): Promise<EpisodeListItem[]> {
+  if (demoMode) return [];
+  const supabase = createClient();
+  const { data: cibles } = await supabase
+    .from("cibles_enrichies")
+    .select("id, nom, role, organisation, secteur, pays, stage_key, stage_label, stage_position")
+    .eq("show_id", showId)
+    .in("stage_key", PRODUCED_STAGES);
+  const rows = (cibles ?? []) as EpisodeListItem[];
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  const { data: eps } = await supabase
+    .from("episodes")
+    .select("cible_id, date_enregistrement, lieu, created_at")
+    .in("cible_id", ids)
+    .order("created_at", { ascending: false });
+  const byCible = new Map<string, { date_enregistrement: string | null; lieu: string | null }>();
+  for (const e of (eps ?? []) as { cible_id: string; date_enregistrement: string | null; lieu: string | null }[]) {
+    if (!byCible.has(e.cible_id)) byCible.set(e.cible_id, { date_enregistrement: e.date_enregistrement, lieu: e.lieu });
+  }
+  return rows.map((r) => ({
+    ...r,
+    date_enregistrement: byCible.get(r.id)?.date_enregistrement ?? null,
+    lieu: byCible.get(r.id)?.lieu ?? null,
+  }));
+}
+
 /** Watchlists disponibles (vocabulaire de curation). */
 export async function getWatchlists(): Promise<{ key: string; label: string }[]> {
   if (demoMode) return [];
