@@ -366,6 +366,21 @@ export async function bulkDeleteCibles(input: {
   return { ok: true, detail: `${input.ids.length} fiche(s) supprimée(s).` };
 }
 
+/** Déplace plusieurs cibles vers une étape (ex. « Publié » = déjà invité). */
+export async function bulkSetStage(input: {
+  ids: string[];
+  stage_id: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").update({ stage_id: input.stage_id }).in("id", input.ids);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true, detail: `${input.ids.length} fiche(s) déplacée(s).` };
+}
+
 /** Ajoute une watchlist (par clé) à plusieurs cibles. Idempotent. */
 export async function bulkAddWatchlist(input: {
   ids: string[];

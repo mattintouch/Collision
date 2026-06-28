@@ -14,6 +14,7 @@ import {
   bulkDeleteCibles,
   bulkAddWatchlist,
   bulkCreateAndTagWatchlist,
+  bulkSetStage,
   setCibleNotePriorite,
 } from "@/lib/actions";
 import { TargetCard } from "./TargetCard";
@@ -74,6 +75,7 @@ export function BoardDnd({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagKey, setTagKey] = useState("");
   const [newTag, setNewTag] = useState("");
+  const [moveStage, setMoveStage] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
 
   const stored = show.archetype_order ?? [];
@@ -286,6 +288,25 @@ export function BoardDnd({
           >
             Supprimer
           </button>
+          <span className="flex items-center gap-1">
+            <select
+              value={moveStage}
+              onChange={(e) => setMoveStage(e.target.value)}
+              className="rounded-lg border border-noir-600 bg-noir-900 px-2 py-1 text-sm outline-none focus:border-jaune"
+            >
+              <option value="">Étape…</option>
+              {stages.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => moveStage && runBulk(() => bulkSetStage({ ids: selIds, stage_id: moveStage, show_slug: show.slug }))}
+              disabled={pending || !moveStage}
+              className="btn-ghost px-2 py-1 text-sm disabled:opacity-40"
+            >
+              Déplacer
+            </button>
+          </span>
           {watchlists.length > 0 && (
             <span className="flex items-center gap-1">
               <select
