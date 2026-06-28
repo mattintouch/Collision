@@ -166,6 +166,32 @@ export interface ScoreInput {
   nb_appuis: number;
   nb_relais_actionnables?: number | null;
   archive?: boolean | null;
+  sujets?: string[] | null;
+  watchlist_keys?: string[] | null;
+}
+
+// Programmation estivale (sourcing jusqu'à fin juillet, diffusion août → début
+// sept.) : épisodes légers, grand public, partageables, personnalités iconiques.
+// Le business dur / tech / profond se reporte à septembre.
+const ESTIVAL_TAGS = new Set(["estival", "ete", "ete_ok", "été"]);
+const ESTIVAL_LIGHT_SUJETS = new Set([
+  "sport", "culture", "art", "cuisine", "gastronomie", "voyage", "musique",
+  "cinema", "cinéma", "humour", "divertissement", "famille", "lifestyle",
+  "aventure", "food", "mode",
+]);
+const ESTIVAL_HARD_SUJETS = new Set([
+  "finance", "tech", "deeptech", "business", "strategie", "stratégie",
+  "economie", "économie", "industrie", "b2b", "saas", "ia",
+  "intelligence artificielle", "geopolitique", "géopolitique",
+]);
+const ESTIVAL_HARD_TAGS = new Set(["cac40", "sbf120"]);
+
+/** Le modificateur estival est-il actif ? (auto = juin–juillet) */
+export function estivalActif(saison?: "auto" | "ete" | "off"): boolean {
+  if (saison === "ete") return true;
+  if (saison === "off") return false;
+  const m = new Date().getMonth() + 1; // 1–12
+  return m === 6 || m === 7;
 }
 
 export interface CibleScore {
@@ -184,7 +210,7 @@ const STAGE_WON_OR_AFTER = new Set(["confirme", "programme", "enregistre", "publ
  * et sort du flux outreach celles déjà gagnées (≥ confirme) ou archivées.
  * Spéc : docs/DEBRIEF.md §7 (repris de l'audit live).
  */
-export function computeCibleScore(c: ScoreInput): CibleScore {
+export function computeCibleScore(c: ScoreInput, estival = false): CibleScore {
   const placeholder = isPlaceholder(c.nom, c.role, c.organisation);
   const badges: string[] = [];
 
@@ -236,9 +262,21 @@ export function computeCibleScore(c: ScoreInput): CibleScore {
     badges.push("gagné");
   }
 
-  // estival : non implémenté (signe à trancher, cf. DEBRIEF §9) → 0.
+  // modificateur_estival (−14 → +16) : en saison, on remonte le léger/iconique
+  // (diffusion août) et on repousse le dur/tech/corporate à septembre.
+  let estivalMod = 0;
+  if (estival) {
+    const wl = (c.watchlist_keys ?? []).map((w) => w.toLowerCase());
+    const sj = (c.sujets ?? []).map((s) => s.toLowerCase());
+    if (wl.some((w) => ESTIVAL_TAGS.has(w))) estivalMod += 10;
+    if (sj.some((s) => ESTIVAL_LIGHT_SUJETS.has(s))) estivalMod += 6;
+    if (wl.some((w) => ESTIVAL_HARD_TAGS.has(w))) estivalMod -= 8;
+    if (sj.some((s) => ESTIVAL_HARD_SUJETS.has(s))) estivalMod -= 6;
+    if (estivalMod > 0) badges.push("estival ☀");
+    else if (estivalMod < 0) badges.push("à reporter (sept.)");
+  }
 
-  const raw = base + signal + voie + relais + resurgence + momentum;
+  const raw = base + signal + voie + relais + resurgence + momentum + estivalMod;
   const score = Math.max(0, Math.min(100, raw));
   return { score, placeholder, badges };
 }

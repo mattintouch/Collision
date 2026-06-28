@@ -66,7 +66,9 @@ Migrations à jour : **0009-0017** appliquées.
 - **[C2]** `sync_google_contacts` : **`dry_run` par défaut TRUE** (simulation ventilée à créer/à MAJ/exclus, aucune écriture) ; gate qualité (exclut archivées + placeholders, ne pousse que les coordonnées **vérifiées** sauf `inclure_non_verifies:true`).
 - **[C5]** Cohérence API : `find_cible` accepte `cible` (alias `query`) ; `get_dossier` accepte `cible`+`show` en plus de `cible_id`.
 
-**Reste de l'audit** : [D0-D3] = données (via connecteur/app, pas Claude Code) ; [C6] séparer reporting closing/prod ; [C7] pipeline d'ingestion de signaux. **Hypothèse à trancher** : signe du modificateur estival (DEBRIEF §9) avant de l'activer dans le score.
+- **Estival** ✅ (décision Matt 28/06) : en saison (auto juin-juillet, ou `saison:"ete"`), le score **remonte** le léger/grand public/iconique (tag `estival`/`ete` +10, sujets sport/culture/cuisine/voyage… +6, badge « estival ☀ ») et **repousse** le dur/tech/corporate à septembre (watchlist cac40/sbf120 −8, sujets finance/tech/ia… −6, badge « à reporter (sept.) »). Le tag manuel `estival` prime (rattrape un iconique « business » type Ghosn). Diffusion visée août → début septembre.
+
+**Reste de l'audit** : [D0-D3] = données (via connecteur/app, pas Claude Code) ; [C6] séparer reporting closing/prod ; [C7] pipeline d'ingestion de signaux.
 
 ---
 

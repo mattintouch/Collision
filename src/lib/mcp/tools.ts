@@ -8,7 +8,7 @@ import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
-import { computeCibleScore, type ScoreInput } from "../domain";
+import { computeCibleScore, estivalActif, type ScoreInput } from "../domain";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -142,6 +142,7 @@ export function registerMagellanTools(server: McpServer) {
       full: z.boolean().optional().describe("true = toutes les colonnes ; défaut = projection compacte"),
       include_archived: z.boolean().optional().describe("inclure les cibles archivées (défaut false)"),
       score_min: z.number().optional().describe("ne garder que les cibles dont le score ≥ ce seuil"),
+      saison: z.enum(["auto", "ete", "off"]).optional().describe("modificateur estival : auto (actif juin-juillet), ete (forcer), off (ignorer). Défaut auto."),
     },
     { readOnlyHint: true },
     async (a) => {
@@ -178,8 +179,9 @@ export function registerMagellanTools(server: McpServer) {
 
       type Row = Record<string, unknown>;
       const rows = (data ?? []) as unknown as Row[];
+      const estival = estivalActif(a.saison);
       const scored = rows.map((r) => {
-        const s = computeCibleScore(r as unknown as ScoreInput);
+        const s = computeCibleScore(r as unknown as ScoreInput, estival);
         return { r, ...s };
       });
       // Tri : cibles travaillables d'abord (placeholder en bas), puis score
