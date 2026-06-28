@@ -382,6 +382,7 @@ export function registerMagellanTools(server: McpServer) {
       etat_recherche: z.string().optional(),
       note: z.string().optional().describe("contexte de fond durable (distinct du journal)"),
       note_priorite: z.number().int().min(1).max(5).optional().describe("priorité manuelle 1-5"),
+      stage: z.string().optional().describe("clé d'étape (ex. identifie, qualifie, contacte, confirme, programme, enregistre, publie) — publie = déjà invité"),
       watchlist: z.array(z.string()).optional().describe("remplace les watchlists (clés/libellés)"),
     },
     { destructiveHint: false, idempotentHint: true },
@@ -398,6 +399,12 @@ export function registerMagellanTools(server: McpServer) {
       const { patch, rejected, allowed } = kindAwarePatch(kind, a as Record<string, unknown>);
       if (rejected.length) {
         return text({ error: `Champs non autorisés pour une ${kind} : ${rejected.join(", ")}. Champs autorisés : ${allowed.join(", ")}.` });
+      }
+      // Étape (Lot 7) : pose le stage_id depuis la clé d'étape du show.
+      if (a.stage) {
+        const { data: st } = await sb.from("stages").select("id").eq("show_id", sid).eq("key", a.stage).maybeSingle();
+        if (!st) return text({ error: `Étape inconnue : ${a.stage}` });
+        patch.stage_id = (st as { id: string }).id;
       }
       if (Object.keys(patch).length === 0 && a.watchlist === undefined) {
         return text({ error: "Aucun champ à mettre à jour." });
