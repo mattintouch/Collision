@@ -20,12 +20,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function showRow(sb: SB, ref: string) {
   // `id` est un uuid : comparer id.eq à un slug ("gdiy") fait échouer toute la
   // requête côté PostgREST. On cible donc la bonne colonne selon le format.
-  const col = UUID_RE.test(ref) ? "id" : "slug";
-  const { data } = await sb
-    .from("shows")
-    .select("id, slug, type_pipe")
-    .eq(col, ref)
-    .maybeSingle();
+  const isId = UUID_RE.test(ref);
+  // Slug saisi librement ("GDIY", "gdiy") : on compare sans tenir compte de la
+  // casse. L'id reste une égalité stricte (uuid).
+  let q = sb.from("shows").select("id, slug, type_pipe");
+  q = isId ? q.eq("id", ref) : q.ilike("slug", ref);
+  const { data } = await q.maybeSingle();
   return data as { id: string; slug: string; type_pipe: "invites" | "thematique" } | null;
 }
 
@@ -443,7 +443,11 @@ export function registerMagellanTools(server: McpServer) {
   server.tool(
     "sync_google_contacts",
     "Synchronise les cibles (non archivées) et les relais d'un show vers Google Contacts, par lots (les non synchronisées d'abord). Relancer tant que `restants > 0`. Magellan reste la source de vérité ; sans doublon, groupés par show et par watchlist.",
-    { show: z.string(), limit: z.number().optional().describe("taille de lot (défaut 150)") },
+    {
+      show: z.string(),
+      limit: z.number().optional().describe("taille de lot (défaut 150)"),
+      dry_run: z.boolean().optional().describe("simulation : compte sans rien écrire dans Google"),
+    },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -451,7 +455,7 @@ export function registerMagellanTools(server: McpServer) {
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const { data: show } = await sb.from("shows").select("id, nom").eq("id", sid).single();
       if (!show) return text({ error: "Show introuvable" });
-      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom }, Math.min(a.limit ?? 150, 200));
+      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom }, Math.min(a.limit ?? 150, 200), a.dry_run ?? false);
       return text(res);
     }
   );

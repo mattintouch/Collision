@@ -62,7 +62,7 @@ export interface SyncResult {
   erreurs: string[];
 }
 
-export async function syncShowContacts(sb: SB, show: { id: string; nom: string }, limit = 150): Promise<SyncResult> {
+export async function syncShowContacts(sb: SB, show: { id: string; nom: string }, limit = 150, dryRun = false): Promise<SyncResult> {
   const empty = { cibles: 0, relais: 0, restants: 0, erreurs: [] as string[] };
   if (!hasGoogleSync()) {
     const len = (process.env.GOOGLE_SA_KEY ?? "").length;
@@ -73,6 +73,24 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
       ...empty,
     };
   }
+
+  // Simulation : compte sans rien écrire dans Google.
+  if (dryRun) {
+    const { count } = await sb
+      .from("cibles").select("id", { count: "exact", head: true })
+      .eq("show_id", show.id).eq("archive", false).is("google_resource_name", null);
+    const n = count ?? 0;
+    return {
+      ok: true,
+      detail: `[simulation] ${Math.min(n, limit)} cible(s) au prochain lot ; ${n} non synchronisées au total. Aucune écriture.`,
+      cibles: 0,
+      relais: 0,
+      restants: n,
+      erreurs: [],
+    };
+  }
+
+  try {
   const token = await googleAccessToken();
   if (!token) return { ok: false, detail: "Authentification Google échouée (clé de service / délégation).", ...empty };
 
@@ -189,4 +207,11 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     restants,
     erreurs: errors.slice(0, 10),
   };
+  } catch (e) {
+    return {
+      ok: false,
+      detail: `Erreur synchro Google : ${e instanceof Error ? e.message : String(e)}`,
+      ...empty,
+    };
+  }
 }

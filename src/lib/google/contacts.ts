@@ -66,15 +66,30 @@ export interface GoogleContactHit {
   phones: string[];
 }
 
+type SearchResults = {
+  results?: { person?: { names?: { displayName?: string }[]; emailAddresses?: { value?: string }[]; phoneNumbers?: { value?: string }[] } }[];
+};
+
 /** Cherche un contact Google (du compte impersonné) par nom et renvoie ses coordonnées. */
 export async function searchGoogleContact(token: string, query: string): Promise<GoogleContactHit | null> {
-  const url = `/people:searchContacts?query=${encodeURIComponent(query)}&readMask=names,emailAddresses,phoneNumbers&pageSize=10`;
-  const res = await gfetch(token, url, { method: "GET" });
-  if (!res.ok) return null;
-  const j = (await res.json()) as {
-    results?: { person?: { names?: { displayName?: string }[]; emailAddresses?: { value?: string }[]; phoneNumbers?: { value?: string }[] } }[];
+  const run = async (q: string) => {
+    const res = await gfetch(
+      token,
+      `/people:searchContacts?query=${encodeURIComponent(q)}&readMask=names,emailAddresses,phoneNumbers&pageSize=10`,
+      { method: "GET" }
+    );
+    if (!res.ok) return [] as NonNullable<SearchResults["results"]>;
+    return ((await res.json()) as SearchResults).results ?? [];
   };
-  const results = j.results ?? [];
+
+  let results = await run(query);
+  if (results.length === 0) {
+    // searchContacts renvoie souvent vide à froid : on réchauffe le cache (requête
+    // vide) puis on réessaie.
+    await run("");
+    await new Promise((r) => setTimeout(r, 1500));
+    results = await run(query);
+  }
   if (!results.length) return null;
   const low = query.trim().toLowerCase();
   const best =
@@ -89,22 +104,26 @@ export async function searchGoogleContact(token: string, query: string): Promise
 /** Crée (si absent) un groupe de contacts par nom, renvoie son resourceName. */
 async function ensureGroup(token: string, name: string, cache: Map<string, string>): Promise<string | null> {
   if (cache.has(name)) return cache.get(name) ?? null;
-  // Liste pour retrouver un groupe existant du même nom.
-  const list = await gfetch(token, "/contactGroups?groupFields=name&pageSize=200", { method: "GET" });
-  if (list.ok) {
-    const j = (await list.json()) as { contactGroups?: { resourceName: string; name: string; formattedName?: string }[] };
-    const hit = (j.contactGroups ?? []).find((g) => g.name === name || g.formattedName === name);
-    if (hit) {
-      cache.set(name, hit.resourceName);
-      return hit.resourceName;
+  try {
+    // Liste pour retrouver un groupe existant du même nom.
+    const list = await gfetch(token, "/contactGroups?groupFields=name&pageSize=200", { method: "GET" });
+    if (list.ok) {
+      const j = (await list.json()) as { contactGroups?: { resourceName: string; name: string; formattedName?: string }[] };
+      const hit = (j.contactGroups ?? []).find((g) => g.name === name || g.formattedName === name);
+      if (hit) {
+        cache.set(name, hit.resourceName);
+        return hit.resourceName;
+      }
     }
+    const res = await gfetch(token, "/contactGroups", { method: "POST", body: JSON.stringify({ contactGroup: { name } }) });
+    if (!res.ok) return null;
+    const g = (await res.json()) as { resourceName?: string };
+    if (!g.resourceName) return null;
+    cache.set(name, g.resourceName);
+    return g.resourceName;
+  } catch {
+    return null;
   }
-  const res = await gfetch(token, "/contactGroups", { method: "POST", body: JSON.stringify({ contactGroup: { name } }) });
-  if (!res.ok) return null;
-  const g = (await res.json()) as { resourceName?: string };
-  if (!g.resourceName) return null;
-  cache.set(name, g.resourceName);
-  return g.resourceName;
 }
 
 export interface PersonInput {
@@ -146,6 +165,18 @@ export interface UpsertResult {
  * (champs gérés uniquement) ; sinon createContact. Gère l'etag périmé (1 réessai).
  */
 export async function upsertPerson(
+  token: string,
+  link: { resourceName: string | null; etag: string | null },
+  input: PersonInput
+): Promise<UpsertResult> {
+  try {
+    return await upsertPersonInner(token, link, input);
+  } catch (e) {
+    return { resourceName: link.resourceName, etag: link.etag, ok: false, detail: `Exception : ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+async function upsertPersonInner(
   token: string,
   link: { resourceName: string | null; etag: string | null },
   input: PersonInput
