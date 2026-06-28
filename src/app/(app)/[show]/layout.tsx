@@ -20,12 +20,9 @@ export default async function ShowLayout({
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-noir-600 bg-noir-900/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span
-              className="inline-block h-2.5 w-2.5 rounded-full"
-              style={{ backgroundColor: "#FFD200" }}
-            />
-            <span className="font-display text-lg font-semibold tracking-tight">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+            <span className="logo-dot inline-block h-3 w-3 rotate-45 rounded-[3px]" />
+            <span className="shimmer font-display text-lg font-semibold tracking-tight">
               Magellan
             </span>
           </Link>

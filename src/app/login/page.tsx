@@ -10,8 +10,11 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <div className="card w-full max-w-md p-8">
-        <div className="mb-1 text-sm font-medium text-jaune">Collision</div>
-        <h1 className="font-display text-3xl font-semibold tracking-tight">
+        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-jaune">
+          <span className="logo-dot inline-block h-2.5 w-2.5 rotate-45 rounded-[3px]" />
+          Collision
+        </div>
+        <h1 className="shimmer font-display text-4xl font-semibold tracking-tight">
           Magellan
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-blanc-muted">

@@ -25,13 +25,20 @@ export function NavTabs({ showSlug }: { showSlug: string }) {
             key={t.key}
             href={href}
             className={clsx(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+              "relative rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
               active
-                ? "bg-noir-700 text-blanc"
-                : "text-blanc-muted hover:text-blanc"
+                ? "text-blanc"
+                : "text-blanc-muted hover:bg-[var(--glass-1)] hover:text-blanc"
             )}
+            style={active ? { background: "var(--glass-2)" } : undefined}
           >
             {t.label}
+            {active && (
+              <span
+                className="absolute inset-x-2.5 -bottom-[7px] h-0.5 rounded-full"
+                style={{ background: "var(--accent-gradient)" }}
+              />
+            )}
           </Link>
         );
       })}
