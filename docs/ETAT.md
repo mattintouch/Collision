@@ -1,3 +1,6 @@
+> ⚠️ **OBSOLÈTE** (antérieur à la refonte MCP/route et aux Lots 1-8).
+> Pour l'état réel et l'audit, voir **`docs/DEBRIEF.md`** et **`docs/BACKLOG.md`**.
+
 # Magellan — État du projet (débrief)
 
 Moteur de conquête et de closing par podcast pour **Collision Productions**.
