@@ -50,7 +50,9 @@ export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfilePropo
       ? `l'entreprise/marque « ${c.nom} »${c.secteur ? ` (${c.secteur})` : ""}`
       : `« ${c.nom} »${c.role ? ` (${c.role}${c.organisation ? `, ${c.organisation}` : ""})` : ""}`;
   const prompt = `Enrichis la fiche de ${qui}. Parcours et rôle actuel, organisation, secteur, pays, ville (base), photo publique, réseaux sociaux (LinkedIn, X, Instagram, site officiel), sujets de prédilection, et un angle d'épisode. JSON strict.`;
-  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 5);
+  // 3 recherches max : tenir confortablement sous le délai serveur (un lot de 5
+  // dépassait parfois le timeout → résultat nul « indisponible »).
+  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 3);
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
@@ -78,20 +80,19 @@ export async function applyProfileProposal(
     patch[field] = value;
   };
 
-  // Champs descriptifs partagés (autorisés sur les deux kinds, cf. migration 0020).
+  // Champs descriptifs partagés (autorisés sur les deux kinds, cf. migrations 0020/0021).
   fillIfEmpty("photo_url", p.photo_url);
   fillIfEmpty("ville", p.ville);
   fillIfEmpty("secteur", p.secteur);
   fillIfEmpty("pays", p.pays);
+  fillIfEmpty("raison_de_selection", p.raison_de_selection); // angle de closing — utile aussi pour une personne
   if (!isEmpty(p.resume) && isEmpty(cible.note)) patch.note = (p.resume as string).slice(0, 2000);
   else if (!isEmpty(p.resume)) skipped.push("note");
 
-  // Champs réservés à un kind
+  // Champs réservés aux personnes
   if (cible.kind === "personne") {
     fillIfEmpty("role", p.role);
     fillIfEmpty("organisation", p.organisation);
-  } else {
-    fillIfEmpty("raison_de_selection", p.raison_de_selection);
   }
 
   // Sujets : FUSION (union) — on n'écrase jamais les tags/sujets manuels.

@@ -8,6 +8,7 @@ import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
+import { hasAnthropicKey } from "../copilot/config";
 import { computeCibleScore, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import type { Stage } from "../types";
@@ -99,11 +100,13 @@ async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Prom
   return null;
 }
 
+// Seuls role / organisation / archetype restent réservés aux personnes (une
+// entreprise n'a ni archétype ni rôle perso — contrainte cible_entreprise_fields).
 const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
-// raison_de_selection / etat_recherche restent réservés aux entreprises (workflow recherche) ;
-// secteur / pays / envergure sont désormais partagés (cf. migration 0020).
-const ENTREPRISE_ONLY = ["raison_de_selection", "etat_recherche"] as const;
-const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui", "ville", "photo_url", "secteur", "pays", "envergure"] as const;
+// Plus aucun champ réservé aux entreprises : secteur/pays/ville/envergure et
+// raison_de_selection/etat_recherche sont partagés (migrations 0020 + 0021).
+const ENTREPRISE_ONLY = [] as const;
+const SHARED_FIELDS = ["nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui", "ville", "photo_url", "secteur", "pays", "envergure", "raison_de_selection", "etat_recherche"] as const;
 
 /**
  * Construit un patch de cible selon le kind (personne/entreprise) et signale les
@@ -497,14 +500,11 @@ export function registerMagellanTools(server: McpServer) {
       if (a.kind && a.kind !== currentKind) {
         patch.kind = a.kind;
         if (a.kind === "entreprise") {
+          // Une entreprise ne peut pas porter d'archétype ni de rôle perso.
           patch.role = null;
           patch.archetype = null;
-        } else {
-          // secteur/pays/envergure restent valides sur une personne (0020) ;
-          // seuls les champs de workflow recherche sont incompatibles.
-          patch.raison_de_selection = null;
-          patch.etat_recherche = null;
         }
+        // Vers une personne : aucun champ à nettoyer (tous les descriptifs sont permis, 0020/0021).
       }
       // Étape (Lot 7) : pose le stage_id depuis la clé d'étape du show.
       if (a.stage) {
@@ -648,14 +648,23 @@ export function registerMagellanTools(server: McpServer) {
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
       if (!row) return text({ error: "Cible introuvable" });
+      if (!hasAnthropicKey())
+        return text({ error: "Clé IA absente : ajouter ANTHROPIC_API_KEY sur Vercel pour activer l'enrichissement." });
+      const TIMEOUT_MS = 50_000;
       try {
-        const proposal = await withTimeout(enrichCibleProfile(row as CibleEnrichie), 45_000);
-        if (!proposal) return text({ error: "Enrichissement indisponible (clé IA absente, délai dépassé, ou rien trouvé)." });
+        const proposal = await Promise.race([
+          enrichCibleProfile(row as CibleEnrichie),
+          new Promise<"__timeout__">((r) => setTimeout(() => r("__timeout__"), TIMEOUT_MS)),
+        ]);
+        if (proposal === "__timeout__")
+          return text({ error: `Recherche web trop longue (> ${TIMEOUT_MS / 1000} s). Réessayer.` });
+        if (!proposal)
+          return text({ error: "Recherche web sans résultat exploitable (réessayer ; vérifier la connectivité sortante)." });
         let applied: string[] | undefined;
         if (a.apply) applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
         return text({ ok: true, cible: target.nom, proposition: proposal, applied });
       } catch (e) {
-        // Surface la vraie cause (ex. violation de contrainte) au lieu d'un crash opaque.
+        // Surface la vraie cause (ex. violation de contrainte, erreur API) au lieu d'un crash opaque.
         return text({ error: `Échec enrichissement : ${e instanceof Error ? e.message : String(e)}` });
       }
     }
