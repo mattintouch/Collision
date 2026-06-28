@@ -435,8 +435,8 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "sync_google_contacts",
-    "Synchronise les cibles (non archivées) et les relais d'un show vers Google Contacts. Magellan reste la source de vérité ; crée/met à jour sans doublon, groupés par show et par watchlist.",
-    { show: z.string() },
+    "Synchronise les cibles (non archivées) et les relais d'un show vers Google Contacts, par lots (les non synchronisées d'abord). Relancer tant que `restants > 0`. Magellan reste la source de vérité ; sans doublon, groupés par show et par watchlist.",
+    { show: z.string(), limit: z.number().optional().describe("taille de lot (défaut 150)") },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -444,7 +444,7 @@ export function registerMagellanTools(server: McpServer) {
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const { data: show } = await sb.from("shows").select("id, nom").eq("id", sid).single();
       if (!show) return text({ error: "Show introuvable" });
-      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom });
+      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom }, Math.min(a.limit ?? 150, 200));
       return text(res);
     }
   );

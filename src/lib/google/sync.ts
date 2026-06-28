@@ -58,11 +58,12 @@ export interface SyncResult {
   detail: string;
   cibles: number;
   relais: number;
+  restants: number;
   erreurs: string[];
 }
 
-export async function syncShowContacts(sb: SB, show: { id: string; nom: string }): Promise<SyncResult> {
-  const empty = { cibles: 0, relais: 0, erreurs: [] as string[] };
+export async function syncShowContacts(sb: SB, show: { id: string; nom: string }, limit = 150): Promise<SyncResult> {
+  const empty = { cibles: 0, relais: 0, restants: 0, erreurs: [] as string[] };
   if (!hasGoogleSync()) {
     const len = (process.env.GOOGLE_SA_KEY ?? "").length;
     const email = process.env.GOOGLE_IMPERSONATE_EMAIL ? "présent" : "absent";
@@ -78,12 +79,23 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   const groupCache = new Map<string, string>();
   const pipelineGroup = await ensureGroup(token, `${show.nom} Pipeline`, groupCache);
 
-  // Cibles non archivées du show + leurs contacts + watchlists.
+  // Mode incrémental : on traite un lot borné (`limit`), les NON synchronisées
+  // d'abord (google_resource_name null), pour tenir dans les 60s de Vercel.
+  // On relance jusqu'à `restants = 0`.
+  const { count: nonSync } = await sb
+    .from("cibles")
+    .select("id", { count: "exact", head: true })
+    .eq("show_id", show.id)
+    .eq("archive", false)
+    .is("google_resource_name", null);
+
   const { data: cibleData } = await sb
     .from("cibles")
     .select("id, nom, kind, role, organisation, raison_de_selection, google_resource_name, google_etag")
     .eq("show_id", show.id)
-    .eq("archive", false);
+    .eq("archive", false)
+    .order("google_resource_name", { nullsFirst: true })
+    .limit(limit);
   const cibles = (cibleData ?? []) as CibleRow[];
   const cibleIds = cibles.map((c) => c.id);
 
@@ -165,11 +177,16 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   });
   const relaisCount = relaisResults.filter(Boolean).length;
 
+  const restants = Math.max(0, (nonSync ?? 0) - cibleCount);
   return {
     ok: errors.length === 0,
-    detail: `Synchro Google : ${cibleCount} cible(s), ${relaisCount} relais.${errors.length ? ` ${errors.length} erreur(s).` : ""}`,
+    detail:
+      `Synchro Google : ${cibleCount} cible(s), ${relaisCount} relais.` +
+      (restants > 0 ? ` ${restants} restantes — relance pour continuer.` : " Terminé.") +
+      (errors.length ? ` ${errors.length} erreur(s).` : ""),
     cibles: cibleCount,
     relais: relaisCount,
+    restants,
     erreurs: errors.slice(0, 10),
   };
 }
