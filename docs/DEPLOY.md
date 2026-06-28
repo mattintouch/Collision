@@ -2,6 +2,40 @@
 
 > Comment le site passe en production. Lis ça avant de toucher au déploiement.
 
+## ⛔ Frontière de déploiement — Magellan ↔ Collision Studio (RÈGLE DURE)
+
+Magellan se déploie **uniquement** sur `magellan.collision.studio`, projet Vercel
+**`magellancollision`** — id `prj_q3c1aM5zRB1mAWOZxhs49VPVUyUT`, team
+`mattintouchs-projects` (`team_rqk6MLWrEtE42BcrAx1SxTlz`).
+
+Sur la **même team** existe un AUTRE projet, **`collision-studio`**
+(id `prj_G9qKeTuNETz6ElANDkfSdkvMHDaa`), qui sert le site marketing sur
+`collision.studio` et `www.collision.studio`. **Ne jamais le toucher** — géré ailleurs.
+
+1. **GitHub** : le repo `mattintouch/Collision` doit être lié *uniquement* à
+   `magellancollision`. S'il apparaît dans un autre projet Vercel → signaler à
+   Matthieu, ne pas corriger soi-même.
+2. **Vercel CLI/API** : toujours scoper à ce projet
+   (`--scope mattintouchs-projects`, cwd avec le bon `.vercel/project.json`).
+   Avant tout `vercel deploy`/`vercel domains`, vérifier
+   `cat .vercel/project.json` → doit montrer `prj_q3c1aM5zRB1mAWOZxhs49VPVUyUT`.
+   Sinon STOP + prévenir Matthieu (mauvais dossier).
+3. **Domaines** : ne configurer que `magellan.collision.studio` (et
+   `*.magellan.collision.studio`). Jamais l'apex `collision.studio` ni `www`.
+4. **DNS (OVH, zone `collision.studio` partagée)** : ne modifier que le record
+   `magellan`. Jamais `A @`, `CNAME www`, `MX`, `SPF`, `DKIM`, `_resend.*`, NS.
+5. **Env vars** : ne jamais réutiliser les secrets du projet marketing
+   (`RESEND_API_KEY`…). Besoin de clés → les demander à Matthieu.
+
+> Incident évité par ces règles : un push sur `mattintouch/Collision` avait
+> déclenché un auto-deploy sur `collision-studio` (qui hébergeait temporairement
+> la même intégration GitHub) → `www.collision.studio` a redirigé vers
+> `/gdiy/board` ~15 min. Lien GitHub côté marketing supprimé depuis.
+
+> Note : `.vercel/` est gitignoré → le `project.json` n'est pas versionné ; ces
+> ids font foi. Les déploiements se font par **push git** (pas de CLI), donc le
+> risque CLI ne se présente que si quelqu'un lance Vercel à la main.
+
 ## La règle (zéro manipulation côté Matt)
 
 La production est **`https://magellan.collision.studio`**, hébergée sur **Vercel**,
