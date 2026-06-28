@@ -40,7 +40,9 @@ export async function runWebSearchJSON<T>(
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
   const tools = [
-    { type: "web_search_20260209", name: "web_search", max_uses: maxUses },
+    // allowed_callers:["direct"] requis pour les modèles sans tool calling
+    // programmatique (ex. Haiku) — et inoffensif pour les autres.
+    { type: "web_search_20260209", name: "web_search", max_uses: maxUses, allowed_callers: ["direct"] },
   ] as Anthropic.MessageCreateParams["tools"];
 
   for (let i = 0; i < 4; i++) {
