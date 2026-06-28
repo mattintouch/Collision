@@ -5,6 +5,7 @@
 
 import { createServiceClient } from "../supabase/service";
 import { googleAccessToken, ensureGroup, upsertPerson, hasGoogleSync, type PersonInput } from "./contacts";
+import { isPlaceholder } from "../domain";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -18,7 +19,7 @@ interface CibleRow {
   google_resource_name: string | null;
   google_etag: string | null;
 }
-interface ContactRow { cible_id: string | null; appui_id: string | null; kind: string; valeur: string }
+interface ContactRow { cible_id: string | null; appui_id: string | null; kind: string; valeur: string; verifie: boolean }
 interface AppuiRow {
   id: string;
   nom: string;
@@ -60,9 +61,19 @@ export interface SyncResult {
   relais: number;
   restants: number;
   erreurs: string[];
+  simulation?: boolean;
+  a_creer?: number;
+  a_maj?: number;
+  exclus_placeholder?: number;
 }
 
-export async function syncShowContacts(sb: SB, show: { id: string; nom: string }, limit = 150, dryRun = false): Promise<SyncResult> {
+export async function syncShowContacts(
+  sb: SB,
+  show: { id: string; nom: string },
+  limit = 150,
+  dryRun = false,
+  inclureNonVerifies = false
+): Promise<SyncResult> {
   const empty = { cibles: 0, relais: 0, restants: 0, erreurs: [] as string[] };
   if (!hasGoogleSync()) {
     const len = (process.env.GOOGLE_SA_KEY ?? "").length;
@@ -74,19 +85,36 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     };
   }
 
-  // Simulation : compte sans rien écrire dans Google.
+  // Simulation : applique le même filtre qualité que le run réel et ventile
+  // créations / mises à jour / exclusions, sans rien écrire dans Google. [C2]
   if (dryRun) {
+    const { data: batch } = await sb
+      .from("cibles")
+      .select("id, nom, role, organisation, google_resource_name")
+      .eq("show_id", show.id)
+      .eq("archive", false)
+      .order("google_resource_name", { nullsFirst: true })
+      .limit(limit);
+    const rows = (batch ?? []) as { nom: string; role: string | null; organisation: string | null; google_resource_name: string | null }[];
+    let aCreer = 0, aMaj = 0, exclus = 0;
+    for (const c of rows) {
+      if (isPlaceholder(c.nom, c.role, c.organisation)) { exclus++; continue; }
+      if (c.google_resource_name) aMaj++; else aCreer++;
+    }
     const { count } = await sb
       .from("cibles").select("id", { count: "exact", head: true })
       .eq("show_id", show.id).eq("archive", false).is("google_resource_name", null);
-    const n = count ?? 0;
     return {
       ok: true,
-      detail: `[simulation] ${Math.min(n, limit)} cible(s) au prochain lot ; ${n} non synchronisées au total. Aucune écriture.`,
+      detail: `[simulation] lot de ${rows.length} : ${aCreer} à créer, ${aMaj} à mettre à jour, ${exclus} exclu(s) (placeholder). ${count ?? 0} cible(s) jamais synchronisées au total. Aucune écriture.`,
       cibles: 0,
       relais: 0,
-      restants: n,
+      restants: count ?? 0,
       erreurs: [],
+      simulation: true,
+      a_creer: aCreer,
+      a_maj: aMaj,
+      exclus_placeholder: exclus,
     };
   }
 
@@ -118,7 +146,7 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   const cibleIds = cibles.map((c) => c.id);
 
   const { data: cibleContacts } = cibleIds.length
-    ? await sb.from("contacts").select("cible_id, appui_id, kind, valeur").in("cible_id", cibleIds)
+    ? await sb.from("contacts").select("cible_id, appui_id, kind, valeur, verifie").in("cible_id", cibleIds)
     : { data: [] };
   const { data: wlLinks } = cibleIds.length
     ? await sb.from("cible_watchlists").select("cible_id, watchlists(key, label)").in("cible_id", cibleIds)
@@ -141,8 +169,13 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   wlByCible.forEach((arr) => arr.forEach((l) => allLabels.add(l)));
   for (const label of allLabels) await ensureGroup(token, label, groupCache);
 
+  let exclusPlaceholder = 0;
   const cibleResults = await mapLimit(cibles, 8, async (c) => {
-    const own = ((cibleContacts ?? []) as ContactRow[]).filter((ct) => ct.cible_id === c.id);
+    // [C2] Gate qualité : ne pas polluer le carnet réel avec des noms factices.
+    if (isPlaceholder(c.nom, c.role, c.organisation)) { exclusPlaceholder++; return false; }
+    const own = ((cibleContacts ?? []) as ContactRow[])
+      .filter((ct) => ct.cible_id === c.id)
+      .filter((ct) => inclureNonVerifies || ct.verifie);
     const { phones, emails, urls } = splitContacts(own);
     const groups = [pipelineGroup, ...(wlByCible.get(c.id) ?? []).map((l) => groupCache.get(l) ?? null)].filter(Boolean) as string[];
     const input: PersonInput = {
@@ -170,13 +203,14 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
   const appuis = (appuiData ?? []) as AppuiRow[];
   const appuiIds = appuis.map((a) => a.id);
   const { data: appuiContacts } = appuiIds.length
-    ? await sb.from("contacts").select("cible_id, appui_id, kind, valeur").in("appui_id", appuiIds)
+    ? await sb.from("contacts").select("cible_id, appui_id, kind, valeur, verifie").in("appui_id", appuiIds)
     : { data: [] };
   const relaisGroup = await ensureGroup(token, `${show.nom} Relais`, groupCache);
-  const relaisAvecContacts = appuis.filter((a) => ((appuiContacts ?? []) as ContactRow[]).some((ct) => ct.appui_id === a.id));
+  const verifiedAppuiContacts = ((appuiContacts ?? []) as ContactRow[]).filter((ct) => inclureNonVerifies || ct.verifie);
+  const relaisAvecContacts = appuis.filter((a) => verifiedAppuiContacts.some((ct) => ct.appui_id === a.id));
 
   const relaisResults = await mapLimit(relaisAvecContacts, 8, async (a) => {
-    const own = ((appuiContacts ?? []) as ContactRow[]).filter((ct) => ct.appui_id === a.id);
+    const own = verifiedAppuiContacts.filter((ct) => ct.appui_id === a.id);
     const { phones, emails, urls } = splitContacts(own);
     const input: PersonInput = {
       fullName: a.nom,
@@ -200,12 +234,14 @@ export async function syncShowContacts(sb: SB, show: { id: string; nom: string }
     ok: errors.length === 0,
     detail:
       `Synchro Google : ${cibleCount} cible(s), ${relaisCount} relais.` +
+      (exclusPlaceholder > 0 ? ` ${exclusPlaceholder} exclu(s) (placeholder).` : "") +
       (restants > 0 ? ` ${restants} restantes — relance pour continuer.` : " Terminé.") +
       (errors.length ? ` ${errors.length} erreur(s).` : ""),
     cibles: cibleCount,
     relais: relaisCount,
     restants,
     erreurs: errors.slice(0, 10),
+    exclus_placeholder: exclusPlaceholder,
   };
   } catch (e) {
     return {

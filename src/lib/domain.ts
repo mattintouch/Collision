@@ -124,3 +124,121 @@ export const SHOW_ACCENTS: Record<string, string> = {
   ccg: "#3B82F6",
   fleurons: "#B45CFF",
 };
+
+// ── Audit live 28/06 ────────────────────────────────────────────────────────
+
+/**
+ * [C4] Détecte un nom factice (« Un chef étoilé local », « Founder Canvas »,
+ * « XX Hugel », « Delphine H (Ernotte?) »…) pour ne pas le compter comme une
+ * vraie cible ni le synchroniser dans Google Contacts. Heuristique, exposée en
+ * clair (booléen `placeholder`) pour arbitrer les faux positifs.
+ */
+export function isPlaceholder(
+  nom: string | null,
+  role?: string | null,
+  organisation?: string | null
+): boolean {
+  const n = (nom ?? "").trim();
+  if (!n) return true;
+  if (n.includes("?")) return true; // « (Ernotte?) », nom incertain
+  if (/^xx\b/i.test(n)) return true; // « XX Hugel »
+  if (/^(un|une)\s/i.test(n)) return true; // « Un chef étoilé local »
+  // Commence par un mot de fonction au lieu d'un prénom → générique.
+  if (/^(fondat\w*|founder|co-?founder|ceo|cto|pdg|dg|président\w*|dirigeant\w*|patron\w*)\b/i.test(n))
+    return true;
+  // Jeton unique sans rôle ni organisation pour une personne → trop maigre.
+  if (n.split(/\s+/).length === 1 && !role && !organisation) return true;
+  return false;
+}
+
+/** Entrée minimale pour le score (sous-ensemble de la vue cibles_enrichies). */
+export interface ScoreInput {
+  nom: string | null;
+  role?: string | null;
+  organisation?: string | null;
+  archetype: Archetype | null;
+  note_priorite: number | null;
+  voie: Voie;
+  stage_key: string | null;
+  jours_depuis_touche: number | null;
+  dernier_signal_date: string | null;
+  dernier_signal_pertinence: number | null;
+  nb_appuis: number;
+  nb_relais_actionnables?: number | null;
+  archive?: boolean | null;
+}
+
+export interface CibleScore {
+  score: number; // 0–100 (cibles travaillables) ; trié décroissant
+  placeholder: boolean;
+  badges: string[];
+}
+
+const ARCHETYPE_BASE: Record<Archetype, number> = { big_fish: 4, pepite: 3, quick_win: 3 };
+const STAGE_OUTREACH = new Set(["qualifie", "contacte"]); // momentum positif
+const STAGE_WON_OR_AFTER = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
+
+/**
+ * [C1] Score composite calculé au read-time. Fait remonter les cibles qui
+ * bougent (signal frais, voie chaude, relais actionnable, fenêtre de relance)
+ * et sort du flux outreach celles déjà gagnées (≥ confirme) ou archivées.
+ * Spéc : docs/DEBRIEF.md §7 (repris de l'audit live).
+ */
+export function computeCibleScore(c: ScoreInput): CibleScore {
+  const placeholder = isPlaceholder(c.nom, c.role, c.organisation);
+  const badges: string[] = [];
+
+  // base_priorite (0–40)
+  const base = (c.note_priorite ?? (c.archetype ? ARCHETYPE_BASE[c.archetype] : 2)) * 8;
+
+  // signal (0–20) — frais = daté de ≤ 14 jours
+  let signal = 0;
+  if (c.dernier_signal_date) {
+    const ageJours = (Date.now() - new Date(c.dernier_signal_date).getTime()) / 86_400_000;
+    if (ageJours <= 14) {
+      signal = (c.dernier_signal_pertinence ?? 0) * 4;
+      if (signal > 0) badges.push("signal frais");
+    }
+  }
+
+  // voie (0–15)
+  const voie = c.voie === "chaud" ? 15 : 0;
+
+  // relais (0–18)
+  const actionnables = c.nb_relais_actionnables ?? 0;
+  const autres = Math.max(0, c.nb_appuis - actionnables);
+  const relais = Math.min(18, actionnables * 6 + autres * 2);
+  if (actionnables > 0) badges.push("relais actionnable");
+
+  // resurgence (0–10) — cadence 14 j froid / 21 j chaud
+  const cadence = c.voie === "chaud" ? 21 : 14;
+  const j = c.jours_depuis_touche;
+  let resurgence: number;
+  if (j === null) {
+    resurgence = c.stage_key === "identifie" ? 5 : 3;
+  } else if (j > 3 * cadence) {
+    resurgence = 6;
+    badges.push("risque d'abandon");
+  } else if (j >= cadence && j <= 2 * cadence) {
+    resurgence = 10;
+    badges.push("fenêtre de relance");
+  } else if (j > 2 * cadence) {
+    resurgence = 8;
+  } else {
+    resurgence = 0; // touché récemment
+  }
+
+  // momentum_stage (−10 → +8)
+  let momentum = 0;
+  if (c.stage_key && STAGE_OUTREACH.has(c.stage_key)) momentum = 8;
+  else if (c.stage_key && STAGE_WON_OR_AFTER.has(c.stage_key)) {
+    momentum = -10;
+    badges.push("gagné");
+  }
+
+  // estival : non implémenté (signe à trancher, cf. DEBRIEF §9) → 0.
+
+  const raw = base + signal + voie + relais + resurgence + momentum;
+  const score = Math.max(0, Math.min(100, raw));
+  return { score, placeholder, badges };
+}

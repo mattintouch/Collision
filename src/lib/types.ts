@@ -98,6 +98,7 @@ export interface CibleEnrichie extends Cible {
   signal_frais: boolean;
   watchlist_keys: string[] | null;
   nb_appuis: number;
+  nb_relais_actionnables?: number | null;
 }
 
 export interface Appui {

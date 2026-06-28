@@ -55,6 +55,21 @@ Migrations à jour : **0009-0017** appliquées.
 
 ---
 
+## 🔎 Audit live MCP 28/06 (claude.ai) — items [CODE] livrés
+
+> Source : `AUDIT_MAGELLAN_LIVE_20260628`. Détail/spéc : `docs/DEBRIEF.md` §7.
+> Migration **0018** (recrée la vue `cibles_enrichies` + `nb_relais_actionnables`) — **à appliquer**.
+
+- **[C3]** `list_cibles` exclut les archivées par défaut (`include_archived` pour les ramener) ; `archive` exposé en compact.
+- **[C4]** Détection placeholder (`isPlaceholder` dans `domain.ts`) : noms factices (« Un… », « XX… », « Founder/Fondatrice… », « …? », jeton unique) flaggés `placeholder:true`, relégués en bas de liste et **exclus de la synchro Google**.
+- **[C1]** **Score composite 0-100** (`computeCibleScore`, spéc DEBRIEF §7) calculé au read-time : `list_cibles` trie par score décroissant (les cibles qui bougent en tête, les `≥confirme` sortent du flux outreach). Expose `score` + `badges` + `score_min`. Vérifié : Tony Parker en tête, Aghion (gagné) en bas, placeholders derniers.
+- **[C2]** `sync_google_contacts` : **`dry_run` par défaut TRUE** (simulation ventilée à créer/à MAJ/exclus, aucune écriture) ; gate qualité (exclut archivées + placeholders, ne pousse que les coordonnées **vérifiées** sauf `inclure_non_verifies:true`).
+- **[C5]** Cohérence API : `find_cible` accepte `cible` (alias `query`) ; `get_dossier` accepte `cible`+`show` en plus de `cible_id`.
+
+**Reste de l'audit** : [D0-D3] = données (via connecteur/app, pas Claude Code) ; [C6] séparer reporting closing/prod ; [C7] pipeline d'ingestion de signaux. **Hypothèse à trancher** : signe du modificateur estival (DEBRIEF §9) avant de l'activer dans le score.
+
+---
+
 ## 🔭 Backlog issu du brief « retour de tests » (Lots 1-8)
 
 > Priorités du brief : P0 = Lots 1-2 · P1 = Lots 3,4,5,8 · P2 = Lots 6,7.

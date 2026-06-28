@@ -8,6 +8,7 @@ import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
+import { computeCibleScore, type ScoreInput } from "../domain";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -124,7 +125,7 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "list_cibles",
-    "Liste les cibles d'un show, enrichies (résurgence, jours depuis touche, signal, appuis).",
+    "Liste les cibles d'un show, triées par score d'actionnabilité décroissant (les cibles qui bougent en tête). Enrichies : score, badges, résurgence, jours depuis touche, signal, appuis. Les archivées sont exclues par défaut ; les noms factices (placeholder) sont relégués en bas et signalés.",
     {
       show: z.string().describe("slug (gdiy, ccg, fleurons) ou id"),
       voie: z.enum(["froid", "chaud"]).optional(),
@@ -137,18 +138,25 @@ export function registerMagellanTools(server: McpServer) {
       sujet: z.string().optional().describe("cibles dont les sujets contiennent cette valeur"),
       watchlist: z.string().optional().describe("clé ou libellé (ex. cac40) — cibles appartenant à cette watchlist"),
       q: z.string().optional().describe("filtre par nom (recherche partielle)"),
-      limit: z.number().optional().describe("nombre max de cibles (défaut 50)"),
+      limit: z.number().optional().describe("nombre max de cibles renvoyées après tri (défaut 50, max 200)"),
       full: z.boolean().optional().describe("true = toutes les colonnes ; défaut = projection compacte"),
+      include_archived: z.boolean().optional().describe("inclure les cibles archivées (défaut false)"),
+      score_min: z.number().optional().describe("ne garder que les cibles dont le score ≥ ce seuil"),
     },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      // Projection compacte par défaut (éviter de tirer des centaines de lignes complètes).
-      const COMPACT =
-        "id, nom, kind, role, organisation, secteur, pays, voie, priorite, archetype, stage_key, jours_depuis_touche, signal_frais, nb_appuis, watchlist_keys";
-      let q = sb.from("cibles_enrichies").select(a.full ? "*" : COMPACT).eq("show_id", sid);
+      // Colonnes nécessaires au score (superset de la projection compacte). On
+      // tire l'ensemble filtré (borné à 1000), on score en mémoire, puis on
+      // trie et on coupe à `limit` — sinon un cap SQL enterrerait les cibles
+      // qui bougent (défaut n°1 de l'audit).
+      const SCORE_COLS =
+        "id, nom, kind, role, organisation, secteur, pays, envergure, voie, priorite, archetype, note_priorite, stage_key, stage_label, jours_depuis_touche, dernier_signal_date, dernier_signal_pertinence, signal_frais, nb_appuis, nb_relais_actionnables, watchlist_keys, archive, sujets";
+      const sel: string = a.full ? "*" : SCORE_COLS;
+      let q = sb.from("cibles_enrichies").select(sel).eq("show_id", sid);
+      if (!a.include_archived) q = q.eq("archive", false); // [C3]
       if (a.voie) q = q.eq("voie", a.voie);
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
@@ -165,26 +173,64 @@ export function registerMagellanTools(server: McpServer) {
         const cibleIds = (links ?? []).map((l) => l.cible_id as string);
         q = q.in("id", cibleIds.length ? cibleIds : ["00000000-0000-0000-0000-000000000000"]);
       }
-      q = q.limit(Math.min(a.limit ?? 50, 200));
-      const { data, error } = await q;
-      return error ? text({ error: error.message }) : text(data);
+      const { data, error } = await q.limit(1000);
+      if (error) return text({ error: error.message });
+
+      type Row = Record<string, unknown>;
+      const rows = (data ?? []) as unknown as Row[];
+      const scored = rows.map((r) => {
+        const s = computeCibleScore(r as unknown as ScoreInput);
+        return { r, ...s };
+      });
+      // Tri : cibles travaillables d'abord (placeholder en bas), puis score
+      // décroissant, puis ancienneté de touche, puis nom.
+      scored.sort((x, y) => {
+        if (x.placeholder !== y.placeholder) return x.placeholder ? 1 : -1;
+        if (y.score !== x.score) return y.score - x.score;
+        const jx = (x.r.jours_depuis_touche as number) ?? -1;
+        const jy = (y.r.jours_depuis_touche as number) ?? -1;
+        if (jy !== jx) return jy - jx;
+        return String(x.r.nom ?? "").localeCompare(String(y.r.nom ?? ""));
+      });
+      let out = scored;
+      if (typeof a.score_min === "number") out = out.filter((s) => s.score >= (a.score_min as number));
+      out = out.slice(0, Math.min(a.limit ?? 50, 200));
+
+      const COMPACT_KEYS = [
+        "id", "nom", "kind", "role", "organisation", "secteur", "pays", "voie", "priorite",
+        "archetype", "note_priorite", "stage_key", "jours_depuis_touche", "signal_frais",
+        "nb_appuis", "nb_relais_actionnables", "watchlist_keys", "archive",
+      ];
+      const payload = out.map(({ r, score, placeholder, badges }) => {
+        const proj$ = a.full
+          ? { ...r }
+          : Object.fromEntries(COMPACT_KEYS.filter((k) => k in r).map((k) => [k, r[k]]));
+        return { ...proj$, score, placeholder, badges };
+      });
+      return text(payload);
     }
   );
 
   server.tool(
     "find_cible",
     "Cherche une cible par nom dans un show et renvoie id + résumé. À utiliser pour vérifier l'existence d'une personne sans tirer toute la liste.",
-    { show: z.string(), query: z.string().describe("nom ou fragment de nom") },
+    {
+      show: z.string(),
+      cible: z.string().optional().describe("nom ou fragment de nom"),
+      query: z.string().optional().describe("alias de `cible` (déprécié)"),
+    },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
+      const needle = a.cible ?? a.query;
+      if (!needle) return text({ error: "Préciser `cible` (nom ou fragment)." });
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const { data, error } = await sb
         .from("cibles_enrichies")
         .select("id, nom, kind, role, organisation, secteur, pays, stage_key, archetype")
         .eq("show_id", sid)
-        .ilike("nom", `%${a.query}%`)
+        .ilike("nom", `%${needle}%`)
         .limit(15);
       if (error) return text({ error: error.message });
       return text({ count: (data ?? []).length, cibles: data });
@@ -193,17 +239,30 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "get_dossier",
-    "Dossier complet d'une cible : champs, appuis, journal, signaux, contacts.",
-    { cible_id: z.string() },
+    "Dossier complet d'une cible : champs, appuis, journal, signaux, contacts. Passer `cible_id` (UUID) ou bien `cible` (nom) + `show`.",
+    {
+      cible_id: z.string().optional().describe("UUID de la cible"),
+      cible: z.string().optional().describe("nom (nécessite `show`)"),
+      show: z.string().optional().describe("slug/id du show (avec `cible`)"),
+    },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
+      let cid = a.cible_id ?? null;
+      if (!cid && a.cible && a.show) {
+        const sid = await showId(sb, a.show);
+        if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+        const target = await resolveCible(sb, sid, a.cible);
+        if (!target) return text({ error: `Cible « ${a.cible} » introuvable (ou ambiguë).` });
+        cid = target.id;
+      }
+      if (!cid) return text({ error: "Préciser `cible_id`, ou `cible` + `show`." });
       const [c, appuisRes, touches, signals, contacts] = await Promise.all([
-        sb.from("cibles_enrichies").select("*").eq("id", a.cible_id).maybeSingle(),
-        sb.from("appuis").select("*").eq("cible_id", a.cible_id),
-        sb.from("touches").select("*").eq("cible_id", a.cible_id).order("date", { ascending: false }),
-        sb.from("signals").select("*").eq("cible_id", a.cible_id).order("date", { ascending: false }),
-        sb.from("contacts").select("*").eq("cible_id", a.cible_id),
+        sb.from("cibles_enrichies").select("*").eq("id", cid).maybeSingle(),
+        sb.from("appuis").select("*").eq("cible_id", cid),
+        sb.from("touches").select("*").eq("cible_id", cid).order("date", { ascending: false }),
+        sb.from("signals").select("*").eq("cible_id", cid).order("date", { ascending: false }),
+        sb.from("contacts").select("*").eq("cible_id", cid),
       ]);
       if (!c.data) return text({ error: "Cible introuvable" });
       // Rattache à chaque appui ses propres coordonnées (Lot 5).
@@ -442,11 +501,12 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "sync_google_contacts",
-    "Synchronise les cibles (non archivées) et les relais d'un show vers Google Contacts, par lots (les non synchronisées d'abord). Relancer tant que `restants > 0`. Magellan reste la source de vérité ; sans doublon, groupés par show et par watchlist.",
+    "Synchronise les cibles (non archivées, non factices) et les relais d'un show vers Google Contacts, par lots (les non synchronisées d'abord). Relancer tant que `restants > 0`. ⚠️ `dry_run` vaut TRUE par défaut (simulation, aucune écriture) : passer `dry_run:false` pour écrire réellement. Seules les coordonnées vérifiées sont poussées (sauf `inclure_non_verifies:true`). Magellan reste la source de vérité ; sans doublon, groupés par show et par watchlist.",
     {
       show: z.string(),
       limit: z.number().optional().describe("taille de lot (défaut 150)"),
-      dry_run: z.boolean().optional().describe("simulation : compte sans rien écrire dans Google"),
+      dry_run: z.boolean().optional().describe("simulation sans écriture — défaut TRUE ; passer false pour écrire"),
+      inclure_non_verifies: z.boolean().optional().describe("pousser aussi les coordonnées non vérifiées (défaut false)"),
     },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
@@ -455,7 +515,13 @@ export function registerMagellanTools(server: McpServer) {
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const { data: show } = await sb.from("shows").select("id, nom").eq("id", sid).single();
       if (!show) return text({ error: "Show introuvable" });
-      const res = await syncShowContacts(sb, { id: show.id, nom: show.nom }, Math.min(a.limit ?? 150, 200), a.dry_run ?? false);
+      const res = await syncShowContacts(
+        sb,
+        { id: show.id, nom: show.nom },
+        Math.min(a.limit ?? 150, 200),
+        a.dry_run ?? true,
+        a.inclure_non_verifies ?? false
+      );
       return text(res);
     }
   );
