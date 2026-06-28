@@ -229,6 +229,7 @@ export default async function CiblePage({
           <ContactsSection
             cibleId={cible.id}
             showSlug={show.slug}
+            cibleNom={cible.nom}
             contacts={contacts}
           />
 

@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { enrichCibleAction, deleteContact } from "@/lib/actions";
+import { enrichCibleAction, deleteContact, addContactManual, importGoogleContact } from "@/lib/actions";
 import { CONTACT_LABELS } from "@/lib/domain";
-import type { Contact } from "@/lib/types";
+import type { Contact, ContactKind } from "@/lib/types";
 import type { ContactSuggestion } from "@/lib/enrichment/engine";
 
 function looksLinkable(v: string) {
@@ -22,15 +22,21 @@ function hrefFor(kind: string, v: string): string | null {
 export function ContactsSection({
   cibleId,
   showSlug,
+  cibleNom,
   contacts,
 }: {
   cibleId: string;
   showSlug: string;
+  cibleNom: string;
   contacts: Contact[];
 }) {
   const [suggestions, setSuggestions] = useState<ContactSuggestion[] | null>(null);
   const [demo, setDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<ContactKind>("email");
+  const [valeur, setValeur] = useState("");
   const [pending, start] = useTransition();
   const router = useRouter();
 
@@ -51,6 +57,31 @@ export function ContactsSection({
     });
   }
 
+  function importGoogle() {
+    setMsg(null);
+    setError(null);
+    start(async () => {
+      const r = await importGoogleContact({ cible_id: cibleId, nom: cibleNom, show_slug: showSlug });
+      if (r.ok) {
+        setMsg(r.detail ?? "Importé.");
+        router.refresh();
+      } else setError(r.error ?? "Erreur");
+    });
+  }
+
+  function addManual() {
+    if (!valeur.trim()) return;
+    setError(null);
+    start(async () => {
+      const r = await addContactManual({ cible_id: cibleId, show_slug: showSlug, kind, valeur });
+      if (r.ok) {
+        setValeur("");
+        setAdding(false);
+        router.refresh();
+      } else setError(r.error ?? "Erreur");
+    });
+  }
+
   function remove(id: string) {
     start(async () => {
       await deleteContact({ contact_id: id, cible_id: cibleId, show_slug: showSlug });
@@ -60,14 +91,47 @@ export function ContactsSection({
 
   return (
     <section className="card p-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
           Contacts ({contacts.length})
         </h2>
-        <button onClick={enrich} disabled={pending} className="btn-ghost px-2 py-1 text-xs">
-          {pending ? "Recherche…" : "Enrichir"}
-        </button>
+        <div className="flex gap-1">
+          <button onClick={() => setAdding((v) => !v)} disabled={pending} className="btn-ghost px-2 py-1 text-xs">
+            + Ajouter
+          </button>
+          <button onClick={importGoogle} disabled={pending} className="btn-ghost px-2 py-1 text-xs">
+            Google
+          </button>
+          <button onClick={enrich} disabled={pending} className="btn-ghost px-2 py-1 text-xs">
+            {pending ? "…" : "Enrichir"}
+          </button>
+        </div>
       </div>
+
+      {adding && (
+        <div className="mt-3 flex flex-wrap gap-1 border-b border-noir-600 pb-3">
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ContactKind)}
+            className="rounded-lg border border-noir-600 bg-noir-900 px-2 py-1 text-sm outline-none focus:border-jaune"
+          >
+            {(["email", "telephone", "reseau", "site", "agence", "autre"] as ContactKind[]).map((k) => (
+              <option key={k} value={k}>{CONTACT_LABELS[k]}</option>
+            ))}
+          </select>
+          <input
+            value={valeur}
+            onChange={(e) => setValeur(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addManual()}
+            placeholder="email, 06…, URL"
+            className="min-w-0 flex-1 rounded-lg border border-noir-600 bg-noir-900 px-2 py-1 text-sm outline-none placeholder:text-blanc-muted/60 focus:border-jaune"
+          />
+          <button onClick={addManual} disabled={pending || !valeur.trim()} className="btn-ghost px-2 py-1 text-sm disabled:opacity-40">
+            OK
+          </button>
+        </div>
+      )}
+      {msg && <p className="mt-2 text-xs text-jaune">{msg}</p>}
 
       <div className="mt-3 space-y-2">
         {contacts.length === 0 && !suggestions && (

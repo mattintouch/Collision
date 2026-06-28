@@ -9,6 +9,7 @@ import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./
 import { mapPerson, type MappedTarget } from "./folk/map";
 import { folkLogTouche } from "./folk/write";
 import { createCalendarEvent, deleteCalendarEvent, updateCalendarEventTimes } from "./calendar";
+import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "./google/contacts";
 
 export interface ActionResult {
   ok: boolean;
@@ -452,6 +453,58 @@ export async function updateCibleInfo(input: {
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true };
+}
+
+/** Ajoute une coordonnée à la main sur une fiche. */
+export async function addContactManual(input: {
+  cible_id: string;
+  show_slug: string;
+  kind: string;
+  valeur: string;
+  label?: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (!input.valeur.trim()) return { ok: false, error: "Valeur requise." };
+  const supabase = createClient();
+  const { error } = await supabase.from("contacts").insert({
+    cible_id: input.cible_id,
+    kind: input.kind,
+    valeur: input.valeur.trim(),
+    label: input.label?.trim() || null,
+    source: "Saisie manuelle",
+    confiance: 5,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  return { ok: true };
+}
+
+/** Importe les coordonnées d'un contact Google (recherche par nom) vers une cible. */
+export async function importGoogleContact(input: {
+  cible_id: string;
+  nom: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  if (demoMode) return DEMO_BLOCK;
+  if (!hasGoogleSync()) return { ok: false, error: "Synchro Google non configurée." };
+  const token = await googleAccessToken();
+  if (!token) return { ok: false, error: "Authentification Google échouée." };
+  const hit = await searchGoogleContact(token, input.nom);
+  if (!hit || (hit.emails.length === 0 && hit.phones.length === 0)) {
+    return { ok: false, error: `Aucune coordonnée trouvée dans Google Contacts pour « ${input.nom} ».` };
+  }
+  const supabase = createClient();
+  const { data: existing } = await supabase.from("contacts").select("valeur").eq("cible_id", input.cible_id);
+  const have = new Set((existing ?? []).map((c) => (c as { valeur: string }).valeur));
+  const rows = [
+    ...hit.emails.filter((v) => !have.has(v)).map((v) => ({ cible_id: input.cible_id, kind: "email", valeur: v, label: "Google Contacts", source: "Google", confiance: 5 })),
+    ...hit.phones.filter((v) => !have.has(v)).map((v) => ({ cible_id: input.cible_id, kind: "telephone", valeur: v, label: "Google Contacts", source: "Google", confiance: 5 })),
+  ];
+  if (rows.length === 0) return { ok: true, detail: "Coordonnées Google déjà présentes." };
+  const { error } = await supabase.from("contacts").insert(rows);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
+  return { ok: true, detail: `${rows.length} coordonnée(s) importée(s) de Google.` };
 }
 
 /** Retire une watchlist (par clé) d'une cible. */

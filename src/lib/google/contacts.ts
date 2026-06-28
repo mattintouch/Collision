@@ -61,6 +61,31 @@ async function gfetch(token: string, path: string, init: RequestInit): Promise<R
   });
 }
 
+export interface GoogleContactHit {
+  emails: string[];
+  phones: string[];
+}
+
+/** Cherche un contact Google (du compte impersonné) par nom et renvoie ses coordonnées. */
+export async function searchGoogleContact(token: string, query: string): Promise<GoogleContactHit | null> {
+  const url = `/people:searchContacts?query=${encodeURIComponent(query)}&readMask=names,emailAddresses,phoneNumbers&pageSize=10`;
+  const res = await gfetch(token, url, { method: "GET" });
+  if (!res.ok) return null;
+  const j = (await res.json()) as {
+    results?: { person?: { names?: { displayName?: string }[]; emailAddresses?: { value?: string }[]; phoneNumbers?: { value?: string }[] } }[];
+  };
+  const results = j.results ?? [];
+  if (!results.length) return null;
+  const low = query.trim().toLowerCase();
+  const best =
+    results.find((r) => (r.person?.names?.[0]?.displayName ?? "").toLowerCase().includes(low)) ?? results[0];
+  const p = best.person ?? {};
+  return {
+    emails: (p.emailAddresses ?? []).map((e) => e.value ?? "").filter(Boolean),
+    phones: (p.phoneNumbers ?? []).map((x) => x.value ?? "").filter(Boolean),
+  };
+}
+
 /** Crée (si absent) un groupe de contacts par nom, renvoie son resourceName. */
 async function ensureGroup(token: string, name: string, cache: Map<string, string>): Promise<string | null> {
   if (cache.has(name)) return cache.get(name) ?? null;
