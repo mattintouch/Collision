@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import clsx from "clsx";
 import type { CibleEnrichie, Show, Stage } from "@/lib/types";
-import { ARCHETYPE_LABELS, ARCHETYPE_ORDER, VOIE_LABELS, computeResurgence } from "@/lib/domain";
+import { ARCHETYPE_LABELS, ARCHETYPE_ORDER, VOIE_LABELS, computeCibleScore, estivalActif, type CibleScore, type ScoreInput } from "@/lib/domain";
 import {
   moveCibleStage,
   setCibleArchetype,
@@ -28,14 +28,6 @@ function archLabel(key: string) {
   return key === "none" ? "À classer" : ARCHETYPE_LABELS[key as keyof typeof ARCHETYPE_LABELS];
 }
 
-function sortResurgence(a: CibleEnrichie, b: CibleEnrichie) {
-  // Note de priorité manuelle d'abord (5 → 1), puis voie froide, puis résurgence.
-  const pa = a.note_priorite ?? 0;
-  const pb = b.note_priorite ?? 0;
-  if (pa !== pb) return pb - pa;
-  if (a.voie !== b.voie) return a.voie === "froid" ? -1 : 1;
-  return computeResurgence(b).score - computeResurgence(a).score;
-}
 
 interface Column {
   key: string;
@@ -125,6 +117,27 @@ export function BoardDnd({
     for (const c of cibles) for (const k of c.watchlist_keys ?? []) set.add(k);
     return Array.from(set).sort();
   }, [cibles]);
+
+  // Score d'actionnabilité (même calcul que le MCP) → tri du board + badges.
+  const scores = useMemo(() => {
+    const estival = estivalActif();
+    const m = new Map<string, CibleScore>();
+    for (const c of cibles) m.set(c.id, computeCibleScore(c as unknown as ScoreInput, estival));
+    return m;
+  }, [cibles]);
+
+  // Placeholders en bas, puis score décroissant, puis ancienneté de touche, puis nom.
+  function byScore(a: CibleEnrichie, b: CibleEnrichie) {
+    const sa = scores.get(a.id);
+    const sb = scores.get(b.id);
+    if (!sa || !sb) return 0;
+    if (sa.placeholder !== sb.placeholder) return sa.placeholder ? 1 : -1;
+    if (sb.score !== sa.score) return sb.score - sa.score;
+    const ja = a.jours_depuis_touche ?? -1;
+    const jb = b.jours_depuis_touche ?? -1;
+    if (jb !== ja) return jb - ja;
+    return a.nom.localeCompare(b.nom);
+  }
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -359,7 +372,7 @@ export function BoardDnd({
 
       <div className={clsx("flex gap-5 overflow-x-auto pb-4", pending && "opacity-70")}>
         {columns.map((col, i) => {
-          const list = visible.filter(col.match).sort(sortResurgence);
+          const list = visible.filter(col.match).sort(byScore);
           return (
             <div
               key={col.key}
@@ -427,7 +440,7 @@ export function BoardDnd({
                         selected.has(c.id) && "rounded-card ring-2 ring-jaune"
                       )}
                     >
-                      <TargetCard cible={c} show={show} />
+                      <TargetCard cible={c} show={show} score={scores.get(c.id)?.score} badges={scores.get(c.id)?.badges} />
                       <button
                         onClick={(e) => {
                           e.preventDefault();

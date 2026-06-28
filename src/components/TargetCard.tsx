@@ -15,7 +15,34 @@ const ADVICE: Record<Resurgence["conseil"], { icon: string; cls: string; bg: str
 };
 const PRIO_DOT: Record<Priorite, string> = { haute: "#FFD200", moyenne: "#9aa0ac", basse: "#5b616b" };
 
-export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }) {
+// Badges du score (le « signal frais » est déjà rendu par le bloc dédié, on
+// l'omet ici pour ne pas doublonner).
+const BADGE_STYLE: Record<string, { color: string; border: string; bg: string }> = {
+  "fenêtre de relance": { color: "#1FB46A", border: "rgba(31,180,106,.35)", bg: "rgba(31,180,106,.1)" },
+  "risque d'abandon": { color: "#FF8C42", border: "rgba(255,140,66,.35)", bg: "rgba(255,140,66,.1)" },
+  "relais actionnable": { color: "#5DB4FF", border: "rgba(93,180,255,.35)", bg: "rgba(93,180,255,.1)" },
+  "estival ☀": { color: "#FFD200", border: "rgba(255,210,0,.35)", bg: "rgba(255,210,0,.1)" },
+  "à reporter (sept.)": { color: "#9aa0ac", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
+  "gagné": { color: "#9aa0ac", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
+};
+
+function scoreColor(s: number): string {
+  if (s >= 60) return "#FFD200";
+  if (s >= 40) return "#9aa0ac";
+  return "#565B66";
+}
+
+export function TargetCard({
+  cible,
+  show,
+  score,
+  badges,
+}: {
+  cible: CibleEnrichie;
+  show: Show;
+  score?: number | null;
+  badges?: string[];
+}) {
   const r = computeResurgence(cible);
   const isEntreprise = cible.kind === "entreprise";
   const subtitle = isEntreprise
@@ -24,6 +51,7 @@ export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }
   const froid = cible.voie === "froid";
   const voieColor = froid ? "#5DB4FF" : "#FF8C42";
   const advice = ADVICE[r.conseil];
+  const shownBadges = (badges ?? []).filter((b) => b !== "signal frais" && BADGE_STYLE[b]);
 
   return (
     <Link href={`/${show.slug}/cible/${cible.id}`} className="card block p-[14px] transition-colors hover:bg-noir-700">
@@ -52,6 +80,12 @@ export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }
 
         {/* 2 — Méta */}
         <div className="meta flex flex-wrap items-center gap-x-[13px] gap-y-1">
+          {score != null && (
+            <span className="mono inline-flex items-center gap-1" style={{ color: scoreColor(score) }} title="Score d'actionnabilité">
+              <span style={{ fontSize: "8.5px", letterSpacing: ".12em", opacity: 0.7 }}>SCORE</span>
+              <span style={{ fontWeight: 700 }}>{score}</span>
+            </span>
+          )}
           {cible.note_priorite != null && (
             <span style={{ color: "#FFD200" }}>★ P{cible.note_priorite}</span>
           )}
@@ -67,6 +101,24 @@ export function TargetCard({ cible, show }: { cible: CibleEnrichie; show: Show }
             <span key={w} style={{ color: "#FFD200" }}>{w.toUpperCase()}</span>
           ))}
         </div>
+
+        {/* Badges du score (fenêtre de relance, estival, relais…) */}
+        {shownBadges.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {shownBadges.map((b) => {
+              const st = BADGE_STYLE[b];
+              return (
+                <span
+                  key={b}
+                  className="chip mono"
+                  style={{ color: st.color, borderColor: st.border, background: st.bg, fontSize: "9px", fontWeight: 600, letterSpacing: ".04em" }}
+                >
+                  {b}
+                </span>
+              );
+            })}
+          </div>
+        )}
 
         {/* 3 — Pourquoi maintenant (le cœur) */}
         {r.raison && (
