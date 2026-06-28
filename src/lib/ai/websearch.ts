@@ -34,7 +34,8 @@ export function extractJson<T>(text: string): T | null {
 export async function runWebSearchJSON<T>(
   system: string,
   prompt: string,
-  maxUses = 5
+  maxUses = 5,
+  model: string = ANTHROPIC_MODEL
 ): Promise<T | null> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
@@ -44,7 +45,7 @@ export async function runWebSearchJSON<T>(
 
   for (let i = 0; i < 4; i++) {
     const res = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+      model,
       max_tokens: 4000,
       system,
       tools,

@@ -5,6 +5,12 @@ import type { Show } from "../types";
 export const ANTHROPIC_MODEL =
   process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
+// Modèle dédié aux recherches web sourcées (enrichissement) : un modèle rapide
+// tient dans le budget serveur (60 s) là où Opus dépassait le délai. Réglable
+// via ENRICH_MODEL.
+export const ENRICH_MODEL =
+  process.env.ENRICH_MODEL ?? "claude-sonnet-4-6";
+
 export function hasAnthropicKey(): boolean {
   const k = process.env.ANTHROPIC_API_KEY ?? "";
   return k.length > 0 && !k.includes("your-anthropic-key");

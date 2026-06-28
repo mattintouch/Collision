@@ -7,7 +7,7 @@
 // nouveaux). Indispensable pour industrialiser sans perdre la saisie manuelle.
 
 import { runWebSearchJSON } from "../ai/websearch";
-import { hasAnthropicKey } from "../copilot/config";
+import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 
@@ -50,9 +50,9 @@ export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfilePropo
       ? `l'entreprise/marque « ${c.nom} »${c.secteur ? ` (${c.secteur})` : ""}`
       : `« ${c.nom} »${c.role ? ` (${c.role}${c.organisation ? `, ${c.organisation}` : ""})` : ""}`;
   const prompt = `Enrichis la fiche de ${qui}. Parcours et rôle actuel, organisation, secteur, pays, ville (base), photo publique, réseaux sociaux (LinkedIn, X, Instagram, site officiel), sujets de prédilection, et un angle d'épisode. JSON strict.`;
-  // 3 recherches max : tenir confortablement sous le délai serveur (un lot de 5
-  // dépassait parfois le timeout → résultat nul « indisponible »).
-  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 3);
+  // 3 recherches max + modèle rapide (ENRICH_MODEL) : tenir sous le budget
+  // serveur (60 s). Opus + 5 recherches dépassait le délai → « indisponible ».
+  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 3, ENRICH_MODEL);
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
