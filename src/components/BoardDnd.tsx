@@ -20,6 +20,9 @@ import { TargetCard } from "./TargetCard";
 import { ConfirmEpisodeModal } from "./ConfirmEpisodeModal";
 
 const ALL_ARCH = ["big_fish", "quick_win", "pepite", "none"];
+// Étapes « produites » : un invité enregistré/publié n'est plus une cible du
+// pipeline → masqué par défaut du board prospect (sauf en groupant par étape).
+const DONE_STAGES = ["enregistre", "publie", "produit"];
 function archLabel(key: string) {
   return key === "none" ? "À classer" : ARCHETYPE_LABELS[key as keyof typeof ARCHETYPE_LABELS];
 }
@@ -64,6 +67,7 @@ export function BoardDnd({
   const [voie, setVoie] = useState<"all" | "froid" | "chaud">("all");
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [showDone, setShowDone] = useState(false);
   const [groupBy, setGroupBy] = useState<string>(show.type_pipe === "invites" ? "archetype" : "stage");
 
   // Multi-sélection + actions de masse.
@@ -124,12 +128,14 @@ export function BoardDnd({
     const q = query.trim().toLowerCase();
     return cibles.filter((c) => {
       if (!showArchived && c.archive) return false;
+      // Enregistrés/publiés masqués par défaut (sauf en vue par étape).
+      if (!showDone && groupBy !== "stage" && c.stage_key && DONE_STAGES.includes(c.stage_key)) return false;
       if (voie !== "all" && c.voie !== voie) return false;
       if (wlFilter.size > 0 && !(c.watchlist_keys ?? []).some((k) => wlFilter.has(k))) return false;
       if (q && !c.nom.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [cibles, showArchived, voie, wlFilter, query]);
+  }, [cibles, showArchived, showDone, groupBy, voie, wlFilter, query]);
 
   function toggleWl(key: string) {
     setWlFilter((p) => {
@@ -252,6 +258,12 @@ export function BoardDnd({
           className={clsx("chip", showArchived ? "border-transparent bg-noir-600 text-blanc" : "border-noir-600 text-blanc-muted hover:text-blanc")}
         >
           {showArchived ? "Masquer archivés" : "Afficher archivés"}
+        </button>
+        <button
+          onClick={() => setShowDone((s) => !s)}
+          className={clsx("chip", showDone ? "border-transparent bg-noir-600 text-blanc" : "border-noir-600 text-blanc-muted hover:text-blanc")}
+        >
+          {showDone ? "Masquer enregistrés" : "Afficher enregistrés/publiés"}
         </button>
       </div>
 
