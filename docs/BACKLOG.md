@@ -68,7 +68,9 @@ Migrations à jour : **0009-0017** appliquées.
 
 - **Estival** ✅ (décision Matt 28/06) : en saison (auto juin-juillet, ou `saison:"ete"`), le score **remonte** le léger/grand public/iconique (tag `estival`/`ete` +10, sujets sport/culture/cuisine/voyage… +6, badge « estival ☀ ») et **repousse** le dur/tech/corporate à septembre (watchlist cac40/sbf120 −8, sujets finance/tech/ia… −6, badge « à reporter (sept.) »). Le tag manuel `estival` prime (rattrape un iconique « business » type Ghosn). Diffusion visée août → début septembre.
 
-**Reste de l'audit** : [D0-D3] = données (via connecteur/app, pas Claude Code) ; [C6] séparer reporting closing/prod ; [C7] pipeline d'ingestion de signaux.
+- **[C8]** (28/06) Outils MCP d'hygiène de données (débloque D0) : **`archive_cible`** (archiver/désarchiver une cible — ranger les placeholders), **`delete_touche`** (purger une touche de test, ex. « Test sync Folk » ; recalcule `date_derniere_touche` côté app car le trigger ne le fait qu'à l'insertion), et **`kind` éditable dans `update_cible`** (corriger un mauvais type, ex. « Helsing » personne→entreprise ; nettoie les champs incompatibles pour respecter les contraintes CHECK).
+
+**Reste de l'audit** : [D0-D3] = données (via connecteur/app, pas Claude Code) — désormais **outillé** par [C8] ; [C6] séparer reporting closing/prod ; [C7] pipeline d'ingestion de signaux.
 
 ---
 

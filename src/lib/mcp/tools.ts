@@ -429,6 +429,7 @@ export function registerMagellanTools(server: McpServer) {
     {
       show: z.string(),
       cible: z.string().describe("nom ou id de la cible"),
+      kind: z.enum(["personne", "entreprise"]).optional().describe("corrige le type de la cible (ex. une entreprise mal classée en personne) ; nettoie les champs incompatibles"),
       nom: z.string().optional().describe("renommer la cible"),
       role: z.string().optional(),
       organisation: z.string().optional(),
@@ -454,12 +455,28 @@ export function registerMagellanTools(server: McpServer) {
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data: row } = await sb.from("cibles").select("kind").eq("id", target.id).single();
-      const kind = ((row as { kind?: string } | null)?.kind ?? "personne") as string;
+      const currentKind = ((row as { kind?: string } | null)?.kind ?? "personne") as string;
+      const kind = a.kind ?? currentKind; // type visé après MAJ → sert à la validation
 
       // Validation lisible et sensible au kind (pas de violation Postgres brute).
       const { patch, rejected, allowed } = kindAwarePatch(kind, a as Record<string, unknown>);
       if (rejected.length) {
         return text({ error: `Champs non autorisés pour une ${kind} : ${rejected.join(", ")}. Champs autorisés : ${allowed.join(", ")}.` });
+      }
+      // Changement de type : poser kind + nettoyer les champs incompatibles
+      // (sinon violation des contraintes CHECK cible_personne/entreprise_fields).
+      if (a.kind && a.kind !== currentKind) {
+        patch.kind = a.kind;
+        if (a.kind === "entreprise") {
+          patch.role = null;
+          patch.archetype = null;
+        } else {
+          patch.secteur = null;
+          patch.pays = null;
+          patch.envergure = null;
+          patch.raison_de_selection = null;
+          patch.etat_recherche = null;
+        }
       }
       // Étape (Lot 7) : pose le stage_id depuis la clé d'étape du show.
       if (a.stage) {
@@ -482,6 +499,47 @@ export function registerMagellanTools(server: McpServer) {
         modifie.push("watchlist");
       }
       return text({ ok: true, cible: target.nom, modifie });
+    }
+  );
+
+  server.tool(
+    "archive_cible",
+    "Archive (ou désarchive) une cible : la sort du board prospect sans la détruire. `archive:false` pour la réactiver. À utiliser pour ranger les noms factices/placeholders ou une piste abandonnée.",
+    { show: z.string(), cible: z.string().describe("nom ou id"), archive: z.boolean().optional().describe("true = archiver (défaut), false = désarchiver") },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      const archive = a.archive ?? true;
+      const { error } = await sb.from("cibles").update({ archive }).eq("id", target.id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, cible: target.nom, archive });
+    }
+  );
+
+  server.tool(
+    "delete_touche",
+    "Supprime une touche du journal (ex. purger une touche de test). Recalcule la date de dernière touche de la cible. Récupérer l'id de touche via get_dossier.",
+    { touche_id: z.string().describe("id de la touche à supprimer (cf. get_dossier)") },
+    { destructiveHint: true, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const { data: touche } = await sb.from("touches").select("id, cible_id, contenu").eq("id", a.touche_id).maybeSingle();
+      if (!touche) return text({ error: "Touche introuvable." });
+      const cibleId = (touche as { cible_id: string }).cible_id;
+      const { error } = await sb.from("touches").delete().eq("id", a.touche_id);
+      if (error) return text({ error: error.message });
+      // Le trigger ne maintient le compteur qu'à l'insertion : on recalcule la
+      // dernière touche à partir des touches restantes (max date, sinon null).
+      const { data: rest } = await sb
+        .from("touches").select("date").eq("cible_id", cibleId)
+        .order("date", { ascending: false }).limit(1);
+      const last = (rest ?? [])[0] as { date: string } | undefined;
+      await sb.from("cibles").update({ date_derniere_touche: last?.date ?? null }).eq("id", cibleId);
+      return text({ ok: true, supprime: (touche as { contenu: string | null }).contenu, date_derniere_touche: last?.date ?? null });
     }
   );
 
