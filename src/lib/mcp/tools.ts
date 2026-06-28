@@ -9,6 +9,8 @@ import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { computeCibleScore, estivalActif, type ScoreInput } from "../domain";
+import { computeShowStats } from "../stats";
+import type { Stage } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -581,6 +583,27 @@ export function registerMagellanTools(server: McpServer) {
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
       return error ? text({ error: error.message }) : text({ ok: true, cible: target.nom, episode_id: data });
+    }
+  );
+
+  server.tool(
+    "show_stats",
+    "Statistiques d'un show, SÉPARÉES closing (étapes jusqu'à l'étape finale incluse) et production (étapes après). Renvoie la distribution par étape, le nombre gagné/en cours, le taux de closing, le pipeline de production et le nombre d'archivées.",
+    { show: z.string() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const [{ data: stages }, { data: rows }] = await Promise.all([
+        sb.from("stages").select("*").eq("show_id", sid).order("position"),
+        sb.from("cibles_enrichies").select("stage_key, stage_position, archive").eq("show_id", sid),
+      ]);
+      const stats = computeShowStats(
+        (stages ?? []) as Stage[],
+        (rows ?? []) as { stage_key: string | null; stage_position: number | null; archive: boolean }[]
+      );
+      return text(stats);
     }
   );
 

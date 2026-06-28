@@ -11,6 +11,7 @@ import {
   demoTouches,
 } from "./demo";
 import { createClient } from "./supabase/server";
+import { computeShowStats, type ShowStats } from "./stats";
 import type {
   Appui,
   CibleEnrichie,
@@ -119,6 +120,22 @@ export async function getStages(showId: string): Promise<Stage[]> {
     .eq("show_id", showId)
     .order("position");
   return data ?? [];
+}
+
+export async function getShowStats(showId: string): Promise<ShowStats> {
+  const stages = await getStages(showId);
+  if (demoMode) {
+    const rows = demoCibles
+      .filter((c) => c.show_id === showId)
+      .map((c) => ({ stage_key: c.stage_key, stage_position: c.stage_position, archive: c.archive }));
+    return computeShowStats(stages, rows);
+  }
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("cibles_enrichies")
+    .select("stage_key, stage_position, archive")
+    .eq("show_id", showId);
+  return computeShowStats(stages, (data ?? []) as { stage_key: string | null; stage_position: number | null; archive: boolean }[]);
 }
 
 export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
