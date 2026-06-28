@@ -12,6 +12,7 @@ export default async function VeillePage({
 
   return (
     <div>
+      <p className="label mb-1" style={{ color: "#FFD200" }}>Signaux</p>
       <h1 className="font-display text-2xl font-semibold tracking-tight">
         Veille — {show.nom}
       </h1>

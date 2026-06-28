@@ -16,7 +16,8 @@ export default async function ImportPage({
       <Link href={`/${show.slug}/board`} className="text-sm text-blanc-muted hover:text-blanc">
         ← Board {show.nom}
       </Link>
-      <h1 className="mt-3 font-display text-2xl font-semibold tracking-tight">
+      <p className="label mb-1 mt-3" style={{ color: "#FFD200" }}>Sources</p>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">
         Importer depuis Folk — {show.nom}
       </h1>
       <p className="mb-5 mt-1 text-sm text-blanc-muted">

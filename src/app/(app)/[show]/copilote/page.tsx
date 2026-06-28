@@ -12,6 +12,7 @@ export default async function CopilotePage({
 
   return (
     <div>
+      <p className="label mb-1" style={{ color: "#FFD200" }}>Assistant</p>
       <h1 className="mb-1 font-display text-2xl font-semibold tracking-tight">
         Copilote — {show.nom}
       </h1>

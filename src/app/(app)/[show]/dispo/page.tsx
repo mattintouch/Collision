@@ -61,6 +61,7 @@ export default async function DispoPage({
 
   return (
     <div>
+      <p className="label mb-1" style={{ color: "#FFD200" }}>Programmation</p>
       <h1 className="font-display text-2xl font-semibold tracking-tight">
         Un créneau à remplir ?
       </h1>

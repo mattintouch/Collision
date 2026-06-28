@@ -10,7 +10,8 @@ export default async function SettingsPage() {
       <Link href="/" className="text-sm text-blanc-muted hover:text-blanc">
         ← Retour
       </Link>
-      <h1 className="mt-3 font-display text-2xl font-semibold tracking-tight">
+      <p className="label mb-1 mt-3" style={{ color: "#FFD200" }}>Compte</p>
+      <h1 className="font-display text-2xl font-semibold tracking-tight">
         Réglages
       </h1>
 
