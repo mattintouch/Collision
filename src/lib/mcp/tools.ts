@@ -650,7 +650,7 @@ export function registerMagellanTools(server: McpServer) {
       if (!row) return text({ error: "Cible introuvable" });
       if (!hasAnthropicKey())
         return text({ error: "Clé IA absente : ajouter ANTHROPIC_API_KEY sur Vercel pour activer l'enrichissement." });
-      const TIMEOUT_MS = 110_000; // sous maxDuration (120 s) ; la recherche web a une latence variable
+      const TIMEOUT_MS = 48_000; // le client MCP coupe ~60 s : on renvoie une erreur propre avant
       try {
         const proposal = await Promise.race([
           enrichCibleProfile(row as CibleEnrichie),
@@ -672,7 +672,7 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "enrich_colonne",
-    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 4, max 6) pour tenir dans le délai serveur. Robuste : chaque cible a son propre délai (un échec/timeout n'interrompt pas le lot). apply=true écrit de façon NON DESTRUCTIVE (préserve la saisie manuelle, fusionne les sujets).",
+    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 3, max 3 — un appel MCP est coupé à ~60 s ; relancer pour la suite). Robuste : chaque cible a son propre délai (un échec/timeout n'interrompt pas le lot). apply=true écrit de façon NON DESTRUCTIVE (préserve la saisie manuelle, fusionne les sujets).",
     {
       show: z.string(),
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
@@ -686,7 +686,7 @@ export function registerMagellanTools(server: McpServer) {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const cap = Math.min(a.limit ?? 4, 6);
+      const cap = Math.min(a.limit ?? 3, 3); // une seule vague (concurrence 3) pour tenir sous la coupure client ~60 s
       let q = sb.from("cibles_enrichies").select("*").eq("show_id", sid).eq("archive", false);
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
@@ -702,7 +702,7 @@ export function registerMagellanTools(server: McpServer) {
 
       // Chaque cible : délai par cible (22 s) + try/catch isolé ; concurrence
       // bornée à 3. Un échec/timeout ne fait pas tomber tout le lot.
-      const PER_CIBLE_MS = 40_000; // latence variable de la recherche web ; sous maxDuration (120 s)
+      const PER_CIBLE_MS = 45_000; // une vague de 3 en parallèle, sous la coupure client ~60 s
       const resultats = await mapLimit(rows, 3, async (row) => {
         try {
           const proposal = await withTimeout(enrichCibleProfile(row), PER_CIBLE_MS);

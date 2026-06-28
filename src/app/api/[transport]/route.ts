@@ -3,11 +3,10 @@ import { verifyToken } from "@/lib/mcp/oauth";
 import { registerMagellanTools } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
-// La recherche web d'enrichissement (modèle + outil web) a une latence variable
-// qui dépassait parfois 60 s. Le projet est sur une team (plan payant) → budget
-// relevé. 120 s laisse la marge ; le timeout interne d'enrich (110 s) renvoie
-// une erreur propre avant cette limite.
-export const maxDuration = 120;
+// Le client MCP coupe un appel d'outil à ~60 s : inutile de monter au-delà.
+// Les outils lents (enrich) doivent tenir sous 60 s end-to-end ; leur timeout
+// interne renvoie une erreur propre avant la coupure client.
+export const maxDuration = 60;
 
 const handler = createMcpHandler(
   (server) => {
