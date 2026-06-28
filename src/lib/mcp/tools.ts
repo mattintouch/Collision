@@ -650,7 +650,7 @@ export function registerMagellanTools(server: McpServer) {
       if (!row) return text({ error: "Cible introuvable" });
       if (!hasAnthropicKey())
         return text({ error: "Clé IA absente : ajouter ANTHROPIC_API_KEY sur Vercel pour activer l'enrichissement." });
-      const TIMEOUT_MS = 50_000;
+      const TIMEOUT_MS = 110_000; // sous maxDuration (120 s) ; la recherche web a une latence variable
       try {
         const proposal = await Promise.race([
           enrichCibleProfile(row as CibleEnrichie),
@@ -702,7 +702,7 @@ export function registerMagellanTools(server: McpServer) {
 
       // Chaque cible : délai par cible (22 s) + try/catch isolé ; concurrence
       // bornée à 3. Un échec/timeout ne fait pas tomber tout le lot.
-      const PER_CIBLE_MS = 22_000;
+      const PER_CIBLE_MS = 40_000; // latence variable de la recherche web ; sous maxDuration (120 s)
       const resultats = await mapLimit(rows, 3, async (row) => {
         try {
           const proposal = await withTimeout(enrichCibleProfile(row), PER_CIBLE_MS);
