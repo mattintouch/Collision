@@ -33,7 +33,7 @@ const SYSTEM = [
   "Règles : sources publiques uniquement ; n'invente JAMAIS ; cite les URLs ; reste factuel et concis.",
   "Réponds UNIQUEMENT en JSON : { role, organisation, secteur, pays, ville, photo_url, sujets:[...], reseaux:[{label,url}], resume, raison_de_selection, sources:[url] }.",
   "ville = ville principale / base de la personne (pour planifier un tournage), distincte du pays.",
-  "photo_url = URL directe d'une photo publique récente (site officiel, page presse, LinkedIn, Wikipedia) ; null si rien de fiable.",
+  "photo_url = URL DIRECTE d'un fichier image (se terminant par .jpg/.jpeg/.png/.webp), PAS une page web. Si tu n'as pas d'URL d'image directe fiable, mets null. Jamais de texte autour de l'URL.",
   "resume = 2-3 phrases de fond. raison_de_selection = pourquoi cette personne ferait un bon épisode. sujets = mots-clés.",
 ].join("\n");
 
@@ -59,6 +59,20 @@ export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfilePropo
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
 
 /**
+ * N'accepte qu'une URL d'IMAGE directe (sinon null) : évite de stocker une page
+ * web ou un libellé parasite (« …/leadership/ (voir page) ») dans photo_url.
+ */
+function cleanImageUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const url = raw.trim().split(/\s/)[0]; // coupe tout texte après une espace
+  if (!/^https?:\/\//i.test(url) || /[()]/.test(url)) return null;
+  if (/\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i.test(url)) return url; // extension image
+  // hôtes d'images connus (URLs souvent sans extension)
+  if (/(media\.licdn|pbs\.twimg|upload\.wikimedia|googleusercontent|gravatar|cloudfront|imgix|substackcdn|fbcdn)/i.test(url)) return url;
+  return null;
+}
+
+/**
  * Applique une proposition de façon NON DESTRUCTIVE (champs autorisés selon le
  * kind) : ne remplit que ce qui est vide, fusionne les sujets, dédoublonne les
  * réseaux contre les contacts existants. Renvoie ce qui a été réellement écrit.
@@ -82,7 +96,7 @@ export async function applyProfileProposal(
   };
 
   // Champs descriptifs partagés (autorisés sur les deux kinds, cf. migrations 0020/0021).
-  fillIfEmpty("photo_url", p.photo_url);
+  fillIfEmpty("photo_url", cleanImageUrl(p.photo_url)); // n'écrit qu'une vraie image, pas une page
   fillIfEmpty("ville", p.ville);
   fillIfEmpty("secteur", p.secteur);
   fillIfEmpty("pays", p.pays);
