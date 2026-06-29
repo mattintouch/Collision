@@ -6,8 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
-import { fetchFolkPeople, hasFolkKey } from "../folk/client";
-import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "../google/contacts";
+import { resolveContact } from "../contacts/resolve";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
@@ -125,11 +124,6 @@ function kindAwarePatch(kind: string, a: Record<string, unknown>): { patch: Reco
   return { patch, rejected, allowed: [...allowed] };
 }
 
-/** Normalise un nom pour le rapprochement (minuscules, sans accents, espaces compactés). */
-function normName(s: string): string {
-  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
-}
-
 /** Course une promesse contre un délai ; renvoie null si le délai est dépassé. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
@@ -147,6 +141,23 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
+}
+
+/** Rattache à une cible les coordonnées résolues (Folk/Google) sur match HAUTE
+ *  confiance, sans doublon. Renvoie ce qui a été ajouté (vide sinon). */
+async function autoAttachCibleContacts(sb: SB, cibleId: string, nom: string): Promise<string[]> {
+  const r = await withTimeout(resolveContact(nom), 30_000);
+  if (!r || r.match_confidence !== "haute" || !r.source) return [];
+  const { data: existing } = await sb.from("contacts").select("valeur").eq("cible_id", cibleId);
+  const known = new Set(((existing ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
+  const verifie = r.source === "folk"; // Folk = source de vérité → vérifié
+  const rows: Record<string, unknown>[] = [];
+  for (const valeur of r.email)
+    if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "email", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
+  for (const valeur of r.telephone)
+    if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "telephone", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
+  if (rows.length) await sb.from("contacts").insert(rows);
+  return rows.map((x) => `${x.kind}: ${x.valeur}`);
 }
 
 export function registerMagellanTools(server: McpServer) {
@@ -309,7 +320,27 @@ export function registerMagellanTools(server: McpServer) {
         ? (((await sb.from("contacts").select("*").in("appui_id", appuiIds)).data ?? []) as { appui_id: string | null }[])
         : [];
       const appuisWithContacts = appuis.map((x) => ({ ...x, contacts: appuiContacts.filter((ct) => ct.appui_id === x.id) }));
-      return text({ cible: c.data, appuis: appuisWithContacts, touches: touches.data, signals: signals.data, contacts: contacts.data });
+
+      // Bloc contacts_externes : si le dossier local n'a aucune coordonnée, on
+      // résout via Folk/Google (borné par un délai pour ne jamais bloquer).
+      const localCoords = ((contacts.data ?? []) as { kind?: string }[]).filter(
+        (ct) => ct.kind === "email" || ct.kind === "telephone"
+      );
+      const nom = (c.data as { nom?: string }).nom;
+      let contacts_externes: Awaited<ReturnType<typeof resolveContact>> | undefined;
+      if (localCoords.length === 0 && nom) {
+        const resolved = await withTimeout(resolveContact(nom), 30_000);
+        if (resolved && resolved.source) contacts_externes = resolved;
+      }
+
+      return text({
+        cible: c.data,
+        appuis: appuisWithContacts,
+        touches: touches.data,
+        signals: signals.data,
+        contacts: contacts.data,
+        contacts_externes,
+      });
     }
   );
 
@@ -330,55 +361,10 @@ export function registerMagellanTools(server: McpServer) {
         nom = (data as { nom?: string } | null)?.nom ?? null;
       }
       if (!nom) return text({ error: "Préciser `nom` ou `cible_id`." });
-      const q = normName(nom);
-      const base = { ok: true, query: nom, source: null as string | null, match_confidence: "aucun", email: [] as string[], telephone: [] as string[] };
-
-      // 1) Folk (source de vérité). Match par nom complet normalisé.
-      if (hasFolkKey()) {
-        try {
-          const people = await fetchFolkPeople();
-          const scored = people
-            .map((p) => {
-              const name = normName(p.fullName || [p.firstName, p.lastName].filter(Boolean).join(" "));
-              const conf = !name ? 0 : name === q ? 1 : name.includes(q) || q.includes(name) ? 0.6 : 0;
-              return { p, name, conf };
-            })
-            .filter((x) => x.conf > 0)
-            .sort((x, y) => y.conf - x.conf);
-          const exacts = scored.filter((x) => x.conf === 1);
-          if (exacts.length === 1) {
-            const p = exacts[0].p;
-            return text({ ...base, source: "folk", match_confidence: "haute", email: p.emails ?? [], telephone: p.phones ?? [] });
-          }
-          if (exacts.length > 1 || scored.length > 1) {
-            return text({
-              ...base,
-              source: "folk",
-              match_confidence: "ambigu",
-              candidats: scored.slice(0, 8).map((x) => ({ nom: x.p.fullName ?? x.name, emails: x.p.emails ?? [], telephones: x.p.phones ?? [], folk_id: x.p.id })),
-            });
-          }
-          if (scored.length === 1) {
-            const p = scored[0].p;
-            return text({ ...base, source: "folk", match_confidence: "moyenne", email: p.emails ?? [], telephone: p.phones ?? [] });
-          }
-        } catch {
-          // Folk indisponible → on tente Google.
-        }
-      }
-
-      // 2) Google Contacts (repli).
-      if (hasGoogleSync()) {
-        const token = await googleAccessToken();
-        if (token) {
-          const hit = await searchGoogleContact(token, nom);
-          if (hit && (hit.emails.length || hit.phones.length)) {
-            return text({ ...base, source: "google", match_confidence: "haute", email: hit.emails, telephone: hit.phones });
-          }
-        }
-      }
-
-      return text({ ...base, detail: `Aucune coordonnée trouvée pour « ${nom} » (Folk + Google).` });
+      const r = await resolveContact(nom);
+      const detail =
+        r.match_confidence === "aucun" ? `Aucune coordonnée trouvée pour « ${nom} » (Folk + Google).` : undefined;
+      return text({ ok: true, query: nom, ...r, detail });
     }
   );
 
@@ -423,7 +409,9 @@ export function registerMagellanTools(server: McpServer) {
         const err = await setCibleWatchlists(sb, c.id, a.watchlist);
         if (err) return text({ error: err });
       }
-      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist });
+      // Auto-rattachement des coordonnées (Folk/Google) sur match haute confiance.
+      const contacts_auto = await autoAttachCibleContacts(sb, c.id, c.nom);
+      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist, contacts_auto });
     }
   );
 
