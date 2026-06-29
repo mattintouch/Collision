@@ -6,6 +6,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
+import { fetchFolkPeople, hasFolkKey } from "../folk/client";
+import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
@@ -121,6 +123,11 @@ function kindAwarePatch(kind: string, a: Record<string, unknown>): { patch: Reco
   for (const f of forbidden) if (a[f] !== undefined) rejected.push(f);
   for (const f of allowed) if (a[f] !== undefined) patch[f] = a[f];
   return { patch, rejected, allowed: [...allowed] };
+}
+
+/** Normalise un nom pour le rapprochement (minuscules, sans accents, espaces compactés). */
+function normName(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 }
 
 /** Course une promesse contre un délai ; renvoie null si le délai est dépassé. */
@@ -303,6 +310,75 @@ export function registerMagellanTools(server: McpServer) {
         : [];
       const appuisWithContacts = appuis.map((x) => ({ ...x, contacts: appuiContacts.filter((ct) => ct.appui_id === x.id) }));
       return text({ cible: c.data, appuis: appuisWithContacts, touches: touches.data, signals: signals.data, contacts: contacts.data });
+    }
+  );
+
+  server.tool(
+    "resolve_contact",
+    "Résout les coordonnées (emails, téléphones) d'une personne : Folk d'abord (source de vérité), Google Contacts en repli. LECTURE SEULE — ne rattache rien. En cas d'ambiguïté, renvoie la liste des candidats sans choisir. Passer `nom` ou `cible_id`.",
+    {
+      nom: z.string().optional(),
+      cible_id: z.string().optional().describe("UUID — résout le nom de la cible puis cherche"),
+      show: z.string().optional(),
+    },
+    { readOnlyHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      let nom = a.nom ?? null;
+      if (!nom && a.cible_id) {
+        const { data } = await sb.from("cibles").select("nom").eq("id", a.cible_id).maybeSingle();
+        nom = (data as { nom?: string } | null)?.nom ?? null;
+      }
+      if (!nom) return text({ error: "Préciser `nom` ou `cible_id`." });
+      const q = normName(nom);
+      const base = { ok: true, query: nom, source: null as string | null, match_confidence: "aucun", email: [] as string[], telephone: [] as string[] };
+
+      // 1) Folk (source de vérité). Match par nom complet normalisé.
+      if (hasFolkKey()) {
+        try {
+          const people = await fetchFolkPeople();
+          const scored = people
+            .map((p) => {
+              const name = normName(p.fullName || [p.firstName, p.lastName].filter(Boolean).join(" "));
+              const conf = !name ? 0 : name === q ? 1 : name.includes(q) || q.includes(name) ? 0.6 : 0;
+              return { p, name, conf };
+            })
+            .filter((x) => x.conf > 0)
+            .sort((x, y) => y.conf - x.conf);
+          const exacts = scored.filter((x) => x.conf === 1);
+          if (exacts.length === 1) {
+            const p = exacts[0].p;
+            return text({ ...base, source: "folk", match_confidence: "haute", email: p.emails ?? [], telephone: p.phones ?? [] });
+          }
+          if (exacts.length > 1 || scored.length > 1) {
+            return text({
+              ...base,
+              source: "folk",
+              match_confidence: "ambigu",
+              candidats: scored.slice(0, 8).map((x) => ({ nom: x.p.fullName ?? x.name, emails: x.p.emails ?? [], telephones: x.p.phones ?? [], folk_id: x.p.id })),
+            });
+          }
+          if (scored.length === 1) {
+            const p = scored[0].p;
+            return text({ ...base, source: "folk", match_confidence: "moyenne", email: p.emails ?? [], telephone: p.phones ?? [] });
+          }
+        } catch {
+          // Folk indisponible → on tente Google.
+        }
+      }
+
+      // 2) Google Contacts (repli).
+      if (hasGoogleSync()) {
+        const token = await googleAccessToken();
+        if (token) {
+          const hit = await searchGoogleContact(token, nom);
+          if (hit && (hit.emails.length || hit.phones.length)) {
+            return text({ ...base, source: "google", match_confidence: "haute", email: hit.emails, telephone: hit.phones });
+          }
+        }
+      }
+
+      return text({ ...base, detail: `Aucune coordonnée trouvée pour « ${nom} » (Folk + Google).` });
     }
   );
 
