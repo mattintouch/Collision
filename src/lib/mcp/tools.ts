@@ -6,7 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
-import { resolveContact } from "../contacts/resolve";
+import { resolveContact, type ResolvedContact } from "../contacts/resolve";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
@@ -145,9 +145,14 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 
 /** Rattache à une cible les coordonnées résolues (Folk/Google) sur match HAUTE
  *  confiance, sans doublon. Renvoie ce qui a été ajouté (vide sinon). */
-async function autoAttachCibleContacts(sb: SB, cibleId: string, nom: string): Promise<string[]> {
-  const r = await withTimeout(resolveContact(nom), 30_000);
-  if (!r || r.match_confidence !== "haute" || !r.source) return [];
+async function autoAttachCibleContacts(
+  sb: SB,
+  cibleId: string,
+  nom: string
+): Promise<{ attaches: string[]; resolution: ResolvedContact }> {
+  const r: ResolvedContact =
+    (await withTimeout(resolveContact(nom), 30_000)) ?? { source: null, match_confidence: "aucun", email: [], telephone: [] };
+  if (r.match_confidence !== "haute" || !r.source) return { attaches: [], resolution: r };
   const { data: existing } = await sb.from("contacts").select("valeur").eq("cible_id", cibleId);
   const known = new Set(((existing ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
   const verifie = r.source === "folk"; // Folk = source de vérité → vérifié
@@ -157,7 +162,7 @@ async function autoAttachCibleContacts(sb: SB, cibleId: string, nom: string): Pr
   for (const valeur of r.telephone)
     if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "telephone", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
   if (rows.length) await sb.from("contacts").insert(rows);
-  return rows.map((x) => `${x.kind}: ${x.valeur}`);
+  return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
 export function registerMagellanTools(server: McpServer) {
@@ -392,6 +397,34 @@ export function registerMagellanTools(server: McpServer) {
   );
 
   W(
+    "attach_resolved_contacts",
+    "Résout les coordonnées d'une cible EXISTANTE (Folk d'abord, Google en repli) ET les rattache à sa fiche, sur match HAUTE confiance, dédoublonné. En cas d'ambiguïté ou de match faible, ne rattache RIEN et renvoie les candidats (à arbitrer). Pour combler une fiche sans coordonnées (ex. un ancien ajout sans lien Folk).",
+    { show: z.string(), cible: z.string().describe("nom ou id de la cible") },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      const { attaches, resolution } = await autoAttachCibleContacts(sb, target.id, target.nom);
+      return text({
+        ok: true,
+        cible: target.nom,
+        source: resolution.source,
+        match_confidence: resolution.match_confidence,
+        rattaches: attaches,
+        candidats: resolution.candidats,
+        detail: attaches.length
+          ? `${attaches.length} coordonnée(s) rattachée(s) depuis ${resolution.source}.`
+          : resolution.match_confidence === "ambigu"
+            ? "Plusieurs correspondances — rien rattaché, voir candidats."
+            : `Aucune coordonnée fiable à rattacher pour « ${target.nom} ».`,
+      });
+    }
+  );
+
+  W(
     "create_cible",
     "Crée et qualifie une cible (si absente). Le kind (personne/entreprise) découle du show ; les champs sont validés selon le kind.",
     {
@@ -433,8 +466,8 @@ export function registerMagellanTools(server: McpServer) {
         if (err) return text({ error: err });
       }
       // Auto-rattachement des coordonnées (Folk/Google) sur match haute confiance.
-      const contacts_auto = await autoAttachCibleContacts(sb, c.id, c.nom);
-      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist, contacts_auto });
+      const { attaches } = await autoAttachCibleContacts(sb, c.id, c.nom);
+      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist, contacts_auto: attaches });
     }
   );
 
