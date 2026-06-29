@@ -79,6 +79,7 @@ export interface FolkSyncResult {
   ok: boolean;
   matched: boolean;
   detail: string;
+  folk_id?: string | null; // id de la personne Folk touchée (pour persister le lien sur la cible)
 }
 
 /** Ajoute une ligne « Allié : … » à la description de la fiche Folk. */
@@ -94,7 +95,7 @@ export async function folkAddAlly(
     const line = `Allié : ${allyNom}${context ? ` — ${context}` : ""}`;
     const description = [person.description?.trim(), line].filter(Boolean).join("\n");
     const ok = await updatePerson(person.id, { description });
-    return { ok, matched: true, detail: ok ? `Fiche Folk de ${cibleNom} mise à jour.` : "Échec de mise à jour Folk." };
+    return { ok, matched: true, folk_id: person.id, detail: ok ? `Fiche Folk de ${cibleNom} mise à jour.` : "Échec de mise à jour Folk." };
   } catch (e) {
     return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
   }
@@ -153,7 +154,7 @@ export async function folkAddPhone(cibleNom: string, phone: string): Promise<Fol
     if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
     const phones = Array.from(new Set([...(person.phones ?? []), phone]));
     const ok = await updatePerson(person.id, { phones });
-    return { ok, matched: true, detail: ok ? `Téléphone ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
+    return { ok, matched: true, folk_id: person.id, detail: ok ? `Téléphone ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
   } catch (e) {
     return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
   }
@@ -167,7 +168,7 @@ export async function folkAddEmail(cibleNom: string, email: string): Promise<Fol
     if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
     const emails = Array.from(new Set([...(person.emails ?? []), email]));
     const ok = await updatePerson(person.id, { emails });
-    return { ok, matched: true, detail: ok ? `Email ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
+    return { ok, matched: true, folk_id: person.id, detail: ok ? `Email ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
   } catch (e) {
     return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
   }

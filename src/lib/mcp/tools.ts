@@ -6,7 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
-import { resolveContact, type ResolvedContact } from "../contacts/resolve";
+import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
@@ -163,6 +163,12 @@ async function autoAttachCibleContacts(
     if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "telephone", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
   if (rows.length) await sb.from("contacts").insert(rows);
   return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
+}
+
+/** Persiste le lien Folk sur la cible (seulement s'il n'est pas déjà posé). */
+async function persistFolkId(sb: SB, cibleId: string, folkId?: string | null): Promise<void> {
+  if (!folkId) return;
+  await sb.from("cibles").update({ folk_id: folkId }).eq("id", cibleId).is("folk_id", null);
 }
 
 export function registerMagellanTools(server: McpServer) {
@@ -486,7 +492,7 @@ export function registerMagellanTools(server: McpServer) {
       note: z.string().optional(),
       creer_allie_comme_cible: z.boolean().optional(),
     },
-    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const show = await showRow(sb, a.show);
@@ -496,37 +502,61 @@ export function registerMagellanTools(server: McpServer) {
       let ally = await resolveCible(sb, show.id, a.allie);
       if (!ally && a.creer_allie_comme_cible) ally = await ensureCible(sb, show, a.allie);
       const est_relais = a.est_relais ?? false;
-      const { data: appui, error } = await sb
-        .from("appuis")
-        .insert({
-          cible_id: target.id,
-          nom: a.allie,
-          nature: a.nature ?? a.type ?? "ancien_invite",
-          est_relais,
-          note: a.note ?? null,
-          ally_cible_id: ally?.id ?? null,
-        })
-        .select("id")
-        .single();
-      if (error || !appui) return text({ error: error?.message ?? "Échec création appui" });
+      const nature = a.nature ?? a.type ?? "ancien_invite";
+
+      // Idempotence : si un appui du même nom (normalisé) existe déjà sur la
+      // cible, on l'enrichit au lieu de créer un doublon.
+      const { data: existingAppuis } = await sb
+        .from("appuis").select("id, nom, note, est_relais, ally_cible_id, nature").eq("cible_id", target.id);
+      const match = ((existingAppuis ?? []) as { id: string; nom: string; note: string | null; est_relais: boolean; ally_cible_id: string | null; nature: string }[])
+        .find((x) => normName(x.nom) === normName(a.allie));
+
+      let appuiId: string;
+      let cree: boolean;
+      if (match) {
+        const up: Record<string, unknown> = {};
+        if (a.note && !match.note) up.note = a.note;
+        if (est_relais && !match.est_relais) up.est_relais = true;
+        if (ally?.id && !match.ally_cible_id) up.ally_cible_id = ally.id;
+        if (a.nature && match.nature !== a.nature) up.nature = a.nature;
+        if (Object.keys(up).length) await sb.from("appuis").update(up).eq("id", match.id);
+        appuiId = match.id;
+        cree = false;
+      } else {
+        const { data: appui, error } = await sb
+          .from("appuis")
+          .insert({ cible_id: target.id, nom: a.allie, nature, est_relais, note: a.note ?? null, ally_cible_id: ally?.id ?? null })
+          .select("id")
+          .single();
+        if (error || !appui) return text({ error: error?.message ?? "Échec création appui" });
+        appuiId = appui.id;
+        cree = true;
+      }
+
       // Règle transverse : un relais qui ouvre la porte → voie chaud par défaut.
       if (est_relais) await sb.from("cibles").update({ voie: "chaud" }).eq("id", target.id);
-      // Coordonnées portées par l'appui (le relais est joint en premier).
-      const coords = [
-        a.telephone ? { appui_id: appui.id, kind: "telephone", valeur: a.telephone, source: "Claude", confiance: 4 } : null,
-        a.email ? { appui_id: appui.id, kind: "email", valeur: a.email, source: "Claude", confiance: 4 } : null,
-      ].filter(Boolean) as { appui_id: string; kind: string; valeur: string; source: string; confiance: number }[];
+
+      // Coordonnées portées par l'appui, dédoublonnées contre celles déjà présentes.
+      const { data: appuiCoords } = await sb.from("contacts").select("valeur").eq("appui_id", appuiId);
+      const known = new Set(((appuiCoords ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
+      const coords = (
+        [
+          a.telephone ? { appui_id: appuiId, kind: "telephone", valeur: a.telephone, source: "Claude", confiance: 4 } : null,
+          a.email ? { appui_id: appuiId, kind: "email", valeur: a.email, source: "Claude", confiance: 4 } : null,
+        ].filter((x): x is { appui_id: string; kind: string; valeur: string; source: string; confiance: number } => x !== null)
+      ).filter((c) => !known.has(c.valeur.trim().toLowerCase()));
       if (coords.length) await sb.from("contacts").insert(coords);
-      // Auto-rattachement : si aucune coordonnée fournie à la main, on résout
-      // l'allié (Folk/Google) et on attache sur match haute confiance.
+
+      // Auto-rattachement : si l'appui n'a aucune coordonnée (ni fournie ni déjà
+      // présente), on résout l'allié (Folk/Google) et on attache (haute confiance).
       let coords_auto: string[] = [];
-      if (coords.length === 0) {
+      if (coords.length === 0 && known.size === 0) {
         const r = await withTimeout(resolveContact(a.allie), 30_000);
         if (r && r.match_confidence === "haute" && r.source) {
           const verifie = r.source === "folk";
           const rows = [
-            ...r.email.map((valeur) => ({ appui_id: appui.id, kind: "email", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
-            ...r.telephone.map((valeur) => ({ appui_id: appui.id, kind: "telephone", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
+            ...r.email.map((valeur) => ({ appui_id: appuiId, kind: "email", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
+            ...r.telephone.map((valeur) => ({ appui_id: appuiId, kind: "telephone", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
           ];
           if (rows.length) {
             await sb.from("contacts").insert(rows);
@@ -534,8 +564,50 @@ export function registerMagellanTools(server: McpServer) {
           }
         }
       }
+
       const folk = await folkAddAlly(target.nom, a.allie, a.note);
-      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, coords_auto, lie: !!ally, folk: folk.detail });
+      await persistFolkId(sb, target.id, folk.folk_id);
+      return text({ ok: true, cible: target.nom, allie: a.allie, appui_id: appuiId, cree, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, coords_auto, lie: !!ally, folk: folk.detail });
+    }
+  );
+
+  W(
+    "update_appui",
+    "Met à jour un appui existant (nom, nature, relais, note). Récupérer l'id via get_dossier.",
+    {
+      appui_id: z.string(),
+      nom: z.string().optional(),
+      nature: z.enum(["ancien_invite", "conseiller", "entourage", "contact_interne"]).optional(),
+      est_relais: z.boolean().optional(),
+      note: z.string().optional(),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const patch: Record<string, unknown> = {};
+      if (a.nom !== undefined) patch.nom = a.nom;
+      if (a.nature !== undefined) patch.nature = a.nature;
+      if (a.est_relais !== undefined) patch.est_relais = a.est_relais;
+      if (a.note !== undefined) patch.note = a.note;
+      if (Object.keys(patch).length === 0) return text({ error: "Aucun champ à mettre à jour." });
+      const { error } = await sb.from("appuis").update(patch).eq("id", a.appui_id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, appui_id: a.appui_id, modifie: Object.keys(patch) });
+    }
+  );
+
+  W(
+    "delete_appui",
+    "Supprime un appui et ses coordonnées (cascade). À utiliser pour retirer un doublon. Récupérer l'id via get_dossier.",
+    { appui_id: z.string() },
+    { destructiveHint: true, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const { data: appui } = await sb.from("appuis").select("id, nom").eq("id", a.appui_id).maybeSingle();
+      if (!appui) return text({ error: "Appui introuvable." });
+      const { error } = await sb.from("appuis").delete().eq("id", a.appui_id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, supprime: (appui as { nom: string }).nom });
     }
   );
 
@@ -561,8 +633,15 @@ export function registerMagellanTools(server: McpServer) {
       });
       if (error) return text({ error: error.message });
       let folk: string | undefined;
-      if (a.kind === "telephone") folk = (await folkAddPhone(target.nom, a.valeur)).detail;
-      else if (a.kind === "email") folk = (await folkAddEmail(target.nom, a.valeur)).detail;
+      if (a.kind === "telephone") {
+        const r = await folkAddPhone(target.nom, a.valeur);
+        folk = r.detail;
+        await persistFolkId(sb, target.id, r.folk_id);
+      } else if (a.kind === "email") {
+        const r = await folkAddEmail(target.nom, a.valeur);
+        folk = r.detail;
+        await persistFolkId(sb, target.id, r.folk_id);
+      }
       return text({ ok: true, cible: target.nom, folk });
     }
   );
