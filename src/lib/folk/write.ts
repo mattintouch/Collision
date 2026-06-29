@@ -158,3 +158,17 @@ export async function folkAddPhone(cibleNom: string, phone: string): Promise<Fol
     return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
   }
 }
+
+/** Ajoute un email à la fiche Folk (union avec les emails existants). */
+export async function folkAddEmail(cibleNom: string, email: string): Promise<FolkSyncResult> {
+  if (!hasFolkKey()) return { ok: false, matched: false, detail: "Pas de clé Folk." };
+  try {
+    const person = await findOrCreatePerson(cibleNom);
+    if (!person) return { ok: false, matched: false, detail: `Fiche Folk « ${cibleNom} » : création/recherche impossible.` };
+    const emails = Array.from(new Set([...(person.emails ?? []), email]));
+    const ok = await updatePerson(person.id, { emails });
+    return { ok, matched: true, detail: ok ? `Email ajouté à la fiche Folk de ${cibleNom}.` : "Échec de mise à jour Folk." };
+  } catch (e) {
+    return { ok: false, matched: false, detail: e instanceof Error ? e.message : "Erreur Folk" };
+  }
+}

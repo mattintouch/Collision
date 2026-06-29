@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
-import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
+import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
 import { resolveContact, type ResolvedContact } from "../contacts/resolve";
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
@@ -562,6 +562,7 @@ export function registerMagellanTools(server: McpServer) {
       if (error) return text({ error: error.message });
       let folk: string | undefined;
       if (a.kind === "telephone") folk = (await folkAddPhone(target.nom, a.valeur)).detail;
+      else if (a.kind === "email") folk = (await folkAddEmail(target.nom, a.valeur)).detail;
       return text({ ok: true, cible: target.nom, folk });
     }
   );
