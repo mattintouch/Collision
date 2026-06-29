@@ -161,6 +161,29 @@ async function autoAttachCibleContacts(sb: SB, cibleId: string, nom: string): Pr
 }
 
 export function registerMagellanTools(server: McpServer) {
+  // Journal d'audit (Chantier A) : `W(...)` enregistre un outil d'écriture comme
+  // `server.tool`, mais trace chaque appel dans mcp_audit (best-effort, jamais
+  // bloquant). Les outils en lecture restent sur `server.tool`.
+  const reg = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) =>
+    reg(name, desc, schema, ann, async (a: any, extra: any) => {
+      const res = await cb(a, extra);
+      try {
+        const sb = createServiceClient();
+        const parsed = JSON.parse(res?.content?.[0]?.text ?? "{}") as { ok?: boolean; error?: string; detail?: string };
+        await sb.from("mcp_audit").insert({
+          tool: name,
+          actor: extra?.authInfo?.extra?.email ?? null,
+          payload: a ?? {},
+          ok: !parsed.error,
+          detail: parsed.error ?? parsed.detail ?? null,
+        });
+      } catch {
+        /* audit best-effort : ne bloque jamais l'outil */
+      }
+      return res;
+    });
+
   server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
     const { data } = await sb.from("shows").select("*, stages(key, label, position, is_final)").order("nom");
@@ -368,7 +391,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "create_cible",
     "Crée et qualifie une cible (si absente). Le kind (personne/entreprise) découle du show ; les champs sont validés selon le kind.",
     {
@@ -415,7 +438,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "add_appui",
     "Ajoute un allié/appui à une cible (relié à sa fiche si l'allié est une cible). Crée la cible visée si besoin. MAJ Folk.",
     {
@@ -461,12 +484,29 @@ export function registerMagellanTools(server: McpServer) {
         a.email ? { appui_id: appui.id, kind: "email", valeur: a.email, source: "Claude", confiance: 4 } : null,
       ].filter(Boolean) as { appui_id: string; kind: string; valeur: string; source: string; confiance: number }[];
       if (coords.length) await sb.from("contacts").insert(coords);
+      // Auto-rattachement : si aucune coordonnée fournie à la main, on résout
+      // l'allié (Folk/Google) et on attache sur match haute confiance.
+      let coords_auto: string[] = [];
+      if (coords.length === 0) {
+        const r = await withTimeout(resolveContact(a.allie), 30_000);
+        if (r && r.match_confidence === "haute" && r.source) {
+          const verifie = r.source === "folk";
+          const rows = [
+            ...r.email.map((valeur) => ({ appui_id: appui.id, kind: "email", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
+            ...r.telephone.map((valeur) => ({ appui_id: appui.id, kind: "telephone", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
+          ];
+          if (rows.length) {
+            await sb.from("contacts").insert(rows);
+            coords_auto = rows.map((x) => `${x.kind}: ${x.valeur}`);
+          }
+        }
+      }
       const folk = await folkAddAlly(target.nom, a.allie, a.note);
-      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, lie: !!ally, folk: folk.detail });
+      return text({ ok: true, cible: target.nom, allie: a.allie, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, coords_auto, lie: !!ally, folk: folk.detail });
     }
   );
 
-  server.tool(
+  W(
     "add_contact",
     "Ajoute un contact à une cible (email/téléphone/réseau…). MAJ Folk pour un téléphone.",
     {
@@ -493,7 +533,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "log_touche",
     "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater une touche réelle (ISO, ex. 2026-01-07).",
     { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)") },
@@ -517,7 +557,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "update_cible",
     "Met à jour les champs d'une cible (rôle, organisation, secteur, priorité, voie, archétype, sujets…). Ne touche que les champs fournis.",
     {
@@ -594,7 +634,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "archive_cible",
     "Archive (ou désarchive) une cible : la sort du board prospect sans la détruire. `archive:false` pour la réactiver. À utiliser pour ranger les noms factices/placeholders ou une piste abandonnée.",
     { show: z.string(), cible: z.string().describe("nom ou id"), archive: z.boolean().optional().describe("true = archiver (défaut), false = désarchiver") },
@@ -612,7 +652,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "delete_touche",
     "Supprime une touche du journal (ex. purger une touche de test). Recalcule la date de dernière touche de la cible. Récupérer l'id de touche via get_dossier.",
     { touche_id: z.string().describe("id de la touche à supprimer (cf. get_dossier)") },
@@ -635,7 +675,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "validate_cible",
     "Valide une cible : bascule en épisode avec son contexte.",
     { show: z.string(), cible: z.string() },
@@ -672,7 +712,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "sync_google_contacts",
     "Synchronise les cibles (non archivées, non factices) et les relais d'un show vers Google Contacts, par lots (les non synchronisées d'abord). Relancer tant que `restants > 0`. ⚠️ `dry_run` vaut TRUE par défaut (simulation, aucune écriture) : passer `dry_run:false` pour écrire réellement. Seules les coordonnées vérifiées sont poussées (sauf `inclure_non_verifies:true`). Magellan reste la source de vérité ; sans doublon, groupés par show et par watchlist.",
     {
@@ -699,7 +739,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "enrich_cible",
     "Enrichit une fiche par recherche web sourcée (rôle, organisation, secteur, réseaux sociaux, sujets, angle d'épisode). apply=true pour écrire la proposition ; sinon propose seulement (à valider).",
     { show: z.string(), cible: z.string(), apply: z.boolean().optional() },
@@ -734,7 +774,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  W(
     "enrich_colonne",
     "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 3, max 3 — un appel MCP est coupé à ~60 s ; relancer pour la suite). Robuste : chaque cible a son propre délai (un échec/timeout n'interrompt pas le lot). apply=true écrit de façon NON DESTRUCTIVE (préserve la saisie manuelle, fusionne les sujets).",
     {
