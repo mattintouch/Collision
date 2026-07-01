@@ -648,9 +648,9 @@ export function registerMagellanTools(server: McpServer) {
 
   W(
     "log_touche",
-    "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater une touche réelle (ISO, ex. 2026-01-07).",
-    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)") },
-    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater (ISO). `idempotency_key` optionnelle : un même appel réémis (retry) n'insère qu'une fois — recommandé pour un client de boucle.",
+    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)"), idempotency_key: z.string().optional().describe("clé anti-doublon pour les retries") },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -663,10 +663,15 @@ export function registerMagellanTools(server: McpServer) {
         canal: a.canal ?? null,
         source: "saisie",
         ...(a.date ? { date: a.date } : {}),
+        ...(a.idempotency_key ? { idempotency_key: a.idempotency_key } : {}),
       });
+      // 23505 = violation d'unicité → l'appel a déjà été traité (retry) : succès idempotent.
+      if (error && (error as { code?: string }).code === "23505") {
+        return text({ ok: true, cible: target.nom, cible_id: target.id, idempotent: true, detail: "Touche déjà enregistrée (idempotence)." });
+      }
       if (error) return text({ error: error.message });
       const folk = await folkLogTouche(target.nom, a.contenu, a.canal);
-      return text({ ok: true, cible: target.nom, folk: folk.detail });
+      return text({ ok: true, cible: target.nom, cible_id: target.id, folk: folk.detail });
     }
   );
 
@@ -743,7 +748,7 @@ export function registerMagellanTools(server: McpServer) {
         if (err) return text({ error: err });
         modifie.push("watchlist");
       }
-      return text({ ok: true, cible: target.nom, modifie });
+      return text({ ok: true, cible: target.nom, cible_id: target.id, modifie });
     }
   );
 
