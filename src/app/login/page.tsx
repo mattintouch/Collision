@@ -1,12 +1,7 @@
-import { demoMode } from "@/lib/data";
 import { ALLOWED_DOMAINS } from "@/lib/config";
 import { LoginButton } from "@/components/LoginButton";
-import { redirect } from "next/navigation";
 
 export default function LoginPage() {
-  // En mode démo, pas d'auth : on entre directement.
-  if (demoMode) redirect("/");
-
   return (
     <main className="flex min-h-screen items-center justify-center px-6">
       <div className="card w-full max-w-md p-8">

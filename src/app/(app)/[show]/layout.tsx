@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getShow, getShows, demoMode } from "@/lib/data";
+import { getShow, getShows } from "@/lib/data";
 import { ShowSwitcher } from "@/components/ShowSwitcher";
 import { NavTabs } from "@/components/NavTabs";
 
@@ -48,12 +48,6 @@ export default async function ShowLayout({
             </Link>
           </div>
         </div>
-        {demoMode && (
-          <div className="bg-jaune/10 px-4 py-1.5 text-center text-xs text-jaune">
-            Mode démo — données locales. Branchez Supabase (.env.local) pour
-            persister.
-          </div>
-        )}
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>

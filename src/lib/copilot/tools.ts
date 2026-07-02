@@ -1,7 +1,7 @@
 // Outils du copilote : lecture de la base (mêmes capacités que le serveur MCP).
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getCibleDossier, getCibles, demoMode } from "../data";
+import { getCibleDossier, getCibles } from "../data";
 import { getFreeSlots } from "../calendar";
 import { createClient } from "../supabase/server";
 import { folkAddAlly, folkAddPhone, folkLogTouche } from "../folk/write";
@@ -255,8 +255,6 @@ export async function runTool(
     name === "log_touche" ||
     name === "validate_cible"
   ) {
-    if (demoMode)
-      return JSON.stringify({ error: "Mode démo : écriture désactivée. Branche Supabase." });
     const sb = createClient();
 
     if (name === "create_cible") {

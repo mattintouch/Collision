@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "./supabase/server";
-import { demoMode, getCibleDossier, getShow, type CibleDossier } from "./data";
+import { getCibleDossier, getShow, type CibleDossier } from "./data";
 import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
@@ -18,12 +18,6 @@ export interface ActionResult {
   detail?: string;
   claudeUrl?: string;
 }
-
-const DEMO_BLOCK: ActionResult = {
-  ok: false,
-  error:
-    "Mode démo : branchez Supabase (.env.local) pour enregistrer. Lecture seule pour l'instant.",
-};
 
 /** Créer une cible (personne ou entreprise) — §13.1. */
 export async function createCible(input: {
@@ -47,7 +41,6 @@ export async function createCible(input: {
   raison_de_selection?: string | null;
   etat_recherche?: string | null;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (!input.nom?.trim()) return { ok: false, error: "Le nom est requis." };
 
   const supabase = createClient();
@@ -100,7 +93,6 @@ export async function logTouche(input: {
   contenu: string;
   source?: "saisie" | "capture";
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (!input.contenu?.trim())
     return { ok: false, error: "Le contenu de la touche est requis." };
 
@@ -164,7 +156,6 @@ export async function validateCible(input: {
   summary?: string; // objet de l'invitation
   description?: string; // corps de l'invitation
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
 
   // Brief de prépa (lien Claude) construit avant la bascule, tant que la cible existe.
@@ -254,7 +245,6 @@ export async function cancelEpisodeRecording(input: {
   cible_id: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { data: ep } = await supabase
     .from("episodes")
@@ -294,7 +284,6 @@ export async function rescheduleEpisode(input: {
   start_iso: string;
   duree_min?: number;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { data: ep } = await supabase
     .from("episodes")
@@ -344,7 +333,6 @@ export async function bulkSetArchive(input: {
   archive: boolean;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
   const supabase = createClient();
   const { error } = await supabase.from("cibles").update({ archive: input.archive }).in("id", input.ids);
@@ -358,7 +346,6 @@ export async function bulkDeleteCibles(input: {
   ids: string[];
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
   const supabase = createClient();
   const { error } = await supabase.from("cibles").delete().in("id", input.ids);
@@ -373,7 +360,6 @@ export async function bulkSetStage(input: {
   stage_id: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
   const supabase = createClient();
   const { error } = await supabase.from("cibles").update({ stage_id: input.stage_id }).in("id", input.ids);
@@ -388,7 +374,6 @@ export async function bulkAddWatchlist(input: {
   watchlist_key: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
   const supabase = createClient();
   const { data: w } = await supabase.from("watchlists").select("id").eq("key", input.watchlist_key).maybeSingle();
@@ -418,7 +403,6 @@ export async function bulkCreateAndTagWatchlist(input: {
   label: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (input.ids.length === 0) return { ok: false, error: "Aucune fiche sélectionnée." };
   const label = input.label.trim();
   const key = slugifyTag(label);
@@ -445,7 +429,6 @@ export async function updateCibleInfo(input: {
   show_slug: string;
   patch: Partial<{ nom: string; role: string | null; organisation: string | null; secteur: string | null; pays: string | null; note: string | null }>;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (Object.keys(input.patch).length === 0) return { ok: false, error: "Rien à mettre à jour." };
   const supabase = createClient();
   const { error } = await supabase.from("cibles").update(input.patch).eq("id", input.cible_id);
@@ -463,7 +446,6 @@ export async function addContactManual(input: {
   valeur: string;
   label?: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (!input.valeur.trim()) return { ok: false, error: "Valeur requise." };
   const supabase = createClient();
   const { error } = await supabase.from("contacts").insert({
@@ -485,7 +467,6 @@ export async function importGoogleContact(input: {
   nom: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   if (!hasGoogleSync()) return { ok: false, error: "Synchro Google non configurée." };
   const token = await googleAccessToken();
   if (!token) return { ok: false, error: "Authentification Google échouée." };
@@ -513,7 +494,6 @@ export async function removeCibleWatchlist(input: {
   watchlist_key: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { data: w } = await supabase.from("watchlists").select("id").eq("key", input.watchlist_key).maybeSingle();
   if (!w) return { ok: false, error: "Watchlist inconnue." };
@@ -534,7 +514,6 @@ export async function setCibleNotePriorite(input: {
   note_priorite: number | null;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase.from("cibles").update({ note_priorite: input.note_priorite }).eq("id", input.cible_id);
   if (error) return { ok: false, error: error.message };
@@ -547,7 +526,6 @@ export async function setArchetypeOrder(input: {
   show_slug: string;
   order: string[];
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase
     .from("shows")
@@ -627,7 +605,6 @@ export async function deleteContact(input: {
   cible_id: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase
     .from("contacts")
@@ -705,10 +682,6 @@ export async function folkImport(input: {
   if (input.dry_run) {
     return { ok: true, dry_run: true, total: mapped.length, created: 0, skipped: 0, linked: 0, preview };
   }
-
-  // Écriture : nécessite Supabase branché.
-  if (demoMode)
-    return { ok: false, dry_run: false, total: mapped.length, created: 0, skipped: 0, linked: 0, preview, error: DEMO_BLOCK.error };
 
   const supabase = createClient();
 
@@ -792,7 +765,6 @@ export async function folkImport(input: {
 export async function setDefaultShow(input: {
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const {
     data: { user },
@@ -813,7 +785,6 @@ export async function moveCibleStage(input: {
   stage_id: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase
     .from("cibles")
@@ -831,7 +802,6 @@ export async function setCibleArchetype(input: {
   archetype: string | null;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase
     .from("cibles")
@@ -847,7 +817,6 @@ export async function deleteCible(input: {
   cible_id: string;
   show_slug: string;
 }): Promise<ActionResult> {
-  if (demoMode) return DEMO_BLOCK;
   const supabase = createClient();
   const { error } = await supabase
     .from("cibles")

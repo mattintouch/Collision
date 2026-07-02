@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getMyProfile, getShows, demoMode } from "@/lib/data";
+import { getMyProfile, getShows } from "@/lib/data";
 import { SettingsForm } from "@/components/SettingsForm";
 
 export default async function SettingsPage() {
@@ -15,11 +15,9 @@ export default async function SettingsPage() {
         Réglages
       </h1>
 
-      {demoMode || !profile ? (
+      {!profile ? (
         <p className="mt-4 text-sm text-blanc-muted">
-          {demoMode
-            ? "Réglages disponibles une fois Supabase branché (mode démo actuel)."
-            : "Profil introuvable — reconnecte-toi."}
+          Profil introuvable — reconnecte-toi.
         </p>
       ) : (
         <div className="mt-6">

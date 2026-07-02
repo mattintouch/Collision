@@ -1,15 +1,6 @@
-// Couche d'accès aux données. Branche Supabase si configuré, sinon repli démo.
+// Couche d'accès aux données. Toujours branchée sur Supabase (le mode démo à
+// données locales a été retiré : la prod est la seule cible).
 
-import { isSupabaseConfigured } from "./config";
-import {
-  demoAppuis,
-  demoCibles,
-  demoContacts,
-  demoShows,
-  demoSignals,
-  demoStages,
-  demoTouches,
-} from "./demo";
 import { createClient } from "./supabase/server";
 import { computeShowStats, type ShowStats } from "./stats";
 import type {
@@ -21,8 +12,6 @@ import type {
   Stage,
   Touche,
 } from "./types";
-
-export const demoMode = !isSupabaseConfigured();
 
 export interface EpisodeRow {
   id: string;
@@ -51,7 +40,6 @@ const PRODUCED_STAGES = ["programme", "enregistre", "publie", "produit"];
 
 /** Cibles en phase de production (programmé/enregistré/publié) = les épisodes. */
 export async function getEpisodesForShow(showId: string): Promise<EpisodeListItem[]> {
-  if (demoMode) return [];
   const supabase = createClient();
   const { data: cibles } = await supabase
     .from("cibles_enrichies")
@@ -79,15 +67,13 @@ export async function getEpisodesForShow(showId: string): Promise<EpisodeListIte
 
 /** Watchlists disponibles (vocabulaire de curation). */
 export async function getWatchlists(): Promise<{ key: string; label: string }[]> {
-  if (demoMode) return [];
   const supabase = createClient();
   const { data } = await supabase.from("watchlists").select("key, label").order("label");
   return (data as { key: string; label: string }[]) ?? [];
 }
 
-/** Épisode le plus récent rattaché à une cible (null si aucun / mode démo). */
+/** Épisode le plus récent rattaché à une cible (null si aucun). */
 export async function getEpisodeForCible(cibleId: string): Promise<EpisodeRow | null> {
-  if (demoMode) return null;
   const supabase = createClient();
   const { data } = await supabase
     .from("episodes")
@@ -100,7 +86,6 @@ export async function getEpisodeForCible(cibleId: string): Promise<EpisodeRow | 
 }
 
 export async function getShows(): Promise<Show[]> {
-  if (demoMode) return demoShows;
   const supabase = createClient();
   const { data } = await supabase.from("shows").select("*").order("nom");
   return data ?? [];
@@ -112,7 +97,6 @@ export async function getShow(slug: string): Promise<Show | null> {
 }
 
 export async function getStages(showId: string): Promise<Stage[]> {
-  if (demoMode) return demoStages[showId] ?? [];
   const supabase = createClient();
   const { data } = await supabase
     .from("stages")
@@ -124,12 +108,6 @@ export async function getStages(showId: string): Promise<Stage[]> {
 
 export async function getShowStats(showId: string): Promise<ShowStats> {
   const stages = await getStages(showId);
-  if (demoMode) {
-    const rows = demoCibles
-      .filter((c) => c.show_id === showId)
-      .map((c) => ({ stage_key: c.stage_key, stage_position: c.stage_position, archive: c.archive }));
-    return computeShowStats(stages, rows);
-  }
   const supabase = createClient();
   const { data } = await supabase
     .from("cibles_enrichies")
@@ -139,7 +117,6 @@ export async function getShowStats(showId: string): Promise<ShowStats> {
 }
 
 export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
-  if (demoMode) return demoCibles.filter((c) => c.show_id === showId);
   const supabase = createClient();
   const { data } = await supabase
     .from("cibles_enrichies")
@@ -156,9 +133,8 @@ export interface MyProfile {
   default_show_slug: string | null;
 }
 
-/** Profil de l'utilisateur connecté (null en démo ou hors session). */
+/** Profil de l'utilisateur connecté (null hors session). */
 export async function getMyProfile(): Promise<MyProfile | null> {
-  if (demoMode) return null;
   const supabase = createClient();
   const {
     data: { user },
@@ -186,15 +162,6 @@ export interface CibleDossier {
 }
 
 export async function getCibleDossier(id: string): Promise<CibleDossier> {
-  if (demoMode) {
-    return {
-      cible: demoCibles.find((c) => c.id === id) ?? null,
-      appuis: demoAppuis.filter((a) => a.cible_id === id),
-      touches: demoTouches.filter((t) => t.cible_id === id),
-      signals: demoSignals.filter((s) => s.cible_id === id),
-      contacts: demoContacts.filter((c) => c.cible_id === id),
-    };
-  }
   const supabase = createClient();
   const [cible, appuis, touches, signals, contacts] = await Promise.all([
     supabase.from("cibles_enrichies").select("*").eq("id", id).single(),
