@@ -11,7 +11,7 @@ export const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
 export const ENTREPRISE_ONLY = [] as const;
 export const SHARED_FIELDS = [
   "nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui",
-  "ville", "photo_url", "secteur", "pays", "envergure", "raison_de_selection", "etat_recherche",
+  "ville", "photo_url", "playbook", "secteur", "pays", "envergure", "raison_de_selection", "etat_recherche",
 ] as const;
 
 export function kindAwarePatch(

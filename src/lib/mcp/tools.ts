@@ -10,7 +10,7 @@ import { resolveContact, normName, type ResolvedContact } from "../contacts/reso
 import { syncShowContacts } from "../google/sync";
 import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
-import { computeCibleScore, estivalActif, type ScoreInput } from "../domain";
+import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch } from "./kind";
 import type { Stage } from "../types";
@@ -272,6 +272,46 @@ export function registerMagellanTools(server: McpServer) {
   );
 
   server.tool(
+    "daily_five",
+    "Les cibles à travailler MAINTENANT : top N par score (défaut 5, max 10), hors archivées, gagnées (≥confirme) et placeholders. Pour chaque : score, badges, pourquoi maintenant (résurgence), playbook, dernière touche. Pilote la session du matin (app « Aujourd'hui » / Vadim).",
+    { show: z.string(), limit: z.number().optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const { data } = await sb.from("cibles_enrichies").select("*").eq("show_id", sid).eq("archive", false).limit(1000);
+      const rows = (data ?? []) as unknown as CibleEnrichie[];
+      const estival = estivalActif();
+      const WON = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
+      const scored = rows
+        .map((r) => ({ r, s: computeCibleScore(r as unknown as ScoreInput, estival) }))
+        .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)))
+        .sort((x, y) => y.s.score - x.s.score)
+        .slice(0, Math.min(a.limit ?? 5, 10));
+      const cibles = scored.map(({ r, s }) => {
+        const res = computeResurgence(r);
+        return {
+          id: r.id,
+          nom: r.nom,
+          score: s.score,
+          badges: s.badges,
+          role: r.role,
+          organisation: r.organisation,
+          voie: r.voie,
+          pourquoi_maintenant: res.raison,
+          conseil: res.conseil,
+          playbook: (r as { playbook?: unknown }).playbook ?? null,
+          jours_depuis_touche: r.jours_depuis_touche,
+          canal_reel: r.canal_reel,
+          via_qui: r.via_qui,
+        };
+      });
+      return text({ ok: true, show: a.show, cibles });
+    }
+  );
+
+  server.tool(
     "find_cible",
     "Cherche une cible par nom dans un show et renvoie id + résumé. À utiliser pour vérifier l'existence d'une personne sans tirer toute la liste.",
     {
@@ -421,6 +461,7 @@ export function registerMagellanTools(server: McpServer) {
       pays: z.string().optional(),
       ville: z.string().optional().describe("ville / zone de tournage (distincte du pays)"),
       photo_url: z.string().optional().describe("URL d'une photo publique"),
+      playbook: z.object({ canal: z.string().optional(), langue: z.string().optional(), angle: z.string().optional(), fenetre: z.string().optional(), personne_entree: z.string().optional() }).optional().describe("comment engager : canal, langue, angle, fenêtre, personne d'entrée"),
       envergure: z.enum(["fr", "international"]).optional(),
       priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
       voie: z.enum(["froid", "chaud"]).optional(),
@@ -668,6 +709,7 @@ export function registerMagellanTools(server: McpServer) {
       pays: z.string().optional(),
       ville: z.string().optional().describe("ville / zone de tournage (distincte du pays)"),
       photo_url: z.string().optional().describe("URL d'une photo publique"),
+      playbook: z.object({ canal: z.string().optional(), langue: z.string().optional(), angle: z.string().optional(), fenetre: z.string().optional(), personne_entree: z.string().optional() }).optional().describe("comment engager : canal, langue, angle, fenêtre, personne d'entrée"),
       envergure: z.enum(["fr", "international"]).optional(),
       priorite: z.enum(["haute", "moyenne", "basse"]).optional(),
       voie: z.enum(["froid", "chaud"]).optional(),

@@ -76,6 +76,7 @@ const base = {
   note_priorite: null,
   photo_url: null,
   ville: null,
+  playbook: null,
   folk_id: null,
   archive: false,
   created_at: daysAgo(40),

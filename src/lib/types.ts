@@ -47,6 +47,15 @@ export interface Stage {
   is_final: boolean;
 }
 
+/** Playbook d'approche : canal recommandé, langue, angle, fenêtre, personne d'entrée. */
+export interface Playbook {
+  canal?: string | null;
+  langue?: string | null;
+  angle?: string | null;
+  fenetre?: string | null;
+  personne_entree?: string | null;
+}
+
 export interface Cible {
   id: string;
   show_id: string;
@@ -79,6 +88,9 @@ export interface Cible {
   // Photo (URL publique, remplie par l'enrichissement) + ville/zone de tournage
   photo_url: string | null;
   ville: string | null;
+
+  // Playbook d'approche (S5) : comment engager concrètement cette cible.
+  playbook: Playbook | null;
 
   // Lien Folk (source de vérité coordonnées + interactions)
   folk_id: string | null;
