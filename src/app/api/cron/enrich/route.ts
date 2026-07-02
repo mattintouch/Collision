@@ -1,10 +1,13 @@
-// Cron d'enrichissement (S3). Vercel l'appelle chaque minute (voir vercel.json)
-// et ajoute automatiquement `Authorization: Bearer $CRON_SECRET` si CRON_SECRET
-// est posé. maxDuration 300 : hors du plafond ~60 s du client MCP.
+// Cron d'enrichissement (S3) — FILET DE SÉCURITÉ.
+// Le drainage principal se fait via `kickQueue()` (waitUntil) au fil des appels
+// MCP et des lectures, ce qui marche sur le plan Hobby (pas de cron par minute).
+// Ce cron passe une fois par jour (schedule dans vercel.json) pour rattraper les
+// jobs restés en attente. Vercel ajoute `Authorization: Bearer $CRON_SECRET` si
+// CRON_SECRET est posé. maxDuration 60 : plafond du plan Hobby.
 import { processEnrichmentJobs } from "@/lib/enrichment/jobs";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 async function run(req: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -12,7 +15,8 @@ async function run(req: Request): Promise<Response> {
     return new Response("unauthorized", { status: 401 });
   }
   try {
-    const r = await processEnrichmentJobs();
+    // Budget mural ~55 s pour rester sous maxDuration 60.
+    const r = await processEnrichmentJobs({ max: 20, budgetMs: 55_000 });
     return Response.json({ ok: true, ...r });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });

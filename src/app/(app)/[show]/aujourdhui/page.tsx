@@ -6,8 +6,9 @@ import {
   estivalActif,
   type ScoreInput,
 } from "@/lib/domain";
-import type { CibleEnrichie, Playbook } from "@/lib/types";
+import type { Playbook } from "@/lib/types";
 import { DailyActionCard, type DailyAction } from "@/components/DailyActionCard";
+import { kickQueue } from "@/lib/enrichment/jobs";
 
 // Les cibles déjà « gagnées » (côté production) sortent de la session du jour.
 const WON = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
@@ -20,6 +21,7 @@ export default async function AujourdhuiPage({
   const show = await getShow(params.show);
   if (!show) notFound();
   const cibles = await getCibles(show.id);
+  kickQueue(); // draine la file d'enrichissement en tâche de fond (plan Hobby)
   const estival = estivalActif();
 
   // Même logique que l'outil MCP `daily_five` : top par score, hors placeholders

@@ -12,6 +12,7 @@ import { hasAnthropicKey } from "../copilot/config";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch } from "./kind";
+import { kickQueue } from "../enrichment/jobs";
 import type { Stage } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -311,6 +312,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
           via_qui: r.via_qui,
         };
       });
+      kickQueue(); // draine la file d'enrichissement en tâche de fond (plan Hobby)
       return text({ ok: true, show: a.show, cibles });
     }
   );
@@ -925,7 +927,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         .select("id")
         .single();
       if (error || !job) return text({ error: error?.message ?? "Échec de mise en file." });
-      return text({ ok: true, cible: target.nom, job_id: (job as { id: string }).id, statut: "pending", detail: "Enrichissement lancé — résultat dans ~1-3 min (get_dossier → dernier_enrichissement)." });
+      kickQueue(); // draine en tâche de fond (plan Hobby : pas de cron par minute)
+      return text({ ok: true, cible: target.nom, job_id: (job as { id: string }).id, statut: "pending", detail: "Enrichissement lancé — résultat dans ~1-2 min (get_dossier → dernier_enrichissement)." });
     }
   );
 
@@ -961,7 +964,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!ids.length) return text({ ok: true, en_file: 0, detail: "Aucune cible ne correspond." });
       const { error } = await sb.from("enrichment_jobs").insert(ids.map((cible_id) => ({ cible_id, objectif: "profil", apply: a.apply ?? false })));
       if (error) return text({ error: error.message });
-      return text({ ok: true, en_file: ids.length, detail: "Jobs d'enrichissement en file — traités par le cron (~1-3 min chacun). Suivre via get_dossier." });
+      kickQueue(); // draine en tâche de fond ; le reste part au fil des appels/lectures
+      return text({ ok: true, en_file: ids.length, detail: "Jobs d'enrichissement en file — traités en tâche de fond (quelques-uns par appel). Suivre via get_dossier." });
     }
   );
 }
