@@ -69,6 +69,8 @@ export function BoardDnd({
   const [newTag, setNewTag] = useState("");
   const [moveStage, setMoveStage] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  // Dernière sélection archivée, pour l'annuler en un clic (S2).
+  const [lastArchived, setLastArchived] = useState<string[]>([]);
 
   const stored = show.archetype_order ?? [];
   const archOrder = [
@@ -183,6 +185,34 @@ export function BoardDnd({
     });
   }
 
+  // Archivage de masse mémorisé : on retient la sélection pour offrir un « annuler ».
+  function runArchive(ids: string[]) {
+    setMsg(null);
+    start(async () => {
+      const r = await bulkSetArchive({ ids, archive: true, show_slug: show.slug });
+      setMsg(r.ok ? r.detail ?? "Fait." : r.error ?? "Erreur");
+      if (r.ok) {
+        setLastArchived(ids);
+        setSelected(new Set());
+        router.refresh();
+      }
+    });
+  }
+
+  function undoArchive() {
+    if (!lastArchived.length) return;
+    const ids = lastArchived;
+    setMsg(null);
+    start(async () => {
+      const r = await bulkSetArchive({ ids, archive: false, show_slug: show.slug });
+      setMsg(r.ok ? `${ids.length} fiche(s) désarchivée(s).` : r.error ?? "Erreur");
+      if (r.ok) {
+        setLastArchived([]);
+        router.refresh();
+      }
+    });
+  }
+
   function onDrop(col: Column, cibleId: string) {
     setOverCol(null);
     setDragId(null);
@@ -286,7 +316,7 @@ export function BoardDnd({
       {selected.size > 0 && (
         <div className="sticky top-16 z-30 mb-4 flex flex-wrap items-center gap-2 rounded-card border border-jaune/40 bg-noir-800 px-3 py-2">
           <span className="text-sm font-medium">{selected.size} sélectionnée{selected.size > 1 ? "s" : ""}</span>
-          <button onClick={() => runBulk(() => bulkSetArchive({ ids: selIds, archive: true, show_slug: show.slug }))} disabled={pending} className="btn-ghost px-2 py-1 text-sm">
+          <button onClick={() => runArchive(selIds)} disabled={pending} className="btn-ghost px-2 py-1 text-sm">
             Archiver
           </button>
           <button onClick={() => runBulk(() => bulkSetArchive({ ids: selIds, archive: false, show_slug: show.slug }))} disabled={pending} className="btn-ghost px-2 py-1 text-sm">
@@ -367,6 +397,17 @@ export function BoardDnd({
             Désélectionner
           </button>
           {msg && <span className="w-full text-xs text-jaune">{msg}</span>}
+        </div>
+      )}
+
+      {/* Annuler le dernier archivage de masse (visible même sans sélection). */}
+      {selected.size === 0 && lastArchived.length > 0 && (
+        <div className="mb-4 flex items-center gap-3 rounded-card border border-noir-600 bg-noir-800 px-3 py-2 text-sm">
+          <span className="text-blanc-muted">{lastArchived.length} fiche(s) archivée(s).</span>
+          <button onClick={undoArchive} disabled={pending} className="btn-ghost px-2 py-1 text-sm text-jaune">
+            Annuler l&apos;archivage
+          </button>
+          {msg && <span className="text-xs text-blanc-muted">{msg}</span>}
         </div>
       )}
 
