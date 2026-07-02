@@ -24,11 +24,13 @@ const authed = experimental_withMcpAuth(
     if (!bearer) return undefined;
     const claims = (await verifyToken(bearer)) as Record<string, unknown> | null;
     if (!claims || claims.typ !== "access") return undefined;
+    // Vadim écrit les 3 outils autorisés (tous non destructifs) : scope write.
+    // L'endpoint n'enregistre de toute façon aucun outil destructif (LOOP_TOOLS).
     return {
       token: bearer,
       clientId: "vadim",
-      scopes: ["magellan:loop"],
-      extra: { userId: String(claims.sub ?? ""), email: String(claims.email ?? "") },
+      scopes: ["read", "write"],
+      extra: { userId: String(claims.sub ?? ""), email: String(claims.email ?? ""), role: (claims.role as string) ?? null },
     };
   },
   { required: true }

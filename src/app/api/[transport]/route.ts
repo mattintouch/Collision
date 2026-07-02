@@ -1,5 +1,5 @@
 import { createMcpHandler, experimental_withMcpAuth } from "mcp-handler";
-import { verifyToken } from "@/lib/mcp/oauth";
+import { verifyToken, scopesForRole } from "@/lib/mcp/oauth";
 import { registerMagellanTools } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -23,11 +23,13 @@ const authed = experimental_withMcpAuth(
     if (!bearer) return undefined;
     const claims = (await verifyToken(bearer)) as Record<string, unknown> | null;
     if (!claims || claims.typ !== "access") return undefined;
+    // Scopes dérivés du rôle (profiles.type) posé dans le jeton. Jeton legacy
+    // sans `role` → scopesForRole renvoie le jeu admin (fail-open, pas de lockout).
     return {
       token: bearer,
       clientId: "claude",
-      scopes: ["magellan"],
-      extra: { userId: String(claims.sub ?? ""), email: String(claims.email ?? "") },
+      scopes: scopesForRole(claims.role as string | undefined),
+      extra: { userId: String(claims.sub ?? ""), email: String(claims.email ?? ""), role: (claims.role as string) ?? null },
     };
   },
   { required: true }

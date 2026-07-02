@@ -21,8 +21,14 @@ let calCache: { token: string; exp: number } | null = null;
  * sur le provider_token utilisateur (aucune régression avant l'octroi du scope).
  */
 async function calendarServiceToken(): Promise<string | null> {
+  // Flag de délégation (décision #7) : tant que Matt n'a pas fait la délégation
+  // Workspace, on ne tente même pas le compte de service → repli provider_token,
+  // zéro régression. Bascule GOOGLE_DELEGATION_READY=true après la délégation.
+  if (process.env.GOOGLE_DELEGATION_READY !== "true") return null;
   const key = process.env.GOOGLE_SA_KEY ?? "";
-  const subject = process.env.GOOGLE_CALENDAR_ORGANIZER ?? process.env.GOOGLE_IMPERSONATE_EMAIL ?? "";
+  // Organisateur impersoné : EPISODE_SENDER (canonique, ex. matt@collision.studio),
+  // avec repli sur les anciennes variables.
+  const subject = process.env.EPISODE_SENDER ?? process.env.GOOGLE_CALENDAR_ORGANIZER ?? process.env.GOOGLE_IMPERSONATE_EMAIL ?? "";
   if (key.length < 20 || !subject) return null;
   const now = Math.floor(Date.now() / 1000);
   if (calCache && calCache.exp - 60 > now) return calCache.token;

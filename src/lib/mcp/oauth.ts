@@ -40,6 +40,25 @@ export async function pkceChallenge(verifier: string): Promise<string> {
   return base64url(new Uint8Array(digest));
 }
 
+// S2 / décision #6 — portées (scopes) dérivées de profiles.type à l'émission du
+// jeton. read < write < admin. Gating dans W() : écriture exige write, destructif
+// exige admin. FAIL-OPEN : un jeton sans claim `role` (émis avant S2) obtient le
+// jeu admin, pour ne verrouiller personne pendant la transition.
+export type MagellanScope = "read" | "write" | "admin";
+
+export function scopesForRole(role?: string | null): MagellanScope[] {
+  switch (role) {
+    case "admin":
+      return ["read", "write", "admin"];
+    case "interne":
+      return ["read", "write"];
+    case "externe":
+      return ["read"];
+    default:
+      return ["read", "write", "admin"]; // legacy / claim absent → pas de lockout
+  }
+}
+
 const CLAUDE_HOSTS = ["claude.ai", "claude.com"];
 
 /** Redirections autorisées : Claude (web/mobile) + localhost (Claude Desktop). */

@@ -169,6 +169,27 @@ async function autoAttachAppuiContacts(
   return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
+/** Outils destructifs : exigent le scope admin (décision #6). */
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts"]);
+
+/** Scope requis pour un outil d'écriture donné, selon l'appel. */
+export function requiredScope(name: string, args: unknown): "write" | "admin" {
+  if (DESTRUCTIVE_TOOLS.has(name)) return "admin";
+  // enrich_* avec apply=true écrit la fiche → admin ; en simple recherche → write.
+  if ((name === "enrich_cible" || name === "enrich_colonne") && (args as { apply?: boolean } | null)?.apply === true) return "admin";
+  return "write";
+}
+
+/** Écrit une ligne d'audit (best-effort, jamais bloquant). actor jamais nul. */
+async function auditWrite(tool: string, actor: string, payload: unknown, ok: boolean, detail: string | null): Promise<void> {
+  try {
+    const sb = createServiceClient();
+    await sb.from("mcp_audit").insert({ tool, actor, payload: payload ?? {}, ok, detail });
+  } catch {
+    /* audit best-effort */
+  }
+}
+
 /** Sous-ensemble d'outils exposé au client de boucle Vadim (endpoint /api/loop/mcp).
  *  Lecture + les 3 écritures du contrat, AUCUN outil destructif/admin. */
 export const LOOP_TOOLS = [
@@ -194,20 +215,19 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
     if (!gated(name)) return;
     return reg(name, desc, schema, ann, async (a: any, extra: any) => {
-      const res = await cb(a, extra);
-      try {
-        const sb = createServiceClient();
-        const parsed = JSON.parse(res?.content?.[0]?.text ?? "{}") as { ok?: boolean; error?: string; detail?: string };
-        await sb.from("mcp_audit").insert({
-          tool: name,
-          actor: extra?.authInfo?.extra?.email ?? null,
-          payload: a ?? {},
-          ok: !parsed.error,
-          detail: parsed.error ?? parsed.detail ?? null,
-        });
-      } catch {
-        /* audit best-effort : ne bloque jamais l'outil */
+      const actor = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? "inconnu";
+      const scopes: string[] = extra?.authInfo?.scopes ?? [];
+      const need = requiredScope(name, a);
+      // Gating (décision #6). Fail-open uniquement si aucun scope présent (jeton
+      // legacy) : sinon on exige le scope. destructif → admin, écriture → write.
+      if (scopes.length && !scopes.includes(need)) {
+        const denial = text({ error: `Accès refusé : rôle « ${need} » requis pour ${name}.` });
+        await auditWrite(name, actor, a, false, `accès refusé (scope ${need} manquant)`);
+        return denial;
       }
+      const res = await cb(a, extra);
+      const parsed = (() => { try { return JSON.parse(res?.content?.[0]?.text ?? "{}") as { error?: string; detail?: string }; } catch { return {}; } })();
+      await auditWrite(name, actor, a, !parsed.error, parsed.error ?? parsed.detail ?? null);
       return res;
     });
   };

@@ -1,7 +1,20 @@
 import { NextResponse } from "next/server";
 import { signToken, verifyToken, pkceChallenge } from "@/lib/mcp/oauth";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
+
+/** Rôle applicatif de l'utilisateur (profiles.type) pour dériver les scopes du
+ *  jeton. Best-effort : en cas d'échec, on n'ajoute pas de claim (→ fail-open). */
+async function roleForSub(sub: string): Promise<string | null> {
+  try {
+    const sb = createServiceClient();
+    const { data } = await sb.from("profiles").select("type").eq("id", sub).maybeSingle();
+    return (data as { type?: string } | null)?.type ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -41,8 +54,9 @@ export async function POST(request: Request) {
     );
   }
 
+  const role = await roleForSub(String(claims.sub));
   const access = await signToken(
-    { typ: "access", sub: String(claims.sub), email: String(claims.email ?? "") },
+    { typ: "access", sub: String(claims.sub), email: String(claims.email ?? ""), ...(role ? { role } : {}) },
     60 * 60 * 24 * 30
   );
   return NextResponse.json(
