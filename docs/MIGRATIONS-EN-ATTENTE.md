@@ -15,6 +15,7 @@
 | Migration | Objet | Bloque en prod ? | État code |
 |---|---|---|---|
 | `0028_view_explicite.sql` | Vue `cibles_enrichies` à colonnes explicites (identique fonctionnel à 0027) | Non (identique à 0027) | Sur main, dormant |
+| `0029_folk_mirror.sql` | Table `folk_people` + pg_trgm (miroir Folk, S4) | Non (resolve retombe sur le fetch live tant que la table est absente/vide) | Sur main, dormant ; le cron peuple la table une fois la migration appliquée |
 
 ## Déjà appliquées par Matt (rappel)
 0001→0027 appliquées à la main. 0026 (enrichment_jobs) et 0027 (portier +

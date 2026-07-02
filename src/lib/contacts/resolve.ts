@@ -5,6 +5,7 @@
 
 import { fetchFolkPeople, hasFolkKey } from "../folk/client";
 import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "../google/contacts";
+import { createServiceClient } from "../supabase/service";
 
 export type MatchConfidence = "haute" | "moyenne" | "ambigu" | "aucun";
 
@@ -45,7 +46,12 @@ export async function resolveContact(nom: string): Promise<ResolvedContact> {
   const q = normName(nom);
   if (!q) return empty;
 
-  // 1) Folk (source de vérité).
+  // 0) Miroir Folk local (S4) : rapide, tolérant aux accents. Court-circuite si
+  // le miroir tranche ; sinon repli sur le fetch live (comportement historique).
+  const mirror = await resolveViaFolkMirror(q);
+  if (mirror) return mirror;
+
+  // 1) Folk (source de vérité), fetch live si le miroir n'a rien tranché.
   if (hasFolkKey()) {
     try {
       const people = await fetchFolkPeople();
@@ -101,4 +107,69 @@ export async function resolveContact(nom: string): Promise<ResolvedContact> {
   }
 
   return empty;
+}
+
+interface MirrorRow {
+  id: string;
+  nom: string | null;
+  nom_normalise: string | null;
+  emails: string[] | null;
+  phones: string[] | null;
+}
+
+/**
+ * Résolution via le miroir Folk local (table folk_people). Requêtes indexées :
+ * match exact sur nom_normalise (haute), sinon contains (moyenne / ambigu).
+ * Renvoie null si le miroir est absent, vide, ou sans correspondance → l'appelant
+ * retombe alors sur le fetch live Folk (aucune régression avant peuplement).
+ */
+async function resolveViaFolkMirror(q: string): Promise<ResolvedContact | null> {
+  try {
+    const sb = createServiceClient();
+    // Le miroir est-il peuplé ? (sinon repli live)
+    const { data: exacts, error } = await sb
+      .from("folk_people")
+      .select("id, nom, nom_normalise, emails, phones")
+      .eq("nom_normalise", q)
+      .limit(8);
+    if (error) return null; // table absente → repli live
+    const ex = (exacts ?? []) as MirrorRow[];
+    if (ex.length === 1) return fromMirror(ex[0], "haute");
+    if (ex.length > 1) return ambiguous(ex);
+
+    // Pas de match exact : contains sur le nom normalisé.
+    const { data: partials } = await sb
+      .from("folk_people")
+      .select("id, nom, nom_normalise, emails, phones")
+      .ilike("nom_normalise", `%${q}%`)
+      .limit(8);
+    const pa = (partials ?? []) as MirrorRow[];
+    if (pa.length === 1) return fromMirror(pa[0], "moyenne");
+    if (pa.length > 1) return ambiguous(pa);
+
+    // Miroir interrogé sans correspondance : on laisse le live tenter (sécurité
+    // pendant la transition où le miroir peut être partiel).
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function fromMirror(p: MirrorRow, conf: "haute" | "moyenne"): ResolvedContact {
+  return { source: "folk", match_confidence: conf, email: p.emails ?? [], telephone: p.phones ?? [], folk_id: p.id };
+}
+
+function ambiguous(rows: MirrorRow[]): ResolvedContact {
+  return {
+    source: "folk",
+    match_confidence: "ambigu",
+    email: [],
+    telephone: [],
+    candidats: rows.slice(0, 8).map((p) => ({
+      nom: p.nom ?? p.nom_normalise ?? "",
+      emails: p.emails ?? [],
+      telephones: p.phones ?? [],
+      folk_id: p.id,
+    })),
+  };
 }
