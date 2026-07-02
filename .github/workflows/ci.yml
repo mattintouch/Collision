@@ -1,8 +1,11 @@
 name: CI
 
+# CI des branches de travail et des PR. `main` n'est PAS ici : sa mise en prod
+# passe par la chaîne gardée deploy.yml (tsc → vitest → migrations → deploy),
+# pour que tests et migrations bloquent le déploiement dans un seul enchaînement.
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: ["claude/**"]
   pull_request:
 
 jobs:
