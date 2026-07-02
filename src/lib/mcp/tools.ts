@@ -8,7 +8,6 @@ import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
 import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
 import { syncShowContacts } from "../google/sync";
-import { enrichCibleProfile, applyProfileProposal } from "../enrichment/profile";
 import { hasAnthropicKey } from "../copilot/config";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -105,20 +104,6 @@ async function setCibleWatchlists(sb: SB, cibleId: string, refs: string[]): Prom
 /** Course une promesse contre un délai ; renvoie null si le délai est dépassé. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
   return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
-}
-
-/** Exécute fn sur items avec une concurrence bornée (évite le timeout 60s). */
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let i = 0;
-  async function worker() {
-    while (i < items.length) {
-      const idx = i++;
-      out[idx] = await fn(items[idx]);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
 }
 
 /** Rattache à une cible les coordonnées résolues (Folk/Google) sur match HAUTE
@@ -404,6 +389,15 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         if (resolved && resolved.source) contacts_externes = resolved;
       }
 
+      // Dernier job d'enrichissement (S3) : statut + sources, pour le suivi async.
+      const { data: enr } = await sb
+        .from("enrichment_jobs")
+        .select("id, objectif, statut, sources, applied, error, created_at, updated_at")
+        .eq("cible_id", cid)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       return text({
         cible: c.data,
         appuis: appuisWithContacts,
@@ -411,6 +405,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         signals: signals.data,
         contacts: contacts.data,
         contacts_externes,
+        dernier_enrichissement: enr ?? null,
       });
     }
   );
@@ -913,42 +908,30 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "enrich_cible",
-    "Enrichit une fiche par recherche web sourcée (rôle, organisation, secteur, réseaux sociaux, sujets, angle d'épisode). apply=true pour écrire la proposition ; sinon propose seulement (à valider).",
-    { show: z.string(), cible: z.string(), apply: z.boolean().optional() },
-    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "Lance un enrichissement ASYNCHRONE (recherche web sourcée profonde) : insère un job et rend la main en < 1 s (aucun timeout). Un cron le traite en ~1-3 min. Suivre via get_dossier (bloc dernier_enrichissement). apply=true écrit le résultat (NON destructif) à l'aboutissement.",
+    { show: z.string(), cible: z.string(), apply: z.boolean().optional(), objectif: z.enum(["profil", "contact"]).optional().describe("profil (défaut) ou contact (coordonnées)") },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
-      const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
-      if (!row) return text({ error: "Cible introuvable" });
       if (!hasAnthropicKey())
         return text({ error: "Clé IA absente : ajouter ANTHROPIC_API_KEY sur Vercel pour activer l'enrichissement." });
-      const TIMEOUT_MS = 48_000; // le client MCP coupe ~60 s : on renvoie une erreur propre avant
-      try {
-        const proposal = await Promise.race([
-          enrichCibleProfile(row as CibleEnrichie),
-          new Promise<"__timeout__">((r) => setTimeout(() => r("__timeout__"), TIMEOUT_MS)),
-        ]);
-        if (proposal === "__timeout__")
-          return text({ error: `Recherche web trop longue (> ${TIMEOUT_MS / 1000} s). Réessayer.` });
-        if (!proposal)
-          return text({ error: "Recherche web sans résultat exploitable (réessayer ; vérifier la connectivité sortante)." });
-        let applied: string[] | undefined;
-        if (a.apply) applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
-        return text({ ok: true, cible: target.nom, proposition: proposal, applied });
-      } catch (e) {
-        // Surface la vraie cause (ex. violation de contrainte, erreur API) au lieu d'un crash opaque.
-        return text({ error: `Échec enrichissement : ${e instanceof Error ? e.message : String(e)}` });
-      }
+      const { data: job, error } = await sb
+        .from("enrichment_jobs")
+        .insert({ cible_id: target.id, objectif: a.objectif ?? "profil", apply: a.apply ?? false })
+        .select("id")
+        .single();
+      if (error || !job) return text({ error: error?.message ?? "Échec de mise en file." });
+      return text({ ok: true, cible: target.nom, job_id: (job as { id: string }).id, statut: "pending", detail: "Enrichissement lancé — résultat dans ~1-3 min (get_dossier → dernier_enrichissement)." });
     }
   );
 
   W(
     "enrich_colonne",
-    "Enrichit plusieurs cibles d'un show (filtrées par archétype / watchlist / étape) par recherche web sourcée. Borné par `limit` (défaut 3, max 3 — un appel MCP est coupé à ~60 s ; relancer pour la suite). Robuste : chaque cible a son propre délai (un échec/timeout n'interrompt pas le lot). apply=true écrit de façon NON DESTRUCTIVE (préserve la saisie manuelle, fusionne les sujets).",
+    "Met en file un enrichissement ASYNCHRONE pour plusieurs cibles d'un show (filtrées par archétype / watchlist / étape). Insère les jobs et rend la main immédiatement ; le cron les traite. `limit` (défaut 25, max 50). apply=true écrit (NON destructif) à l'aboutissement.",
     {
       show: z.string(),
       archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
@@ -957,13 +940,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       limit: z.number().optional(),
       apply: z.boolean().optional(),
     },
-    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const cap = Math.min(a.limit ?? 3, 3); // une seule vague (concurrence 3) pour tenir sous la coupure client ~60 s
-      let q = sb.from("cibles_enrichies").select("*").eq("show_id", sid).eq("archive", false);
+      const cap = Math.min(a.limit ?? 25, 50);
+      let q = sb.from("cibles_enrichies").select("id").eq("show_id", sid).eq("archive", false);
       if (a.archetype) q = q.eq("archetype", a.archetype);
       if (a.stage_key) q = q.eq("stage_key", a.stage_key);
       if (a.watchlist) {
@@ -974,32 +957,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         q = q.in("id", cibleIds.length ? cibleIds : ["00000000-0000-0000-0000-000000000000"]);
       }
       const { data } = await q.limit(cap);
-      const rows = (data ?? []) as CibleEnrichie[];
-
-      // Chaque cible : délai par cible (22 s) + try/catch isolé ; concurrence
-      // bornée à 3. Un échec/timeout ne fait pas tomber tout le lot.
-      const PER_CIBLE_MS = 45_000; // une vague de 3 en parallèle, sous la coupure client ~60 s
-      const resultats = await mapLimit(rows, 3, async (row) => {
-        try {
-          const proposal = await withTimeout(enrichCibleProfile(row), PER_CIBLE_MS);
-          if (!proposal) return { cible: row.nom, ok: false, erreur: "délai dépassé ou rien trouvé" };
-          let applied: string[] | undefined;
-          if (a.apply) applied = await applyProfileProposal(sb, row, proposal);
-          return { cible: row.nom, ok: true, applied, proposition: a.apply ? undefined : proposal };
-        } catch (e) {
-          return { cible: row.nom, ok: false, erreur: e instanceof Error ? e.message : String(e) };
-        }
-      });
-      const reussies = resultats.filter((r) => r.ok).length;
-      return text({
-        ok: true,
-        traitees: rows.length,
-        reussies,
-        echecs: rows.length - reussies,
-        plafond: cap,
-        note: rows.length === cap ? "Plafond atteint — relance pour la suite." : undefined,
-        resultats,
-      });
+      const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
+      if (!ids.length) return text({ ok: true, en_file: 0, detail: "Aucune cible ne correspond." });
+      const { error } = await sb.from("enrichment_jobs").insert(ids.map((cible_id) => ({ cible_id, objectif: "profil", apply: a.apply ?? false })));
+      if (error) return text({ error: error.message });
+      return text({ ok: true, en_file: ids.length, detail: "Jobs d'enrichissement en file — traités par le cron (~1-3 min chacun). Suivre via get_dossier." });
     }
   );
 }

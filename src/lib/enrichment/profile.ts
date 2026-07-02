@@ -43,17 +43,20 @@ type CibleForApply = Pick<
   "id" | "kind" | "note" | "role" | "organisation" | "secteur" | "pays" | "ville" | "photo_url" | "raison_de_selection" | "sujets"
 >;
 
-export async function enrichCibleProfile(c: CibleEnrichie): Promise<ProfileProposal | null> {
+export async function enrichCibleProfile(
+  c: CibleEnrichie,
+  opts: { maxSearches?: number; model?: string } = {}
+): Promise<ProfileProposal | null> {
   if (!hasAnthropicKey()) return null;
   const qui =
     c.kind === "entreprise"
       ? `l'entreprise/marque « ${c.nom} »${c.secteur ? ` (${c.secteur})` : ""}`
       : `« ${c.nom} »${c.role ? ` (${c.role}${c.organisation ? `, ${c.organisation}` : ""})` : ""}`;
   const prompt = `Enrichis la fiche de ${qui}. Parcours et rôle actuel, organisation, secteur, pays, ville (base), photo publique, réseaux sociaux (LinkedIn, X, Instagram, site officiel), sujets de prédilection, et un angle d'épisode. JSON strict.`;
-  // 2 recherches + modèle rapide (ENRICH_MODEL) : un appel d'outil MCP est coupé
-  // par le client à ~60 s, donc l'enrichissement doit tenir end-to-end sous 60 s
-  // (le budget serveur n'y change rien). Opus + 5 recherches → « indisponible ».
-  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, 2, ENRICH_MODEL);
+  // Défaut : 2 recherches + modèle rapide (contexte MCP synchrone, plafond ~60 s
+  // du client). Le job asynchrone (cron, budget 300 s) passe plus de recherches
+  // et un modèle plus profond via `opts`.
+  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, opts.maxSearches ?? 2, opts.model ?? ENRICH_MODEL);
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
