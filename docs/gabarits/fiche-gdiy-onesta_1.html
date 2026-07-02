@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiche GDIY · Claude Onesta · Handball &amp; Haute Performance</title>
+<style>
+  :root{
+    --paper:#F4F5F1;
+    --paper-deep:#E7E9E3;
+    --ink:#1B1D1E;
+    --ink-soft:#4A4D49;
+    --cobalt:#1B3FBF;
+    --cobalt-deep:#142E8C;
+    --amber:#B5790A;
+    --amber-band:#F6E8C8;
+    --line:#CFD2CA;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper-deep);
+    color:var(--ink);
+    font-family:var(--sans);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  .sheet{
+    max-width:780px;
+    margin:0 auto;
+    background:var(--paper);
+    border-left:1px solid var(--line);
+    border-right:1px solid var(--line);
+    padding:0 22px 64px;
+  }
+  /* HEADER */
+  header.brief{
+    padding:30px 0 18px;
+    border-bottom:3px solid var(--cobalt);
+  }
+  .kicker{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--cobalt);
+    margin:0 0 10px;
+  }
+  h1.title{
+    font-size:30px;
+    line-height:1.08;
+    margin:0 0 4px;
+    letter-spacing:-.01em;
+  }
+  .subtitle{
+    font-size:16px;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+    font-weight:500;
+  }
+  .meta{
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--ink-soft);
+    letter-spacing:.04em;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px 16px;
+  }
+  .meta b{color:var(--ink)}
+  /* SECTIONS */
+  section{padding:26px 0 4px;border-bottom:1px solid var(--line)}
+  section:last-of-type{border-bottom:none}
+  .sec-head{
+    display:flex;align-items:baseline;gap:12px;margin:0 0 14px;
+  }
+  .sec-num{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--cobalt);
+    font-weight:700;
+    letter-spacing:.08em;
+  }
+  .sec-title{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.13em;
+    font-weight:700;
+    margin:0;
+  }
+  p{margin:0 0 12px}
+  .lead{font-size:15.5px}
+  strong{font-weight:700}
+  /* STRATEGIC READ */
+  .read-row{margin:0 0 12px;padding-left:14px;border-left:2px solid var(--cobalt)}
+  .read-row .tag{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--cobalt);display:block;margin-bottom:2px;
+  }
+  /* AMBER ALERT */
+  .alert{
+    background:var(--amber-band);
+    border-left:4px solid var(--amber);
+    padding:12px 14px;
+    margin:4px 0 16px;
+    border-radius:2px;
+  }
+  .alert .tag{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--amber);font-weight:700;display:block;margin-bottom:4px;
+  }
+  .alert p{margin:0;font-size:14px}
+  /* WHO CARD */
+  .card{
+    background:#FBFCF9;
+    border:1px solid var(--line);
+    border-top:3px solid var(--cobalt);
+    border-radius:3px;
+    padding:16px 16px 6px;
+    margin:0 0 8px;
+  }
+  .card h3{margin:0 0 2px;font-size:18px}
+  .card .role{
+    font-family:var(--mono);font-size:11.5px;color:var(--cobalt);letter-spacing:.04em;
+    margin:0 0 12px;
+  }
+  .angle{display:flex;gap:10px;margin:8px 0;font-size:14px}
+  .angle .lab{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    padding:2px 6px;border-radius:2px;flex:0 0 auto;height:fit-content;font-weight:700;
+  }
+  .angle.go .lab{background:var(--cobalt);color:var(--paper)}
+  .angle.no .lab{background:#E7DCC2;color:var(--amber)}
+  .contact-line{
+    font-family:var(--mono);font-size:12px;color:var(--ink-soft);
+    margin:10px 0 4px;padding-top:10px;border-top:1px dashed var(--line);
+  }
+  /* DATED BULLETS */
+  ul.dated{list-style:none;padding:0;margin:0 0 6px}
+  ul.dated li{
+    padding:5px 0;border-bottom:1px solid #E4E6DF;font-size:14px;display:flex;gap:12px;
+  }
+  ul.dated li:last-child{border-bottom:none}
+  ul.dated .d{
+    font-family:var(--mono);font-weight:700;color:var(--cobalt);
+    flex:0 0 116px;font-size:12.5px;letter-spacing:.02em;
+  }
+  /* FIGURES GRID */
+  .figs{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:6px 0 18px}
+  .fig{background:#FBFCF9;border:1px solid var(--line);border-radius:3px;padding:11px 12px}
+  .fig .n{font-family:var(--mono);font-size:19px;font-weight:700;color:var(--cobalt);line-height:1}
+  .fig .l{font-size:11.5px;color:var(--ink-soft);margin-top:5px;line-height:1.35}
+  /* CHARTS */
+  .charts{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:10px 0 16px}
+  .chart-box{background:#FBFCF9;border:1px solid var(--line);border-radius:3px;padding:12px 8px 8px}
+  .chart-cap{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--ink-soft);text-align:center;margin:0 0 4px;
+  }
+  svg{display:block;width:100%;height:auto}
+  .chart-note{font-family:var(--mono);font-size:10px;color:var(--ink-soft);text-align:center;margin:2px 0 0}
+  /* MOVES LIST */
+  ul.moves{margin:0 0 8px;padding-left:18px}
+  ul.moves li{margin:6px 0;font-size:14px}
+  /* HERO RESEAUX */
+  .hero{
+    background:var(--cobalt);
+    color:var(--paper);
+    margin:18px -22px 4px;
+    padding:24px 22px 26px;
+  }
+  .hero .sec-head{margin-bottom:6px}
+  .hero .sec-num{color:#AFC0FF}
+  .hero .sec-title{color:#fff}
+  .hero .hint{font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:#C7D2FF;margin:0 0 18px}
+  ol.reseaux{list-style:none;counter-reset:r;margin:0;padding:0}
+  ol.reseaux li{
+    counter-increment:r;
+    display:flex;gap:14px;align-items:baseline;
+    padding:13px 0;border-bottom:1px solid rgba(255,255,255,.18);
+  }
+  ol.reseaux li:last-child{border-bottom:none}
+  ol.reseaux li::before{
+    content:counter(r,decimal-leading-zero);
+    font-family:var(--mono);font-size:13px;font-weight:700;color:#AFC0FF;
+    flex:0 0 26px;
+  }
+  ol.reseaux .q{font-size:17px;line-height:1.32;font-weight:600;letter-spacing:-.005em}
+  /* DEEP QUESTIONS */
+  .axis{margin:0 0 20px}
+  .axis h4{
+    font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--cobalt);margin:0 0 4px;
+  }
+  .axis .levier{font-size:13px;color:var(--ink-soft);margin:0 0 10px;font-style:italic}
+  ol.deep{margin:0;padding-left:20px}
+  ol.deep li{margin:9px 0;font-size:14.5px;line-height:1.4}
+  /* MASTERCLASS */
+  ol.master{list-style:none;counter-reset:m;margin:0;padding:0}
+  ol.master li{
+    counter-increment:m;padding:13px 0;border-bottom:1px solid var(--line);
+  }
+  ol.master li:last-child{border-bottom:none}
+  ol.master .mh{display:flex;gap:10px;align-items:baseline;margin-bottom:3px}
+  ol.master .mn{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--cobalt);flex:0 0 24px}
+  ol.master .mt{font-weight:700;font-size:14px}
+  ol.master .setup{font-size:12.5px;color:var(--ink-soft);font-style:italic;margin:0 0 4px 34px}
+  ol.master .q{font-size:14.5px;margin-left:34px;line-height:1.4}
+  /* CHECK */
+  ul.check{list-style:none;padding:0;margin:0 0 14px}
+  ul.check li{padding:7px 0 7px 26px;position:relative;font-size:14px;border-bottom:1px solid #E4E6DF}
+  ul.check li:last-child{border-bottom:none}
+  ul.check li::before{
+    content:"";position:absolute;left:0;top:11px;width:11px;height:11px;
+    border:2px solid var(--cobalt);border-radius:2px;
+  }
+  /* SOURCES */
+  .sources{font-size:12.5px}
+  .sources a{color:var(--cobalt);text-decoration:none;border-bottom:1px solid rgba(27,63,191,.3)}
+  .sources a:hover{border-bottom-color:var(--cobalt)}
+  .sources li{margin:7px 0}
+  footer{
+    font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);letter-spacing:.04em;
+    text-align:center;padding:24px 0 0;line-height:1.7;
+  }
+  @media (max-width:520px){
+    .figs{grid-template-columns:1fr}
+    .charts{grid-template-columns:1fr}
+    h1.title{font-size:25px}
+    ol.reseaux .q{font-size:16px}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header class="brief">
+    <p class="kicker">Fiche prépa · Génération Do It Yourself</p>
+    <h1 class="title">Claude Onesta</h1>
+    <p class="subtitle">L'entraîneur le plus titré du sport collectif français · architecte de la haute performance pour Paris 2024</p>
+    <div class="meta">
+      <span><b>ENTRETIEN</b> MAR. 30 JUIN, 9H30</span>
+      <span><b>LIEU</b> STUDIO 71</span>
+      <span><b>DIFFUSION</b> AOÛT</span>
+      <span><b>FICHE</b> 29 JUIN 2026</span>
+    </div>
+  </header>
+
+  <!-- 00 LECTURE STRATEGIQUE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">00</span><h2 class="sec-title">Lecture stratégique</h2></div>
+    <div class="read-row">
+      <span class="tag">Le vrai sujet</span>
+      Pas le palmarès, tout le monde l'a entendu. Le sujet, c'est la collision de deux histoires dans le même homme : celui qui a fait de la gagne une méthode transférable, et celui qui a tenté de transformer un État, puis qu'on a remercié huit mois après le triomphe, pendant qu'on coupait le budget. Management d'équipe distante + intrapreneuriat dans une institution + une prophétie qui se réalise.
+    </div>
+    <div class="read-row">
+      <span class="tag">Le piège</span>
+      Le laisser dérouler son numéro de conférencier sur le « management libéré ». Il vend ces histoires depuis dix ans en séminaire d'entreprise. Coupe court, exige la scène, le nom, la date. Le récit incarné casse le pitch.
+    </div>
+    <div class="read-row">
+      <span class="tag">Le levier</span>
+      Ses propres mots, déjà assumés en public : un modèle français « des années 60 », « jamais la moindre volonté politique » de le réformer, chaque médaille a un prix, concentrer l'argent sur les « médaillables ». La polémique qui marque, c'est celle qu'il prononce. Tu ouvres la porte, tu le couvres, il dit l'indicible.
+    </div>
+    <div class="read-row">
+      <span class="tag">Hypothèse, à confirmer</span>
+      La vraie question de l'épisode : a-t-il transformé un système, ou loué un résultat le temps d'un été&nbsp;? Il avait prévenu, à l'été 2024, que « l'évaluation d'après-Paris allait piquer ». Elle pique. Fais-lui juger sa propre prophétie : c'est là qu'est l'épisode de légende.
+    </div>
+  </section>
+
+  <!-- 01 MISSION -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">Mission</h2></div>
+    <p class="lead">Sortir un épisode qui soit à la fois une masterclass de management transférable à l'entreprise, gestion d'ego, délégation du pouvoir, équipes à distance, et un grand entretien polémique sur l'état du sport français. Objectif secondaire mais central : récupérer une série de hooks courts, frontaux, exploitables en clips réseaux, qui claquent hors contexte.</p>
+  </section>
+
+  <!-- 02 ALERTE -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">À verrouiller</h2></div>
+    <div class="alert">
+      <span class="tag">Correction avant le micro</span>
+      <p>Onesta n'est plus le patron de la haute performance. Il a quitté l'Agence nationale du sport le 1er octobre 2024, à peine les Jeux finis ; Yann Cucherat lui a succédé pour le cycle Los Angeles 2028. Ne le présente pas au présent. Et ce départ éclair, six mois avant les coupes budgétaires, n'est pas une note de bas de page : c'est ton meilleur fil narratif. Logistique connue : mardi 9h30, Studio 71.</p>
+    </div>
+  </section>
+
+  <!-- 03 QUI -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">Qui</h2></div>
+    <div class="card">
+      <h3>Claude Onesta</h3>
+      <p class="role">Sélectionneur des Bleus de handball 2001-2016 · manager général de la haute performance à l'ANS 2019-2024 · né en 1957</p>
+      <div class="angle go"><span class="lab">Viser</span><span>La mécanique concrète : comment il dirige des stars qu'il ne possède pas, comment il lâche le pouvoir sans lâcher le résultat, comment il transforme une institution sans autorité formelle. Et l'état du sport français, frontalement.</span></div>
+      <div class="angle no"><span class="lab">Éviter</span><span>Le storytelling de conférencier sur « les affranchis », les généralités sur l'intelligence collective, la posture du sage qui survole et ne tranche sur rien.</span></div>
+      <div class="contact-line">Profil &amp; repères : entretien fleuve Or Norme (été 2024), livre <em>Le règne des affranchis</em> (Michel Lafon). Contact direct à sourcer via son agence de conférences ou ton réseau ANS / fédérations.</div>
+    </div>
+
+    <p style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--cobalt);margin:16px 0 8px">Repères datés</p>
+    <ul class="dated">
+      <li><span class="d">1957</span><span>Naissance dans une famille de réfugiés italiens, antifascistes et communistes ; modèles revendiqués : Voltaire, Jaurès, Che Guevara</span></li>
+      <li><span class="d">1968-1987</span><span>Joueur de handball, puis professeur d'EPS pendant six ans, déçu par une Éducation nationale qui « méprise le sport »</span></li>
+      <li><span class="d">1998</span><span>Coupe de France avec Toulouse comme entraîneur</span></li>
+      <li><span class="d">2001</span><span>Devient sélectionneur de l'équipe de France, succède à Daniel Costantini</span></li>
+      <li><span class="d">2006</span><span>Premier titre européen</span></li>
+      <li><span class="d">2008</span><span>Or olympique à Pékin, premier de l'histoire du hand français ; Chevalier de la Légion d'honneur</span></li>
+      <li><span class="d">2009-2010</span><span>Premier titre mondial puis Euro 2010 : les trois couronnes majeures détenues simultanément, une première</span></li>
+      <li><span class="d">2011-2015</span><span>Titres mondiaux 2011 et 2015 ; or olympique à Londres 2012 ; Euro 2014</span></li>
+      <li><span class="d">2016</span><span>Argent olympique à Rio ; fin du mandat de sélectionneur</span></li>
+      <li><span class="d">2017-2018</span><span>Missionné par Laura Flessel ; rapport « haute performance » rendu public le 30 janvier 2018</span></li>
+      <li><span class="d">avril 2019</span><span>Création de l'ANS ; devient manager général de la haute performance, lance la stratégie Ambition Bleue</span></li>
+      <li><span class="d">été 2024</span><span>Paris 2024 : objectifs Top 5 (olympique) et Top 8 (paralympique) atteints</span></li>
+      <li><span class="d">1er oct. 2024</span><span>Quitte l'ANS ; Yann Cucherat, son ancien bras droit, lui succède pour Los Angeles 2028</span></li>
+    </ul>
+  </section>
+
+  <!-- 04 DONNEES -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">Onesta en chiffres</h2></div>
+    <p style="font-size:13px;color:var(--ink-soft);margin-bottom:14px">Entraîneur le plus titré de l'histoire du sport collectif français avec les Experts, puis homme à qui l'État a confié, en 2017, la transformation d'un modèle sportif inchangé depuis les années 60 — avec l'objectif de faire briller la France à domicile.</p>
+
+    <div class="figs">
+      <div class="fig"><div class="n">64</div><div class="l">Médailles à Paris 2024, record absolu de la France aux Jeux modernes</div></div>
+      <div class="fig"><div class="n">16</div><div class="l">Titres olympiques (or), ancien record d'Atlanta 1996 dépassé</div></div>
+      <div class="fig"><div class="n">5ᵉ</div><div class="l">Nation au classement par titres, objectif Top 5 atteint</div></div>
+      <div class="fig"><div class="n">75 / 19</div><div class="l">Médailles et titres paralympiques, objectif Top 8 atteint</div></div>
+      <div class="fig"><div class="n">2001-2016</div><div class="l">Quinze ans à la tête des Bleus, huit grandes finales</div></div>
+      <div class="fig"><div class="n">8</div><div class="l">Grands titres comme coach : 2 ors olympiques, 3 mondiaux, 3 européens</div></div>
+      <div class="fig"><div class="n">−108 M€</div><div class="l">Budget des sports amputé en 2025, six mois après le triomphe</div></div>
+      <div class="fig"><div class="n">500 M€</div><div class="l">Garantie déjà votée pour les Jeux d'hiver des Alpes 2030</div></div>
+    </div>
+
+    <div class="charts">
+      <div class="chart-box">
+        <p class="chart-cap">Médailles françaises · JO d'été</p>
+        <svg viewBox="0 0 360 172" role="img" aria-label="Médailles françaises aux JO d'été de 2004 à 2024">
+          <line x1="10" y1="140" x2="352" y2="140" stroke="#CFD2CA" stroke-width="1"/>
+          <rect x="14" y="79" width="38" height="61" fill="#1B3FBF"/>
+          <rect x="74" y="64" width="38" height="76" fill="#1B3FBF"/>
+          <rect x="134" y="77" width="38" height="63" fill="#1B3FBF"/>
+          <rect x="194" y="62" width="38" height="78" fill="#1B3FBF"/>
+          <rect x="254" y="79" width="38" height="61" fill="#1B3FBF"/>
+          <rect x="314" y="22" width="38" height="118" fill="#142E8C"/>
+          <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#142E8C" text-anchor="middle" font-weight="700">
+            <text x="33" y="73">33</text><text x="93" y="58">41</text><text x="153" y="71">34</text><text x="213" y="56">42</text><text x="273" y="73">33</text><text x="333" y="16">64</text>
+          </g>
+          <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="10.5" fill="#4A4D49" text-anchor="middle">
+            <text x="33" y="158">2004</text><text x="93" y="158">2008</text><text x="153" y="158">2012</text><text x="213" y="158">2016</text><text x="273" y="158">2021</text><text x="333" y="158">2024</text>
+          </g>
+        </svg>
+        <p class="chart-note">Vingt ans dans la même fourchette, puis Paris</p>
+      </div>
+      <div class="chart-box">
+        <p class="chart-cap">Titres olympiques · or</p>
+        <svg viewBox="0 0 360 172" role="img" aria-label="Titres olympiques français en or de 2004 à 2024">
+          <line x1="10" y1="140" x2="352" y2="140" stroke="#CFD2CA" stroke-width="1"/>
+          <rect x="14" y="88" width="38" height="52" fill="#B5790A"/>
+          <rect x="74" y="88" width="38" height="52" fill="#B5790A"/>
+          <rect x="134" y="59" width="38" height="81" fill="#B5790A"/>
+          <rect x="194" y="66" width="38" height="74" fill="#B5790A"/>
+          <rect x="254" y="66" width="38" height="74" fill="#B5790A"/>
+          <rect x="314" y="22" width="38" height="118" fill="#8A5C06"/>
+          <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="11" fill="#8A5C06" text-anchor="middle" font-weight="700">
+            <text x="33" y="82">7</text><text x="93" y="82">7</text><text x="153" y="53">11</text><text x="213" y="60">10</text><text x="273" y="60">10</text><text x="333" y="16">16</text>
+          </g>
+          <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="10.5" fill="#4A4D49" text-anchor="middle">
+            <text x="33" y="158">2004</text><text x="93" y="158">2008</text><text x="153" y="158">2012</text><text x="213" y="158">2016</text><text x="273" y="158">2021</text><text x="333" y="158">2024</text>
+          </g>
+        </svg>
+        <p class="chart-note">L'or, le vrai enjeu de Los Angeles 2028</p>
+      </div>
+    </div>
+
+    <p style="font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--cobalt);margin:6px 0 8px">Leviers de la transformation</p>
+    <ul class="moves">
+      <li><strong>Concentration.</strong> Ciblage des « médaillables », création d'un statut « haute performance » au-dessus du « haut niveau », moyens concentrés sur ceux qui peuvent monter sur un podium. Élitisme assumé, financé par l'argent public.</li>
+      <li><strong>Plan Coachs.</strong> Professionnaliser et accompagner les entraîneurs eux-mêmes : sa philosophie de management appliquée aux cadres, pas seulement aux athlètes.</li>
+      <li><strong>Maisons de la Performance.</strong> Maison de la Performance pendant les Jeux et Maisons Régionales de la Performance : services de pointe, logistique, médecine, data autour de l'athlète.</li>
+      <li><strong>Sport Data Hub.</strong> Donnée et sciences de la performance, en lien avec l'INSEP et la Direction des Sports.</li>
+      <li><strong>Gagner en France.</strong> Rapprocher athlètes et clubs pour battre le record de titres ; dispositif piloté par Yann Cucherat, son successeur.</li>
+      <li><strong>Sciences humaines.</strong> Préparation mentale longtemps sous-exploitée en France selon lui, érigée en facteur clé de succès.</li>
+      <li><strong>L'après.</strong> Départ le 1er octobre 2024, puis coupes budgétaires 2025 et remise en cause de l'ANS : le système à l'épreuve de la durée, sans l'effet domicile.</li>
+    </ul>
+  </section>
+
+  <!-- 05 HERO RESEAUX -->
+  <div class="hero">
+    <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">Questions réseaux · à dégainer</h2></div>
+    <p class="hint">Courtes, frontales, pensées pour le clip et le scroll. Une question, une respiration.</p>
+    <ol class="reseaux">
+      <li><span class="q">Le sport français, il se transforme ou il a déjà rechuté</span></li>
+      <li><span class="q">Une médaille olympique, ça coûte combien exactement</span></li>
+      <li><span class="q">Le foot, c'est le moteur du sport français ou son cancer</span></li>
+      <li><span class="q">500 millions sur les Jeux de 2030, et on coupe le sport des gamins. Tu valides</span></li>
+      <li><span class="q">Le manager français, il fait quoi de pire</span></li>
+      <li><span class="q">Le talent ou le collectif. Tu tranches</span></li>
+      <li><span class="q">Tu coaches une boîte de la tech demain matin. Première décision</span></li>
+      <li><span class="q">La fois où tes joueurs ont eu raison contre toi</span></li>
+      <li><span class="q">Sans l'avantage du terrain, à Los Angeles, la France retombe. Oui ou non</span></li>
+      <li><span class="q">Le conseil de management qu'on entend partout et qui est faux</span></li>
+      <li><span class="q">C'est quoi un affranchi, en une phrase</span></li>
+      <li><span class="q">On t'a remercié huit mois après le triomphe. Ça t'a fait quoi</span></li>
+    </ol>
+  </div>
+
+  <!-- 06 PROFONDES -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">Questions profondes · 3 axes</h2></div>
+
+    <div class="axis">
+      <h4>Le pouvoir et les hommes</h4>
+      <p class="levier">Des stars éparpillées dans toute l'Europe, vues quelques semaines par an, dont le vrai patron est leur club. « Le projet appartient aux joueurs ». La data utilisée pour confronter les ego à la réalité.</p>
+      <ol class="deep">
+        <li>Tes joueurs étaient des stars dispersées en Europe, leur vrai patron c'était leur club, tu ne les avais que quelques semaines par an. C'est exactement le quotidien du manager d'aujourd'hui. Comment on dirige des gens sur qui on n'a aucune autorité&nbsp;?</li>
+        <li>« Le projet appartient aux joueurs », tu interviens le moins possible. Donne-moi la fois précise où cette délégation a failli te coûter un titre. Où est la limite&nbsp;?</li>
+        <li>Tu choisis le capitaine, jamais la star, jamais le plus médiatique, mais le mental d'acier. Pourquoi promouvoir le plus visible est presque toujours une erreur&nbsp;?</li>
+        <li>Tu accueillais les jeunes en leur disant « ce n'est pas moi qu'il faut convaincre, ce sont les anciens ». Comment on installe cette régulation par les pairs sans virer au bizutage&nbsp;?</li>
+        <li>Tu utilisais les chiffres pour mettre une star face à la réalité de son jeu. Raconte une confrontation précise : comment un champion encaisse qu'on lui prouve, data en main, qu'il se ment&nbsp;?</li>
+        <li>Tu prônes l'horizontalité, mais tu as recadré tes joueurs un par un après une défaite. Comment on sait, en temps réel, que le moment de la discussion est fini et qu'il faut trancher seul&nbsp;?</li>
+      </ol>
+    </div>
+
+    <div class="axis">
+      <h4>L'état du sport français</h4>
+      <p class="levier">Budget des sports amputé d'environ 108 millions en 2025, Pass'Sport rogné, ANS remise en cause, 500 millions garantis pour 2030. Ses propres mots de 2024 : « l'évaluation d'après-Paris va piquer ».</p>
+      <ol class="deep">
+        <li>Été 2024, triomphe. Tu avais prévenu que l'évaluation d'après-Paris « allait piquer ». Début 2025, le budget des sports est amputé d'environ 108 millions, le Pass'Sport rogné, l'Agence elle-même contestée. Conclusion : on a loué un résultat, on n'a transformé aucun système&nbsp;?</li>
+        <li>On garantit 500 millions pour les Alpes 2030 pendant qu'on coupe le sport pour tous. C'est le procès qu'on te fait : avoir mis l'argent sur les médailles et pas sur les gamins. Ta réponse&nbsp;?</li>
+        <li>Tu connais le prix d'une médaille, tu l'as dit. Donne le chiffre. Le contribuable en a-t-il pour son argent&nbsp;?</li>
+        <li>Le double projet sport-études, tu proposes qu'il devienne parfois « successif » : un athlète qui met sa vie à 100&nbsp;% entre parenthèses. On fabrique des champions ou des gens cassés à 30 ans&nbsp;?</li>
+        <li>Préparation mentale, data, médecine de la performance : jusqu'où on pousse avant la ligne rouge — dopage, santé, surentraînement&nbsp;? Où tu mets le curseur&nbsp;?</li>
+        <li>Les Néerlandais convertissent mieux que nous, les Anglais s'y sont pris vingt ans avant Londres. Qu'est-ce qu'ils font qu'on refuse obstinément de faire&nbsp;?</li>
+      </ol>
+    </div>
+
+    <div class="axis">
+      <h4>Transformer un système</h4>
+      <p class="levier">Un modèle des années 60, « jamais la moindre volonté politique » de le réformer, aucune autorité directe sur les fédérations, l'argent pour seule arme, six ans pour livrer. Devise affichée : Einstein.</p>
+      <ol class="deep">
+        <li>2017 : on te confie un système des années 60 que tout le monde sait à réformer depuis des décennies, mais — tes mots — « sans jamais la moindre volonté politique ». Aucune autorité sur les fédérations. Par où on commence pour transformer une institution qui ne veut pas changer&nbsp;?</li>
+        <li>Ta devise à l'Agence, c'était Einstein : « la folie, c'est refaire la même chose en attendant un résultat différent ». Qu'est-ce que la machine a tenté de te faire refaire à l'identique&nbsp;?</li>
+        <li>Ton arme, c'était concentrer les moyens sur les médaillables. De l'élitisme financé par l'argent public. Qui as-tu dû sacrifier, et comment tu le justifies&nbsp;?</li>
+        <li>La gouvernance partagée — État, collectivités, fédérations, privé. Sur le papier c'est vertueux. En pratique, ça ne fabrique pas de l'impuissance et de la dilution des responsabilités&nbsp;?</li>
+        <li>64 médailles, 16 en or, objectif atteint. Sois précis : quelle part c'est ta transformation, quelle part c'est l'avantage du terrain et l'argent du moment&nbsp;?</li>
+        <li>Tu regardes Cucherat continuer avec moins d'argent. Tu lui fais confiance, ou tu penses que le système retombe dans ses travers dès que les projecteurs s'éteignent&nbsp;?</li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- 07 MASTERCLASS -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">Masterclass management &amp; performance</h2></div>
+    <p style="font-size:13px;color:var(--ink-soft);margin-bottom:14px">Un fait concret, puis une question qui force la leçon. À enchaîner pour la version longue, et à traduire en clé entreprise pour ton audience.</p>
+    <ol class="master">
+      <li>
+        <div class="mh"><span class="mn">01</span><span class="mt">Diriger sans autorité</span></div>
+        <p class="setup">Joueurs sous contrat dans des clubs concurrents, aux quatre coins de l'Europe, disponibles quelques semaines par an.</p>
+        <p class="q">Comment tu imposes une vision quand tu ne contrôles ni le salaire, ni le temps, ni le quotidien de tes gens&nbsp;? Et c'est quoi la première règle non négociable que tu poses&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">02</span><span class="mt">Lâcher le pouvoir sans lâcher le résultat</span></div>
+        <p class="setup">« À la répétition, je préfère l'intention. » Tu interviens le moins possible et tu laisses l'équipe vivre.</p>
+        <p class="q">Concrètement, un manager obsédé par les process, tu lui dis quoi&nbsp;? Et tu faisais quoi de tes journées quand tu te retenais d'agir&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">03</span><span class="mt">Choisir le leader</span></div>
+        <p class="setup">Le capitaine n'est ni la star ni le plus médiatique, mais celui qui tient dans les coups durs.</p>
+        <p class="q">Comment tu repères ce profil, et pourquoi le promouvoir au mérite visible plutôt qu'au mental est un piège classique&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">04</span><span class="mt">Faire d'un rival un associé</span></div>
+        <p class="setup">Deux défenseurs au tempérament d'acier, frères ennemis, que tu transformes en boussole et gouvernail.</p>
+        <p class="q">La mécanique exacte pour qu'un concurrent interne devienne un allié&nbsp;? Et comment tu gardes un remplaçant pleinement engagé&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">05</span><span class="mt">La data contre les stars</span></div>
+        <p class="setup">Tu utilisais les chiffres pour mettre un champion face à la réalité de son jeu.</p>
+        <p class="q">Raconte la confrontation la plus dure. Qu'est-ce qui se passe dans la tête d'une star à qui tu prouves qu'elle se trompe sur elle-même&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">06</span><span class="mt">Quand redevenir le chef</span></div>
+        <p class="setup">Au lendemain d'une défaite, jour de match décisif, tu sors du schéma participatif et tu recadres, un par un.</p>
+        <p class="q">Comment, en temps réel, tu sens que la discussion est finie et qu'il faut trancher seul&nbsp;? Donne la scène, minute par minute.</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">07</span><span class="mt">La paranoïa du gagnant</span></div>
+        <p class="setup">Ton obsession revendiquée : la complaisance des équipes qui gagnent.</p>
+        <p class="q">Comment on entretient la faim quand on a déjà tout raflé&nbsp;? Et c'était quoi le premier signe d'endormissement que tu repérais avant les autres&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">08</span><span class="mt">Transformer une institution</span></div>
+        <p class="setup">Mission 2017 : changer un modèle des années 60, sans autorité directe, avec l'argent pour seul levier.</p>
+        <p class="q">Tes trois premiers mouvements pour faire bouger une machine qui ne veut pas bouger&nbsp;? Et la résistance qui t'a le plus surpris&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">09</span><span class="mt">L'élitisme assumé</span></div>
+        <p class="setup">Statut « haute performance » au-dessus du « haut niveau », moyens concentrés sur les médaillables.</p>
+        <p class="q">Concentrer l'argent sur quelques-uns, c'est efficace mais brutal. Qui tu as dû laisser de côté, et comment tu l'assumes&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">10</span><span class="mt">Le verdict honnête sur Paris</span></div>
+        <p class="setup">64 médailles, 16 en or, 5ᵉ nation. Objectif atteint, à domicile.</p>
+        <p class="q">Sans langue de bois : quelle part revient à ta transformation, et quelle part à l'effet domicile et à l'argent du moment&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">11</span><span class="mt">Construire puis partir</span></div>
+        <p class="setup">1er octobre 2024 : à peine les Jeux finis, tu passes la main à Cucherat.</p>
+        <p class="q">Tu l'avais décidé, ou on t'a remercié&nbsp;? Et qu'est-ce que ça fait, humainement, de bâtir un sommet et de s'en aller le lendemain&nbsp;?</p>
+      </li>
+      <li>
+        <div class="mh"><span class="mn">12</span><span class="mt">La transmission</span></div>
+        <p class="setup">Un fondateur de 30 ans en face de toi, qui vient de connaître son premier vrai succès.</p>
+        <p class="q">La seule chose à retenir&nbsp;? Et la seule chose que la France refusera toujours d'apprendre sur la performance&nbsp;?</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 08 A VERROUILLER -->
+  <section>
+    <div class="sec-head"><span class="sec-num">08</span><h2 class="sec-title">À verrouiller à l'arrivée</h2></div>
+    <ul class="check">
+      <li>Corriger l'intro : Onesta a passé la main à Cucherat en octobre 2024, ne pas le présenter au présent</li>
+      <li>Ouvrir sur un hook réseaux fort, pas sur la biographie</li>
+      <li>Exiger systématiquement la scène, le nom, la date, dès qu'il sert un concept de conférencier</li>
+      <li>Provoquer les deux moments clés : la scène du « redevenir le chef » et celle du départ de l'ANS</li>
+      <li>Récupérer en vertical deux ou trois punchlines isolables : le prix d'une médaille, la définition d'un affranchi, le pire défaut du manager français</li>
+    </ul>
+  </section>
+
+  <!-- SOURCES -->
+  <section class="sources">
+    <div class="sec-head"><span class="sec-num">09</span><h2 class="sec-title">Sources</h2></div>
+    <ul>
+      <li>Bilan France Paris 2024, record de 64 médailles / 16 or · <a href="https://www.francebleu.fr/infos/societe/infographies-jo-paris-2024-la-france-termine-les-jeux-avec-64-medailles-dont-16-en-or-un-record-absolu-8379521">France Bleu (ICI)</a></li>
+      <li>Médailles françaises par édition des JO d'été · <a href="https://fr.wikipedia.org/wiki/France_aux_Jeux_olympiques">Wikipédia</a></li>
+      <li>Bilan paralympique, 75 médailles / 19 or, Top 8 · <a href="https://www.sortiraparis.com/en/news/olympic-games-paris-2024/articles/319355-paris-2024-paralympic-games-medal-rankings-how-did-the-french-team-fare">Sortir à Paris</a></li>
+      <li>Cucherat succède à Onesta à l'ANS · <a href="https://www.agencedusport.fr/actualites/yann-cucherat-nouveau-manager-general-haute-performance">Agence nationale du sport</a></li>
+      <li>Budget des sports 2025, coupe d'environ 108 M€ · <a href="https://www.franceinfo.fr/les-jeux-olympiques/alpes-francaises-2030/budget-2025-apres-la-mobilisation-de-nombreux-acteurs-quel-sera-le-montant-alloue-au-ministere-des-sports_7052897.html">France Info</a></li>
+      <li>ANS et collectivités, inquiétudes post-Jeux · <a href="https://www.amf.asso.fr/documents-financement-du-sport-signaux-inquietants-pour-les-collectivites/42691">Maire info (AMF)</a></li>
+      <li>Stratégie du cycle suivant, Ambition Bleue 2025-2032 · <a href="https://www.sports.gouv.fr/ambition-bleue-2025-2032-9990">sports.gouv.fr</a></li>
+      <li>Entretien fleuve « le hold-up du siècle » · <a href="https://ornorme.fr/articles/claude-onesta-lhistoire-est-en-marche-on-va-realiser-le-hold-up-du-siecle/">Or Norme, été 2024</a></li>
+      <li>Rapport « haute performance », médaillables et statut · <a href="https://preparateur-mental-flow.fr/jo-paris-2024-preparation-mentale-preconisations-rapport-claude-onesta/">Préparateur Mental Flow</a></li>
+      <li>Philosophie de management · <em>Le règne des affranchis</em>, Michel Lafon · <a href="https://www.babelio.com/livres/Onesta-Le-regne-des-affranchis/670744">Babelio</a></li>
+    </ul>
+  </section>
+
+  <footer>
+    FICHE GDIY · CLAUDE ONESTA · HANDBALL &amp; HAUTE PERFORMANCE<br>
+    GÉNÉRÉE LE 29 JUIN 2026 · DONNÉES À DATE · STATUT ANS À CONFIRMER AVANT LE MICRO
+  </footer>
+
+</div>
+</body>
+</html>

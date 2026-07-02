@@ -1,27 +1,23 @@
-name: Deploy (main)
+name: deploy
 
-# S1a — chaîne UNIQUE et ORDONNÉE de mise en production. Sur push/merge → main,
-# un seul job enchaîne, dans cet ordre, en s'arrêtant à la première erreur :
-#   1. tsc (typecheck)
-#   2. vitest (tests)
-#   3. migrations Supabase (db push)
-#   4. déclenchement du déploiement Vercel (Deploy Hook)
-#
+# S1a — chaîne UNIQUE et ORDONNÉE de mise en production (référence : deploy.yml
+# fourni par Matt). Sur push/merge → main, un seul job enchaîne, en s'arrêtant à
+# la première erreur : tsc → vitest → migrations Supabase → Deploy Hook Vercel.
 # Conséquence voulue : un test rouge OU une migration cassée bloque le déploiement.
-# Le code n'atteint jamais la prod avant que sa migration soit passée.
 #
-# L'auto-deploy Vercel sur `main` doit être DÉSACTIVÉ pour que ce workflow soit la
-# seule voie de mise en prod (sinon la course code-avant-migration revient).
+# Adaptation (autorisée par l'addendum) : une GARDE saute migration + deploy tant
+# que les secrets ne sont pas posés, pour que la CI reste verte pendant la fenêtre
+# où P1/P2 ne sont pas faits. tsc + vitest tournent quand même.
 #
 # Secrets requis (GitHub → Settings → Secrets and variables → Actions) :
-#   SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, VERCEL_DEPLOY_HOOK
-# Variable requise (non sensible, onglet Variables) :
-#   SUPABASE_PROJECT_REF  (le sous-domaine de l'URL Supabase, ex. abcd1234)
+#   SUPABASE_ACCESS_TOKEN · SUPABASE_DB_PASSWORD · SUPABASE_PROJECT_REF
+#   VERCEL_DEPLOY_HOOK (créé côté Vercel une fois ce workflow en place)
+# Prérequis Vercel : auto-deploy sur main DÉSACTIVÉ (le hook remplace), APRÈS
+# le premier succès de cette chaîne.
 #
-# ⚠️ Bootstrap une seule fois : la base existante a été migrée à la main
-# (0001→0027). Avant le premier `db push`, baseliner l'historique côté Supabase
-# (`supabase migration repair --status applied <version>` pour 0001→0027), sinon
-# `db push` tentera de rejouer 0001. Geste à faire par Matt une fois (accès DB).
+# ⚠️ Bootstrap une seule fois : la base a été migrée à la main (0001→0028).
+# Avant le premier db push, baseliner l'historique (supabase migration repair
+# --status applied <version>) sinon db push rejoue 0001. Geste Matt, une fois.
 
 on:
   push:
@@ -32,24 +28,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  test-migrate-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-      - run: npm ci
+          node-version: 20
+          cache: npm
+      - name: Install
+        run: npm ci
 
-      # 1 + 2 — Qualité : rien ne migre ni ne déploie si ça casse.
-      - name: Typecheck (tsc)
-        run: npm run typecheck
-      - name: Tests (vitest)
-        run: npm test
+      # tsc + vitest d'abord : rien ne migre ni ne déploie si ça casse.
+      - name: Typecheck + tests
+        run: |
+          npx tsc --noEmit
+          npx vitest run
 
-      # Garde : sans secrets Supabase, on saute migration + deploy (vert), utile
-      # tant que Matt n'a pas posé les secrets. La qualité (1+2) a déjà tourné.
+      # Garde : sans secrets, on saute migration + deploy (vert). tsc/vitest ont tourné.
       - name: Garde — secrets présents ?
         id: guard
         env:
@@ -62,22 +58,23 @@ jobs:
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: supabase/setup-cli@v1
+      - name: Setup Supabase CLI
         if: steps.guard.outputs.present == 'true'
+        uses: supabase/setup-cli@v1
         with:
           version: latest
 
-      # 3 — Migrations AVANT le déploiement. Échec ici = pas de deploy.
-      - name: Appliquer les migrations
+      # Migrations AVANT le déploiement. Échec ici = pas de deploy.
+      - name: Apply migrations
         if: steps.guard.outputs.present == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
-          supabase db push
+          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+          supabase db push --password "$SUPABASE_DB_PASSWORD"
 
-      # 4 — Déploiement Vercel APRÈS migrations réussies.
-      - name: Déclencher le déploiement Vercel
+      # Déploiement Vercel APRÈS migrations réussies.
+      - name: Trigger Vercel deploy
         if: steps.guard.outputs.present == 'true'
-        run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+        run: curl -sf -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
