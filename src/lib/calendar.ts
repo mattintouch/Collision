@@ -6,6 +6,57 @@
 //  - Sans token (mode démo) : génère des créneaux fictifs en heures ouvrées,
 //    pour un aperçu complet hors-ligne.
 
+import { SignJWT, importPKCS8 } from "jose";
+
+const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const GTOKEN_URL = "https://oauth2.googleapis.com/token";
+let calCache: { token: string; exp: number } | null = null;
+
+/**
+ * Jeton Calendar via le COMPTE DE SERVICE (délégation domaine), en impersonant
+ * un organisateur fixe (GOOGLE_CALENDAR_ORGANIZER, défaut GOOGLE_IMPERSONATE_EMAIL —
+ * idéalement contact@gdiy.fr). Bénéfices : zéro token qui expire, et l'invitation
+ * part de la boîte du show, pas du compte de qui clique. Renvoie null si non
+ * configuré OU si le scope calendar n'est pas (encore) délégué → on retombe alors
+ * sur le provider_token utilisateur (aucune régression avant l'octroi du scope).
+ */
+async function calendarServiceToken(): Promise<string | null> {
+  const key = process.env.GOOGLE_SA_KEY ?? "";
+  const subject = process.env.GOOGLE_CALENDAR_ORGANIZER ?? process.env.GOOGLE_IMPERSONATE_EMAIL ?? "";
+  if (key.length < 20 || !subject) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (calCache && calCache.exp - 60 > now) return calCache.token;
+  try {
+    const sa = JSON.parse(key) as { client_email: string; private_key: string };
+    const pk = await importPKCS8(sa.private_key, "RS256");
+    const assertion = await new SignJWT({ scope: CAL_SCOPE })
+      .setProtectedHeader({ alg: "RS256" })
+      .setIssuer(sa.client_email)
+      .setSubject(subject)
+      .setAudience(GTOKEN_URL)
+      .setIssuedAt(now)
+      .setExpirationTime(now + 3600)
+      .sign(pk);
+    const res = await fetch(GTOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    });
+    if (!res.ok) return null; // scope non délégué → repli provider_token
+    const j = (await res.json()) as { access_token?: string; expires_in?: number };
+    if (!j.access_token) return null;
+    calCache = { token: j.access_token, exp: now + (j.expires_in ?? 3600) };
+    return j.access_token;
+  } catch {
+    return null;
+  }
+}
+
+/** Meilleur porteur : compte de service (durable) sinon provider_token utilisateur. */
+async function calendarBearer(providerToken?: string | null): Promise<string | null> {
+  return (await calendarServiceToken()) ?? providerToken ?? null;
+}
+
 export interface FreeSlot {
   start: string; // ISO
   end: string; // ISO
@@ -138,8 +189,9 @@ export async function createCalendarEvent(
   providerToken: string | null | undefined,
   input: CreateEventInput
 ): Promise<CreateEventResult> {
-  if (!providerToken)
-    return { ok: false, detail: "Pas de connexion Google active (reconnecte-toi pour autoriser le calendrier)." };
+  const token = await calendarBearer(providerToken);
+  if (!token)
+    return { ok: false, detail: "Pas de connexion Google (ni compte de service, ni token utilisateur)." };
   try {
     const send = input.sendInvites === false ? "none" : "all";
     const res = await fetch(
@@ -147,7 +199,7 @@ export async function createCalendarEvent(
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${providerToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -177,12 +229,13 @@ export async function deleteCalendarEvent(
   eventId: string,
   notify = true
 ): Promise<{ ok: boolean; detail: string }> {
-  if (!providerToken) return { ok: false, detail: "Pas de connexion Google active." };
+  const token = await calendarBearer(providerToken);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
   try {
     const send = notify ? "all" : "none";
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=${send}`,
-      { method: "DELETE", headers: { Authorization: `Bearer ${providerToken}` } }
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
     );
     // 410/404 : déjà supprimé côté Google — on considère que c'est fait.
     if (res.ok || res.status === 410 || res.status === 404) return { ok: true, detail: "Événement supprimé." };
@@ -201,14 +254,15 @@ export async function updateCalendarEventTimes(
   endISO: string,
   notify = true
 ): Promise<{ ok: boolean; detail: string }> {
-  if (!providerToken) return { ok: false, detail: "Pas de connexion Google active." };
+  const token = await calendarBearer(providerToken);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
   try {
     const send = notify ? "all" : "none";
     const res = await fetch(
       `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=${send}`,
       {
         method: "PATCH",
-        headers: { Authorization: `Bearer ${providerToken}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           start: { dateTime: startISO, timeZone: TZ },
           end: { dateTime: endISO, timeZone: TZ },
