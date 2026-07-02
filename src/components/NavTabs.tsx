@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import clsx from "clsx";
 
 const tabs = [
+  { key: "aujourdhui", label: "Aujourd'hui" },
   { key: "board", label: "Board" },
   { key: "episodes", label: "Épisodes" },
-  { key: "dispo", label: "Dispo" },
   { key: "veille", label: "Veille" },
   { key: "copilote", label: "Copilote" },
 ];
