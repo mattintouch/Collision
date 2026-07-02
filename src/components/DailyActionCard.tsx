@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { logTouche } from "@/lib/actions";
+import { logTouche, draftOpening } from "@/lib/actions";
 import type { Playbook } from "@/lib/types";
 
 export interface DailyAction {
@@ -22,7 +22,9 @@ export interface DailyAction {
 export function DailyActionCard({ action, showSlug }: { action: DailyAction; showSlug: string }) {
   const pb = action.playbook ?? {};
   const canal = pb.canal ?? action.canal_reel ?? "";
-  const brouillon = buildDraft(action);
+  const [brouillon, setBrouillon] = useState(() => buildDraft(action));
+  const [draftSource, setDraftSource] = useState<"gabarit" | "copilote">("gabarit");
+  const [drafting, setDrafting] = useState(false);
   const [contenu, setContenu] = useState("");
   const [canalTouche, setCanalTouche] = useState(canal);
   const [done, setDone] = useState(false);
@@ -39,6 +41,18 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
         router.refresh(); // la cible sort de la liste du jour au prochain rendu
       }
     });
+  }
+
+  function redigerAvecCopilote() {
+    setDrafting(true);
+    draftOpening({ cible_id: action.id, show_slug: showSlug })
+      .then((r) => {
+        if (r.ok && r.draft) {
+          setBrouillon(r.draft);
+          setDraftSource(r.source ?? "copilote");
+        }
+      })
+      .finally(() => setDrafting(false));
   }
 
   function copy() {
@@ -93,9 +107,16 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
 
       {/* Brouillon + copie */}
       <div className="mt-3">
-        <div className="flex items-center justify-between">
-          <div className="label" style={{ fontSize: "9px" }}>Brouillon</div>
-          <button onClick={copy} className="btn-ghost px-2 py-0.5 text-xs">{copied ? "Copié ✓" : "Copier"}</button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="label" style={{ fontSize: "9px" }}>
+            Brouillon {draftSource === "copilote" && <span style={{ color: "#FFD200" }}>· copilote</span>}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button onClick={redigerAvecCopilote} disabled={drafting} className="btn-ghost px-2 py-0.5 text-xs disabled:opacity-50">
+              {drafting ? "Rédaction…" : "Rédiger avec le copilote"}
+            </button>
+            <button onClick={copy} className="btn-ghost px-2 py-0.5 text-xs">{copied ? "Copié ✓" : "Copier"}</button>
+          </div>
         </div>
         <p className="mt-1 whitespace-pre-wrap rounded-lg border border-noir-600 bg-noir-900 p-2 text-[12.5px] text-blanc-muted">{brouillon}</p>
       </div>

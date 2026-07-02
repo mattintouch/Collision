@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "./supabase/server";
 import { getCibleDossier, getShow, type CibleDossier } from "./data";
+import { computeResurgence } from "./domain";
+import { composeDraft } from "./copilot/draft";
 import { runVeille, type VeilleItem } from "./veille/engine";
 import { enrichCible, type ContactSuggestion } from "./enrichment/engine";
 import { fetchFolkGroups, fetchFolkPeople, hasFolkKey, type FolkGroup } from "./folk/client";
@@ -113,6 +115,28 @@ export async function logTouche(input: {
   revalidatePath(`/${input.show_slug}/cible/${input.cible_id}`);
   revalidatePath(`/${input.show_slug}/board`);
   return { ok: true };
+}
+
+/** S5 — brouillon d'ouverture rédigé par le copilote, pour la carte « Aujourd'hui ». */
+export async function draftOpening(input: {
+  cible_id: string;
+  show_slug: string;
+}): Promise<{ ok: boolean; draft?: string; source?: "copilote" | "gabarit"; error?: string }> {
+  const show = await getShow(input.show_slug);
+  const { cible } = await getCibleDossier(input.cible_id);
+  if (!cible) return { ok: false, error: "Cible introuvable." };
+  const pb = (cible.playbook ?? {}) as { canal?: string; langue?: string; angle?: string };
+  const { draft, source } = await composeDraft({
+    nom: cible.nom,
+    role: cible.role,
+    organisation: cible.organisation,
+    pourquoi: computeResurgence(cible).raison,
+    angle: pb.angle ?? null,
+    canal: pb.canal ?? cible.canal_reel ?? null,
+    langue: pb.langue ?? null,
+    show_nom: show?.nom ?? "le podcast",
+  });
+  return { ok: true, draft, source };
 }
 
 const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
