@@ -58,16 +58,34 @@ async function main() {
   // 2) tools/list répond
   const list = await rpc("tools/list", {});
   const tools = (list?.result?.tools ?? []).map((t) => t.name);
-  if (!tools.includes("list_cibles")) fails.push("list_cibles absent de tools/list");
+  for (const t of ["list_shows", "list_cibles", "get_dossier"])
+    if (!tools.includes(t)) fails.push(`${t} absent de tools/list`);
 
-  // 3) list_cibles renvoie les clés du contrat
+  // 3) list_shows renvoie au moins le show attendu
+  const ls = await rpc("tools/call", { name: "list_shows", arguments: {} });
+  const shows = toolResultJson(ls);
+  const slugs = Array.isArray(shows) ? shows.map((s) => s.slug ?? s.show ?? s.nom) : [];
+  if (!slugs.includes(SHOW)) fails.push(`list_shows ne contient pas « ${SHOW} » (slugs: ${slugs.join(", ") || "aucun"})`);
+
+  // 4) list_cibles renvoie les clés du contrat
   const lc = await rpc("tools/call", { name: "list_cibles", arguments: { show: SHOW, limit: 3 } });
   const rows = toolResultJson(lc);
+  let firstId = null;
   if (!Array.isArray(rows) || rows.length === 0) {
     fails.push(`list_cibles(show="${SHOW}") n'a rien renvoyé (slug cassé ?)`);
   } else {
     const missing = CONTRACT_KEYS.filter((k) => !(k in rows[0]));
     if (missing.length) fails.push(`clés de contrat manquantes : ${missing.join(", ")}`);
+    firstId = rows[0].id;
+  }
+
+  // 5) get_dossier sur la première cible répond avec un dossier exploitable
+  if (firstId) {
+    const gd = await rpc("tools/call", { name: "get_dossier", arguments: { cible_id: firstId } });
+    const dossier = toolResultJson(gd);
+    if (!dossier || dossier.error || !(dossier.nom || dossier.cible || dossier.id)) {
+      fails.push(`get_dossier(${firstId}) n'a pas renvoyé de dossier exploitable`);
+    }
   }
 
   if (fails.length) {

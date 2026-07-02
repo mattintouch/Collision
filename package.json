@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke:mcp": "node scripts/smoke-mcp.mjs"
+    "smoke:mcp": "node scripts/smoke-mcp.mjs",
+    "gen:view": "node scripts/gen-view.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

@@ -89,6 +89,34 @@ describe("computeCibleScore — cas golden", () => {
   });
 });
 
+describe("cohorte réelle golden — classement", () => {
+  // Cas réels figés de la base, scorés hors saison estivale (juillet mais estival=false).
+  const tonyParker = computeCibleScore(
+    base({ nom: "Tony Parker", role: "Président", organisation: "ASVEL", archetype: "big_fish", note_priorite: 4, voie: "chaud", stage_key: "qualifie", jours_depuis_touche: 5, dernier_signal_date: daysAgo(6), dernier_signal_pertinence: 5, nb_appuis: 2, nb_relais_actionnables: 1 }),
+    false, NOW
+  );
+  const aghionGagne = computeCibleScore(
+    base({ nom: "Philippe Aghion", role: "Économiste", organisation: "Collège de France", archetype: "big_fish", stage_key: "publie", jours_depuis_touche: 90, nb_appuis: 1 }),
+    false, NOW
+  );
+  const hugel = computeCibleScore(base({ nom: "XX Hugel", role: null, organisation: null }), false, NOW);
+
+  it("Tony Parker (frais, big fish, relais) domine un gagné", () => {
+    expect(tonyParker.score).toBeGreaterThan(aghionGagne.score);
+    expect(tonyParker.badges).toContain("signal frais");
+    expect(tonyParker.badges).toContain("relais actionnable");
+    expect(tonyParker.placeholder).toBe(false);
+  });
+
+  it("Aghion gagné (publié) porte le badge gagné et coule au fond", () => {
+    expect(aghionGagne.badges).toContain("gagné");
+  });
+
+  it("« XX Hugel » est un placeholder", () => {
+    expect(hugel.placeholder).toBe(true);
+  });
+});
+
 describe("estivalActif", () => {
   it("respecte le forçage explicite", () => {
     expect(estivalActif("ete")).toBe(true);
