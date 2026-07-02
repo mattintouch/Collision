@@ -210,7 +210,7 @@ const STAGE_WON_OR_AFTER = new Set(["confirme", "programme", "enregistre", "publ
  * et sort du flux outreach celles déjà gagnées (≥ confirme) ou archivées.
  * Spéc : docs/DEBRIEF.md §7 (repris de l'audit live).
  */
-export function computeCibleScore(c: ScoreInput, estival = false): CibleScore {
+export function computeCibleScore(c: ScoreInput, estival = false, now: number = Date.now()): CibleScore {
   const placeholder = isPlaceholder(c.nom, c.role, c.organisation);
   const badges: string[] = [];
 
@@ -220,7 +220,7 @@ export function computeCibleScore(c: ScoreInput, estival = false): CibleScore {
   // signal (0–20) — frais = daté de ≤ 14 jours
   let signal = 0;
   if (c.dernier_signal_date) {
-    const ageJours = (Date.now() - new Date(c.dernier_signal_date).getTime()) / 86_400_000;
+    const ageJours = (now - new Date(c.dernier_signal_date).getTime()) / 86_400_000;
     if (ageJours <= 14) {
       signal = (c.dernier_signal_pertinence ?? 0) * 4;
       if (signal > 0) badges.push("signal frais");

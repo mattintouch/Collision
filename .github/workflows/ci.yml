@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # Smoke MCP en HTTP direct (indépendant du client claude.ai). Vert et
+      # sauté tant que le secret MCP_TOKEN n'est pas posé (cf. scripts/smoke-mcp.mjs).
+      - name: Smoke MCP
+        env:
+          MCP_URL: ${{ secrets.MCP_URL }}
+          MCP_TOKEN: ${{ secrets.MCP_TOKEN }}
+        run: npm run smoke:mcp

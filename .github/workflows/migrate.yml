@@ -1,0 +1,56 @@
+name: Migrate & Deploy (main)
+
+# Séquence garantie (raffinement du plan v1.1) : sur merge → main, on APPLIQUE
+# d'abord les migrations Supabase, PUIS on déclenche le déploiement via Deploy
+# Hook. L'auto-deploy Vercel sur `main` doit être DÉSACTIVÉ pour que ce workflow
+# soit la seule voie de mise en prod (sinon la course code-avant-migration revient).
+#
+# Secrets requis (GitHub Actions, jamais côté app) :
+#   SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, SUPABASE_PROJECT_REF,
+#   VERCEL_DEPLOY_HOOK_URL
+#
+# ⚠️ Bootstrap une seule fois : la base existante a été migrée À LA MAIN
+# (0001→0023). Avant le premier `db push`, baseliner l'historique côté Supabase
+# (marquer ces migrations comme déjà appliquées : `supabase migration repair
+# --status applied <version>`), sinon `db push` tentera de rejouer 0001. Ce geste
+# nécessite l'accès DB → à faire par Matt une fois.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: migrate-deploy-main
+  cancel-in-progress: false
+
+jobs:
+  migrate-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Garde — secrets présents ?
+        id: guard
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Secrets absents — migrations/déploiement sautés (vert). Poser les secrets pour activer."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: supabase/setup-cli@v1
+        if: steps.guard.outputs.present == 'true'
+        with:
+          version: latest
+      - name: Appliquer les migrations (AVANT le déploiement)
+        if: steps.guard.outputs.present == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+          supabase db push
+      - name: Déclencher le déploiement Vercel (APRÈS migrations)
+        if: steps.guard.outputs.present == 'true'
+        run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"
