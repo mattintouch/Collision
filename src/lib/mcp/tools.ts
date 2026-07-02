@@ -149,13 +149,31 @@ async function persistFolkId(sb: SB, cibleId: string, folkId?: string | null): P
   await sb.from("cibles").update({ folk_id: folkId }).eq("id", cibleId).is("folk_id", null);
 }
 
-export function registerMagellanTools(server: McpServer) {
+/** Sous-ensemble d'outils exposé au client de boucle Vadim (endpoint /api/loop/mcp).
+ *  Lecture + les 3 écritures du contrat, AUCUN outil destructif/admin. */
+export const LOOP_TOOLS = [
+  "list_shows", "list_cibles", "find_cible", "get_dossier", "daily_five",
+  "log_touche", "update_cible", "add_appui",
+] as const;
+
+export function registerMagellanTools(server: McpServer, opts: { allow?: readonly string[] } = {}) {
+  // Allowlist optionnelle : si fournie, seuls ces outils sont enregistrés
+  // (endpoint restreint Vadim). Sinon, tout est exposé (endpoint principal).
+  const allow = opts.allow ? new Set(opts.allow) : null;
+  const gated = (name: string) => !allow || allow.has(name);
+
   // Journal d'audit (Chantier A) : `W(...)` enregistre un outil d'écriture comme
   // `server.tool`, mais trace chaque appel dans mcp_audit (best-effort, jamais
-  // bloquant). Les outils en lecture restent sur `server.tool`.
+  // bloquant). `RT(...)` fait pareil pour les lectures (sans audit). Les deux
+  // respectent l'allowlist.
   const reg = server.tool.bind(server) as (...args: unknown[]) => unknown;
-  const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) =>
-    reg(name, desc, schema, ann, async (a: any, extra: any) => {
+  const RT = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
+    if (!gated(name)) return;
+    reg(name, desc, schema, ann, cb);
+  };
+  const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
+    if (!gated(name)) return;
+    return reg(name, desc, schema, ann, async (a: any, extra: any) => {
       const res = await cb(a, extra);
       try {
         const sb = createServiceClient();
@@ -172,14 +190,15 @@ export function registerMagellanTools(server: McpServer) {
       }
       return res;
     });
+  };
 
-  server.tool("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
+  RT("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
     const { data } = await sb.from("shows").select("*, stages(key, label, position, is_final)").order("nom");
     return text(data);
   });
 
-  server.tool(
+  RT(
     "list_cibles",
     "Liste les cibles d'un show, triées par score d'actionnabilité décroissant (les cibles qui bougent en tête). Enrichies : score, badges, résurgence, jours depuis touche, signal, appuis. Les archivées sont exclues par défaut ; les noms factices (placeholder) sont relégués en bas et signalés.",
     {
@@ -271,7 +290,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  RT(
     "daily_five",
     "Les cibles à travailler MAINTENANT : top N par score (défaut 5, max 10), hors archivées, gagnées (≥confirme) et placeholders. Pour chaque : score, badges, pourquoi maintenant (résurgence), playbook, dernière touche. Pilote la session du matin (app « Aujourd'hui » / Vadim).",
     { show: z.string(), limit: z.number().optional() },
@@ -311,7 +330,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  RT(
     "find_cible",
     "Cherche une cible par nom dans un show et renvoie id + résumé. À utiliser pour vérifier l'existence d'une personne sans tirer toute la liste.",
     {
@@ -337,7 +356,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  RT(
     "get_dossier",
     "Dossier complet d'une cible : champs, appuis, journal, signaux, contacts. Passer `cible_id` (UUID) ou bien `cible` (nom) + `show`.",
     {
@@ -396,7 +415,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  RT(
     "resolve_contact",
     "Résout les coordonnées (emails, téléphones) d'une personne : Folk d'abord (source de vérité), Google Contacts en repli. LECTURE SEULE — ne rattache rien. En cas d'ambiguïté, renvoie la liste des candidats sans choisir. Passer `nom` ou `cible_id`.",
     {
@@ -830,7 +849,7 @@ export function registerMagellanTools(server: McpServer) {
     }
   );
 
-  server.tool(
+  RT(
     "show_stats",
     "Statistiques d'un show, SÉPARÉES closing (étapes jusqu'à l'étape finale incluse) et production (étapes après). Renvoie la distribution par étape, gagné/en cours, taux de closing, pipeline de production, archivées, et un résumé des issues de touches (feedback score).",
     { show: z.string() },
