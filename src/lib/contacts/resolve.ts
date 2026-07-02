@@ -20,6 +20,8 @@ export interface ResolvedContact {
   match_confidence: MatchConfidence;
   email: string[];
   telephone: string[];
+  /** id de la personne Folk sur un match confiant (haute/moyenne) — pour lier la fiche. */
+  folk_id?: string;
   candidats?: ResolvedCandidate[];
 }
 
@@ -58,7 +60,7 @@ export async function resolveContact(nom: string): Promise<ResolvedContact> {
       const exacts = scored.filter((x) => x.conf === 1);
       if (exacts.length === 1) {
         const p = exacts[0].p;
-        return { source: "folk", match_confidence: "haute", email: p.emails ?? [], telephone: p.phones ?? [] };
+        return { source: "folk", match_confidence: "haute", email: p.emails ?? [], telephone: p.phones ?? [], folk_id: p.id };
       }
       if (exacts.length > 1 || scored.length > 1) {
         return {
@@ -76,7 +78,7 @@ export async function resolveContact(nom: string): Promise<ResolvedContact> {
       }
       if (scored.length === 1) {
         const p = scored[0].p;
-        return { source: "folk", match_confidence: "moyenne", email: p.emails ?? [], telephone: p.phones ?? [] };
+        return { source: "folk", match_confidence: "moyenne", email: p.emails ?? [], telephone: p.phones ?? [], folk_id: p.id };
       }
     } catch {
       // Folk indisponible → on tente Google.

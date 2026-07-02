@@ -116,6 +116,7 @@ async function autoAttachCibleContacts(
 ): Promise<{ attaches: string[]; resolution: ResolvedContact }> {
   const r: ResolvedContact =
     (await withTimeout(resolveContact(nom), 30_000)) ?? { source: null, match_confidence: "aucun", email: [], telephone: [] };
+  if (r.source === "folk" && r.folk_id) await persistFolkId(sb, cibleId, r.folk_id);
   if (r.match_confidence !== "haute" || !r.source) return { attaches: [], resolution: r };
   const { data: existing } = await sb.from("contacts").select("valeur").eq("cible_id", cibleId);
   const known = new Set(((existing ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
@@ -133,6 +134,39 @@ async function autoAttachCibleContacts(
 async function persistFolkId(sb: SB, cibleId: string, folkId?: string | null): Promise<void> {
   if (!folkId) return;
   await sb.from("cibles").update({ folk_id: folkId }).eq("id", cibleId).is("folk_id", null);
+}
+
+/** Persiste le lien Folk sur un appui (seulement s'il n'est pas déjà posé). */
+async function persistAppuiFolkId(sb: SB, appuiId: string, folkId?: string | null): Promise<void> {
+  if (!folkId) return;
+  await sb.from("appuis").update({ folk_id: folkId }).eq("id", appuiId).is("folk_id", null);
+}
+
+/** Rattache à un APPUI les coordonnées résolues (Folk/Google) sur match HAUTE
+ *  confiance, sans doublon, et lie sa fiche Folk (folk_id). Mêmes règles que
+ *  autoAttachCibleContacts. Renvoie ce qui a été ajouté + la résolution brute
+ *  (dont candidats en cas d'ambiguïté, pour arbitrage sans choix silencieux). */
+async function autoAttachAppuiContacts(
+  sb: SB,
+  appuiId: string,
+  nom: string
+): Promise<{ attaches: string[]; resolution: ResolvedContact }> {
+  const r: ResolvedContact =
+    (await withTimeout(resolveContact(nom), 30_000)) ?? { source: null, match_confidence: "aucun", email: [], telephone: [] };
+  // Lier la fiche Folk dès qu'on a un match confiant (haute/moyenne), même si les
+  // coordonnées ne sont pas rattachées automatiquement (moyenne).
+  if (r.source === "folk" && r.folk_id) await persistAppuiFolkId(sb, appuiId, r.folk_id);
+  if (r.match_confidence !== "haute" || !r.source) return { attaches: [], resolution: r };
+  const { data: existing } = await sb.from("contacts").select("valeur").eq("appui_id", appuiId);
+  const known = new Set(((existing ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
+  const verifie = r.source === "folk"; // Folk = source de vérité → vérifié
+  const rows: Record<string, unknown>[] = [];
+  for (const valeur of r.email)
+    if (!known.has(valeur.trim().toLowerCase())) rows.push({ appui_id: appuiId, kind: "email", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
+  for (const valeur of r.telephone)
+    if (!known.has(valeur.trim().toLowerCase())) rows.push({ appui_id: appuiId, kind: "telephone", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
+  if (rows.length) await sb.from("contacts").insert(rows);
+  return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
 /** Sous-ensemble d'outils exposé au client de boucle Vadim (endpoint /api/loop/mcp).
@@ -582,27 +616,35 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       ).filter((c) => !known.has(c.valeur.trim().toLowerCase()));
       if (coords.length) await sb.from("contacts").insert(coords);
 
-      // Auto-rattachement : si l'appui n'a aucune coordonnée (ni fournie ni déjà
-      // présente), on résout l'allié (Folk/Google) et on attache (haute confiance).
-      let coords_auto: string[] = [];
-      if (coords.length === 0 && known.size === 0) {
-        const r = await withTimeout(resolveContact(a.allie), 30_000);
-        if (r && r.match_confidence === "haute" && r.source) {
-          const verifie = r.source === "folk";
-          const rows = [
-            ...r.email.map((valeur) => ({ appui_id: appuiId, kind: "email", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
-            ...r.telephone.map((valeur) => ({ appui_id: appuiId, kind: "telephone", valeur, source: r.source as string, confiance: verifie ? 5 : 3, verifie })),
-          ];
-          if (rows.length) {
-            await sb.from("contacts").insert(rows);
-            coords_auto = rows.map((x) => `${x.kind}: ${x.valeur}`);
-          }
-        }
-      }
+      // Auto-rattachement : on résout l'allié (Folk d'abord, Google en repli),
+      // on lie sa fiche Folk (folk_id sur l'appui) et on attache les coordonnées
+      // manquantes sur match HAUTE confiance (mêmes règles qu'attach_resolved_contacts).
+      // En cas d'ambiguïté, rien n'est choisi : on renvoie les candidats à arbitrer.
+      const { attaches: coords_auto, resolution } = await autoAttachAppuiContacts(sb, appuiId, a.allie);
+      const lie_folk = resolution.source === "folk" && !!resolution.folk_id;
 
       const folk = await folkAddAlly(target.nom, a.allie, a.note);
       await persistFolkId(sb, target.id, folk.folk_id);
-      return text({ ok: true, cible: target.nom, allie: a.allie, appui_id: appuiId, cree, relais: est_relais, voie: est_relais ? "chaud" : undefined, coordonnees: coords.length, coords_auto, lie: !!ally, folk: folk.detail });
+      return text({
+        ok: true,
+        cible: target.nom,
+        allie: a.allie,
+        appui_id: appuiId,
+        cree,
+        relais: est_relais,
+        voie: est_relais ? "chaud" : undefined,
+        coordonnees: coords.length,
+        coords_auto,
+        lie: !!ally,
+        lie_folk,
+        match_confidence: resolution.match_confidence,
+        candidats: resolution.match_confidence === "ambigu" ? resolution.candidats : undefined,
+        folk: folk.detail,
+        detail:
+          resolution.match_confidence === "ambigu"
+            ? "Plusieurs fiches Folk correspondent — aucune liée ni rattachée automatiquement. Choisir un candidat puis ajouter les coordonnées via add_appui_contact."
+            : undefined,
+      });
     }
   );
 
@@ -652,7 +694,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     {
       show: z.string(),
       cible: z.string(),
-      kind: z.enum(["email", "telephone", "reseau", "agence", "site", "autre"]),
+      kind: z.enum(["email", "telephone", "reseau", "agence", "portier", "site", "autre"]).describe("portier = assistant / gardien d'agenda joignable"),
       valeur: z.string(),
       label: z.string().optional(),
     },
@@ -678,6 +720,34 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         await persistFolkId(sb, target.id, r.folk_id);
       }
       return text({ ok: true, cible: target.nom, folk });
+    }
+  );
+
+  W(
+    "add_appui_contact",
+    "Ajoute une coordonnée STRUCTURÉE à un appui (relais) : email/téléphone/réseau direct, ou `portier` (assistant / gardien d'agenda, ex. l'assistante d'un dirigeant). Miroir d'add_contact ciblant un appui_id. Récupérer l'appui_id via get_dossier. Utiliser plutôt que de laisser un numéro en note libre — une coordonnée directe OU un portier rend le relais actionnable (scoring).",
+    {
+      appui_id: z.string(),
+      kind: z.enum(["email", "telephone", "reseau", "agence", "portier", "site", "autre"]).describe("portier = assistant / gardien d'agenda joignable"),
+      valeur: z.string(),
+      label: z.string().optional().describe("ex. « Assistante », « Attachée de presse » — nom du portier ou rôle"),
+    },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const { data: appui } = await sb.from("appuis").select("id, nom").eq("id", a.appui_id).maybeSingle();
+      if (!appui) return text({ error: "Appui introuvable (vérifier appui_id via get_dossier)." });
+      // Dédoublonnage contre les coordonnées déjà portées par l'appui.
+      const { data: existing } = await sb.from("contacts").select("valeur").eq("appui_id", a.appui_id);
+      const known = new Set(((existing ?? []) as { valeur: string }[]).map((c) => c.valeur.trim().toLowerCase()));
+      if (known.has(a.valeur.trim().toLowerCase())) {
+        return text({ ok: true, appui: (appui as { nom: string }).nom, kind: a.kind, idempotent: true, detail: "Coordonnée déjà présente sur cet appui." });
+      }
+      const { error } = await sb.from("contacts").insert({
+        appui_id: a.appui_id, kind: a.kind, valeur: a.valeur, label: a.label ?? null, source: "Claude", confiance: 4,
+      });
+      if (error) return text({ error: error.message });
+      return text({ ok: true, appui: (appui as { nom: string }).nom, appui_id: a.appui_id, kind: a.kind, valeur: a.valeur, label: a.label ?? null });
     }
   );
 

@@ -24,6 +24,7 @@ export type ContactKind =
   | "telephone"
   | "reseau"
   | "agence"
+  | "portier"
   | "site"
   | "autre";
 export type UserType = "admin" | "interne" | "externe";

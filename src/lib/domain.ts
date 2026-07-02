@@ -15,6 +15,7 @@ export const CONTACT_LABELS: Record<ContactKind, string> = {
   telephone: "Téléphone",
   reseau: "Réseau",
   agence: "Agence / RP",
+  portier: "Assistant / portier",
   site: "Site / formulaire",
   autre: "Autre",
 };
