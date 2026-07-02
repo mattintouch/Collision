@@ -626,8 +626,8 @@ export function registerMagellanTools(server: McpServer) {
 
   W(
     "log_touche",
-    "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater (ISO). `idempotency_key` optionnelle : un même appel réémis (retry) n'insère qu'une fois — recommandé pour un client de boucle.",
-    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)"), idempotency_key: z.string().optional().describe("clé anti-doublon pour les retries") },
+    "Logge une touche sur une cible (remet le compteur à zéro). `date` optionnelle pour antidater (ISO). `idempotency_key` optionnelle : un même appel réémis (retry) n'insère qu'une fois. `resultat` optionnel : issue de la touche (reponse_positive|reponse_negative|silence|avance_stage) — alimente la boucle de feedback du score.",
+    { show: z.string(), cible: z.string(), contenu: z.string(), canal: z.string().optional(), date: z.string().optional().describe("date ISO de la touche (défaut : maintenant)"), idempotency_key: z.string().optional().describe("clé anti-doublon pour les retries"), resultat: z.enum(["reponse_positive", "reponse_negative", "silence", "avance_stage"]).optional().describe("issue de la touche (feedback score)") },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -642,6 +642,7 @@ export function registerMagellanTools(server: McpServer) {
         source: "saisie",
         ...(a.date ? { date: a.date } : {}),
         ...(a.idempotency_key ? { idempotency_key: a.idempotency_key } : {}),
+        ...(a.resultat ? { resultat: a.resultat } : {}),
       });
       // 23505 = violation d'unicité → l'appel a déjà été traité (retry) : succès idempotent.
       if (error && (error as { code?: string }).code === "23505") {
@@ -789,22 +790,36 @@ export function registerMagellanTools(server: McpServer) {
 
   server.tool(
     "show_stats",
-    "Statistiques d'un show, SÉPARÉES closing (étapes jusqu'à l'étape finale incluse) et production (étapes après). Renvoie la distribution par étape, le nombre gagné/en cours, le taux de closing, le pipeline de production et le nombre d'archivées.",
+    "Statistiques d'un show, SÉPARÉES closing (étapes jusqu'à l'étape finale incluse) et production (étapes après). Renvoie la distribution par étape, gagné/en cours, taux de closing, pipeline de production, archivées, et un résumé des issues de touches (feedback score).",
     { show: z.string() },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const [{ data: stages }, { data: rows }] = await Promise.all([
+      const [{ data: stages }, { data: rows }, { data: cibleIdsRows }] = await Promise.all([
         sb.from("stages").select("*").eq("show_id", sid).order("position"),
         sb.from("cibles_enrichies").select("stage_key, stage_position, archive").eq("show_id", sid),
+        sb.from("cibles").select("id").eq("show_id", sid),
       ]);
       const stats = computeShowStats(
         (stages ?? []) as Stage[],
         (rows ?? []) as { stage_key: string | null; stage_position: number | null; archive: boolean }[]
       );
-      return text(stats);
+
+      // Feedback (S7) : issues des touches renseignées. Base du tuning de septembre.
+      const ids = ((cibleIdsRows ?? []) as { id: string }[]).map((c) => c.id);
+      const feedback = { reponse_positive: 0, reponse_negative: 0, silence: 0, avance_stage: 0, taux_reponse: null as number | null };
+      if (ids.length) {
+        const { data: touches } = await sb.from("touches").select("resultat").in("cible_id", ids).not("resultat", "is", null);
+        for (const t of (touches ?? []) as { resultat: keyof typeof feedback }[]) {
+          if (t.resultat in feedback) (feedback[t.resultat] as number)++;
+        }
+        const renseignees = feedback.reponse_positive + feedback.reponse_negative + feedback.silence + feedback.avance_stage;
+        if (renseignees > 0) feedback.taux_reponse = Math.round(((feedback.reponse_positive + feedback.avance_stage) / renseignees) * 100);
+      }
+
+      return text({ ...stats, feedback_touches: feedback });
     }
   );
 
