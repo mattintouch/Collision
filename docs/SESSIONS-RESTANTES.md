@@ -10,7 +10,12 @@
 ## Fait et poussé (voir rapport)
 S1a (chaîne deploy.yml) · S1b (vue explicite + gen:view + golden + smoke) ·
 S1bis (mode démo retiré) · S2 (scopes read/write/admin fail-open, audit
-non nul, Calendar derrière GOOGLE_DELEGATION_READY, undo archivage board).
+non nul, Calendar derrière GOOGLE_DELEGATION_READY, undo archivage board) ·
+S4 (miroir Folk) · S5 (brouillon copilote + reporter) ·
+LOT H (hygiène API MCP : registerTool + schémas stricts = rejet des paramètres
+inconnus ; create_cible atomique stage+contacts[]+premiere_touche ; erreurs
+structurées cause+action sur resolve_contact et sync Google ; descriptions
+densifiées ; annotations explicites. Sans migration).
 
 ## S4 — Miroir Folk — CODÉ (dormant jusqu'à migration 0029)
 - Vérification faite : l'API Folk n'expose PAS de recherche serveur

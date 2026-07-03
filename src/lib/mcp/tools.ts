@@ -6,7 +6,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
+import { hasFolkKey } from "../folk/client";
 import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
+import { hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
@@ -203,18 +205,23 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   const allow = opts.allow ? new Set(opts.allow) : null;
   const gated = (name: string) => !allow || allow.has(name);
 
-  // Journal d'audit (Chantier A) : `W(...)` enregistre un outil d'écriture comme
-  // `server.tool`, mais trace chaque appel dans mcp_audit (best-effort, jamais
-  // bloquant). `RT(...)` fait pareil pour les lectures (sans audit). Les deux
-  // respectent l'allowlist.
-  const reg = server.tool.bind(server) as (...args: unknown[]) => unknown;
+  // Journal d'audit (Chantier A) : `W(...)` enregistre un outil d'écriture, mais
+  // trace chaque appel dans mcp_audit (best-effort, jamais bloquant). `RT(...)`
+  // fait pareil pour les lectures (sans audit). Les deux respectent l'allowlist.
+  //
+  // LOT H — hygiène API : on passe par `registerTool` avec un schéma zod STRICT
+  // (z.object(shape).strict()) au lieu du `tool()` positionnel. Effet : tout
+  // paramètre inconnu est REJETÉ par une erreur de validation explicite (fini le
+  // strip silencieux qui masquait les fautes de frappe côté appelant).
+  const reg = server.registerTool.bind(server) as (name: string, config: unknown, cb: unknown) => unknown;
+  const strictSchema = (schema: unknown) => z.object((schema ?? {}) as z.ZodRawShape).strict();
   const RT = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
     if (!gated(name)) return;
-    reg(name, desc, schema, ann, cb);
+    reg(name, { description: desc, inputSchema: strictSchema(schema), annotations: ann }, cb);
   };
   const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
     if (!gated(name)) return;
-    return reg(name, desc, schema, ann, async (a: any, extra: any) => {
+    return reg(name, { description: desc, inputSchema: strictSchema(schema), annotations: ann }, async (a: any, extra: any) => {
       const actor = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? "inconnu";
       const scopes: string[] = extra?.authInfo?.scopes ?? [];
       const need = requiredScope(name, a);
@@ -332,7 +339,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "daily_five",
-    "Les cibles à travailler MAINTENANT : top N par score (défaut 5, max 10), hors archivées, gagnées (≥confirme) et placeholders. Pour chaque : score, badges, pourquoi maintenant (résurgence), playbook, dernière touche. Pilote la session du matin (app « Aujourd'hui » / Vadim).",
+    "Les cibles à travailler MAINTENANT : top N par score (défaut 5, max 10), hors archivées, gagnées (≥confirme), placeholders et cibles reportées. Intentions : que faire aujourd'hui, quelles sont mes priorités / prochaines actions, qui relancer, par où commencer. Pour chaque : score, badges, pourquoi maintenant (résurgence), playbook, dernière touche. Pilote la session du matin (app « Aujourd'hui » / Vadim).",
     { show: z.string(), limit: z.number().optional() },
     { readOnlyHint: true },
     async (a) => {
@@ -379,7 +386,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "find_cible",
-    "Cherche une cible par nom dans un show et renvoie id + résumé. À utiliser pour vérifier l'existence d'une personne sans tirer toute la liste.",
+    "Cherche une cible par nom dans un show et renvoie id + résumé. Intentions : vérifier si une personne / entreprise existe déjà, éviter un doublon avant create_cible, retrouver l'id d'une fiche. Sans tirer toute la liste.",
     {
       show: z.string(),
       cible: z.string().optional().describe("nom ou fragment de nom"),
@@ -474,7 +481,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "resolve_contact",
-    "Résout les coordonnées (emails, téléphones) d'une personne : Folk d'abord (source de vérité), Google Contacts en repli. LECTURE SEULE — ne rattache rien. En cas d'ambiguïté, renvoie la liste des candidats sans choisir. Passer `nom` ou `cible_id`.",
+    "Trouve les coordonnées d'une personne (email, téléphone, comment la joindre) : Folk d'abord (source de vérité), Google Contacts en repli. Intentions : quel est l'email / le numéro de X, comment contacter X. LECTURE SEULE — ne rattache rien (utiliser attach_resolved_contacts pour écrire). En cas d'ambiguïté, renvoie les candidats sans choisir. Passer `nom` ou `cible_id`.",
     {
       nom: z.string().optional(),
       cible_id: z.string().optional().describe("UUID — résout le nom de la cible puis cherche"),
@@ -488,11 +495,24 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const { data } = await sb.from("cibles").select("nom").eq("id", a.cible_id).maybeSingle();
         nom = (data as { nom?: string } | null)?.nom ?? null;
       }
-      if (!nom) return text({ error: "Préciser `nom` ou `cible_id`." });
+      if (!nom) return text({ error: "Préciser `nom` ou `cible_id`.", cause: "parametre_manquant", action: "Fournir `nom` (ou `cible_id` pour résoudre le nom de la cible)." });
       const r = await resolveContact(nom);
-      const detail =
-        r.match_confidence === "aucun" ? `Aucune coordonnée trouvée pour « ${nom} » (Folk + Google).` : undefined;
-      return text({ ok: true, query: nom, ...r, detail });
+      // Erreur structurée : distinguer « aucune source configurée » (vrai
+      // problème de setup) de « sources présentes mais aucune correspondance ».
+      if (r.match_confidence === "aucun") {
+        const noSources = !hasFolkKey() && !hasGoogleSync();
+        return text({
+          ok: !noSources, // pas de correspondance = résultat valide vide ; pas de source = erreur
+          query: nom,
+          ...r,
+          error: noSources ? "Aucune source de contacts configurée (Folk ni Google)." : undefined,
+          cause: noSources ? "sources_absentes" : "aucune_correspondance",
+          action: noSources
+            ? "Configurer FOLK_API_KEY et/ou la synchronisation Google Contacts, puis réessayer."
+            : "Vérifier l'orthographe du nom, ou lancer enrich_cible (objectif=contact) pour chercher les coordonnées en ligne.",
+        });
+      }
+      return text({ ok: true, query: nom, ...r });
     }
   );
 
@@ -526,7 +546,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "create_cible",
-    "Crée et qualifie une cible (si absente). Le kind (personne/entreprise) découle du show ; les champs sont validés selon le kind.",
+    "Crée et qualifie une cible en UN appel (créer une fiche, ajouter un prospect, un invité potentiel). ATOMIQUE : accepte l'étape initiale (`stage`), les coordonnées (`contacts[]`) et une première touche (`premiere_touche`) dans le même appel, plus de multi-aller-retour. Le kind (personne/entreprise) découle du show ; les champs sont validés selon le kind.",
     {
       show: z.string(),
       nom: z.string(),
@@ -547,8 +567,19 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       note: z.string().optional().describe("contexte de fond durable"),
       note_priorite: z.number().int().min(1).max(5).optional().describe("priorité manuelle 1-5"),
       watchlist: z.array(z.string()).optional().describe("clés/libellés (ex. ['cac40'])"),
+      stage: z.string().optional().describe("clé d'étape initiale (ex. identifie, qualifie, contacte)"),
+      contacts: z.array(z.object({
+        kind: z.enum(["email", "telephone", "reseau", "agence", "portier", "site", "autre"]),
+        valeur: z.string(),
+        label: z.string().optional(),
+      })).optional().describe("coordonnées à créer avec la fiche"),
+      premiere_touche: z.object({
+        contenu: z.string(),
+        canal: z.string().optional(),
+        date: z.string().optional().describe("date ISO (défaut : maintenant)"),
+      }).optional().describe("première touche à journaliser avec la fiche"),
     },
-    { destructiveHint: false, idempotentHint: true },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const show = await showRow(sb, a.show);
@@ -558,6 +589,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (rejected.length) {
         return text({ error: `Champs non autorisés pour une ${kind} : ${rejected.join(", ")}. Champs autorisés : ${allowed.join(", ")}.` });
       }
+      // Étape initiale : résolue avant l'ensureCible pour l'écrire en une passe.
+      if (a.stage) {
+        const { data: st } = await sb.from("stages").select("id").eq("show_id", show.id).eq("key", a.stage).maybeSingle();
+        if (!st) return text({ error: `Étape inconnue : ${a.stage}` });
+        patch.stage_id = (st as { id: string }).id;
+      }
       const c = await ensureCible(sb, show, a.nom);
       if (!c) return text({ error: "Création échouée" });
       delete patch.nom; // déjà posé par ensureCible
@@ -566,15 +603,51 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const err = await setCibleWatchlists(sb, c.id, a.watchlist);
         if (err) return text({ error: err });
       }
+      // Coordonnées fournies (atomique), dédoublonnées.
+      let contacts_crees = 0;
+      if (a.contacts?.length) {
+        const rows = (a.contacts as { kind: string; valeur: string; label?: string }[])
+          .filter((ct) => ct.valeur?.trim())
+          .map((ct) => ({ cible_id: c.id, kind: ct.kind, valeur: ct.valeur.trim(), label: ct.label ?? null, source: "Claude", confiance: 4 }));
+        if (rows.length) {
+          const { error } = await sb.from("contacts").insert(rows);
+          if (!error) contacts_crees = rows.length;
+        }
+      }
+      // Première touche (atomique) : journal + remise à zéro du compteur.
+      let touche_creee = false;
+      if (a.premiere_touche?.contenu?.trim()) {
+        const date = a.premiere_touche.date ?? new Date().toISOString();
+        const { error } = await sb.from("touches").insert({
+          cible_id: c.id,
+          contenu: a.premiere_touche.contenu.trim(),
+          canal: a.premiere_touche.canal ?? null,
+          source: "saisie",
+          date,
+        });
+        if (!error) {
+          touche_creee = true;
+          await sb.from("cibles").update({ date_derniere_touche: date }).eq("id", c.id);
+        }
+      }
       // Auto-rattachement des coordonnées (Folk/Google) sur match haute confiance.
       const { attaches } = await autoAttachCibleContacts(sb, c.id, c.nom);
-      return text({ ok: true, cible: c, applique: Object.keys(patch), watchlist: a.watchlist, contacts_auto: attaches });
+      return text({
+        ok: true,
+        cible: c,
+        applique: Object.keys(patch),
+        watchlist: a.watchlist,
+        stage: a.stage,
+        contacts_crees,
+        touche_creee,
+        contacts_auto: attaches,
+      });
     }
   );
 
   W(
     "add_appui",
-    "Ajoute un allié/appui à une cible (relié à sa fiche si l'allié est une cible). Crée la cible visée si besoin. MAJ Folk.",
+    "Ajoute un allié/appui à une cible (relais, introduction, mise en relation, qui peut ouvrir la porte, entremise). Relié à sa fiche si l'allié est une cible ; résout et lie sa fiche Folk, rattache ses coordonnées sur match sûr. Crée la cible visée si besoin. MAJ Folk.",
     {
       show: z.string(),
       cible: z.string(),
@@ -993,20 +1066,37 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const { data: show } = await sb.from("shows").select("id, nom").eq("id", sid).single();
       if (!show) return text({ error: "Show introuvable" });
-      const res = await syncShowContacts(
-        sb,
-        { id: show.id, nom: show.nom },
-        Math.min(a.limit ?? 150, 200),
-        a.dry_run ?? true,
-        a.inclure_non_verifies ?? false
-      );
-      return text(res);
+      if (!hasGoogleSync()) {
+        return text({
+          ok: false,
+          error: "Synchronisation Google Contacts non configurée.",
+          cause: "google_absent",
+          action: "Poser le compte de service (GOOGLE_SA_KEY) et déléguer le scope contacts sur le domaine, puis réessayer.",
+        });
+      }
+      try {
+        const res = await syncShowContacts(
+          sb,
+          { id: show.id, nom: show.nom },
+          Math.min(a.limit ?? 150, 200),
+          a.dry_run ?? true,
+          a.inclure_non_verifies ?? false
+        );
+        return text(res);
+      } catch (e) {
+        return text({
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+          cause: "google_echec",
+          action: "Vérifier la délégation de domaine et le scope People/contacts du compte de service (impersonation valide).",
+        });
+      }
     }
   );
 
   W(
     "enrich_cible",
-    "Lance un enrichissement ASYNCHRONE (recherche web sourcée profonde) : insère un job et rend la main en < 1 s (aucun timeout). Un cron le traite en ~1-3 min. Suivre via get_dossier (bloc dernier_enrichissement). apply=true écrit le résultat (NON destructif) à l'aboutissement.",
+    "Lance un enrichissement ASYNCHRONE (rechercher des infos en ligne, sourcer un profil, actualité récente, trouver des coordonnées) : insère un job et rend la main en < 1 s (aucun timeout). Traité en tâche de fond en ~1-2 min. Suivre via get_dossier (bloc dernier_enrichissement). `objectif` : profil (défaut) ou contact (coordonnées). apply=true écrit le résultat (NON destructif) à l'aboutissement (exige le rôle admin).",
     { show: z.string(), cible: z.string(), apply: z.boolean().optional(), objectif: z.enum(["profil", "contact"]).optional().describe("profil (défaut) ou contact (coordonnées)") },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
