@@ -7,6 +7,7 @@
 //    pour un aperçu complet hors-ligne.
 
 import { SignJWT, importPKCS8 } from "jose";
+import { parseGoogleError } from "./google/errors";
 
 const CAL_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const GTOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -219,8 +220,8 @@ export async function createCalendarEvent(
       }
     );
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { ok: false, detail: `Échec création événement (${res.status}). ${body.slice(0, 150)}` };
+      const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+      return { ok: false, detail: `${g.message} — ${g.action}` };
     }
     const data = (await res.json()) as { htmlLink?: string; id?: string };
     return { ok: true, detail: "Invitation créée dans Google Calendar.", htmlLink: data.htmlLink, eventId: data.id };
@@ -280,6 +281,64 @@ export async function updateCalendarEventTimes(
     return { ok: false, detail: `Échec mise à jour (${res.status}). ${body.slice(0, 120)}` };
   } catch (e) {
     return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** A3 — injecte/actualise la description d'un événement existant (ex. lien fiche
+ *  après generate_fiche). Via le compte de service. */
+export async function patchCalendarEventDescription(
+  eventId: string,
+  description: string
+): Promise<{ ok: boolean; detail: string }> {
+  const token = await calendarBearer(null);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ description }) }
+    );
+    if (res.ok) return { ok: true, detail: "Événement mis à jour." };
+    const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+    return { ok: false, detail: `${g.message} — ${g.action}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** A3 — ajoute le lien de fiche à la description d'un événement, sans écraser le
+ *  corps existant (GET puis PATCH). Idempotent : n'ajoute pas deux fois. */
+export async function injectFicheLink(eventId: string, ficheUrl: string): Promise<{ ok: boolean; detail: string }> {
+  const token = await calendarBearer(null);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const base = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
+    const get = await fetch(base, { headers: { Authorization: `Bearer ${token}` } });
+    if (!get.ok) {
+      const g = parseGoogleError(get.status, await get.text().catch(() => ""), "Calendar");
+      return { ok: false, detail: `${g.message} — ${g.action}` };
+    }
+    const ev = (await get.json()) as { description?: string };
+    const desc = ev.description ?? "";
+    if (desc.includes(ficheUrl)) return { ok: true, detail: "Lien fiche déjà présent." };
+    const newDesc = `${desc}\n\nFiche de préparation : ${ficheUrl}`.trim();
+    return await patchCalendarEventDescription(eventId, newDesc);
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** A1 — sonde légère Calendar : liste 1 calendrier via le compte de service. */
+export async function checkCalendar(): Promise<{ status: "ok" | "degraded" | "down"; detail: string }> {
+  if (process.env.GOOGLE_DELEGATION_READY !== "true") return { status: "degraded", detail: "GOOGLE_DELEGATION_READY absent : Calendar sur repli provider_token." };
+  const token = await calendarServiceToken();
+  if (!token) return { status: "down", detail: "Jeton compte de service Calendar indisponible (clé/scope/organisateur)." };
+  try {
+    const res = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1", { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) return { status: "ok", detail: "Calendar OK." };
+    const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+    return { status: "down", detail: `${g.message} — ${g.action}` };
+  } catch (e) {
+    return { status: "down", detail: e instanceof Error ? e.message : "Erreur Calendar" };
   }
 }
 

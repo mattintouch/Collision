@@ -6,7 +6,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
-import { hasFolkKey } from "../folk/client";
+import { hasFolkKey, fetchFolkGroups } from "../folk/client";
+import { checkGmail } from "../gmail";
 import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
 import { hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
@@ -18,7 +19,7 @@ import { kickQueue } from "../enrichment/jobs";
 import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
-import { createCalendarEvent } from "../calendar";
+import { createCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend } from "../gmail";
@@ -1038,6 +1039,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // indisponible côté MCP → l'événement échoue proprement, la bascule reste faite).
       const start = new Date(a.start_iso);
       if (isNaN(start.getTime())) return text({ ok: true, cible: target.nom, episode_id: episodeId, invitation: "start_iso invalide, invitation ignorée." });
+      // A5 — avertissement soft (non bloquant) : convention GDIY = mardi/jeudi 9h30.
+      // On lit l'heure murale de la chaîne ISO (robuste au décalage horaire).
+      const dow = new Date(`${a.start_iso.slice(0, 10)}T12:00:00Z`).getUTCDay(); // 0=dim..6=sam
+      const hm = a.start_iso.slice(11, 16);
+      const warns: string[] = [];
+      if (dow !== 2 && dow !== 4) warns.push("créneau hors convention (mardi/jeudi)");
+      if (hm && hm !== "09:30") warns.push("heure hors convention (9h30)");
+      const avertissement = warns.length ? warns.join(" ; ") + " — vérifier le créneau." : undefined;
       const dureeMin = a.duree_min ?? 120;
       const end = new Date(start.getTime() + dureeMin * 60_000);
       const lieu = a.lieu?.trim() || DEFAULT_LIEU;
@@ -1095,6 +1104,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         event_link: ev.htmlLink,
         participants: invites,
         fiche_url: ficheLink,
+        avertissement,
       });
     }
   );
@@ -1114,13 +1124,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // Épisode le plus récent de la cible (la cible doit être validée).
       const { data: ep } = await sb
         .from("episodes")
-        .select("id, date_enregistrement")
+        .select("id, date_enregistrement, gcal_event_id")
         .eq("cible_id", target.id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
       if (!ep) return text({ error: "Aucun épisode pour cette cible : valider d'abord (validate_cible).", cause: "episode_absent", action: "Appeler validate_cible avant de générer la fiche." });
-      const episode = ep as { id: string; date_enregistrement: string | null };
+      const episode = ep as { id: string; date_enregistrement: string | null; gcal_event_id: string | null };
 
       // Dossier + dernier enrichissement abouti (pour résumé / raison / sources).
       const { data: cibleRow } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
@@ -1148,7 +1158,15 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         .eq("id", episode.id);
       if (error) return text({ error: error.message });
 
-      return text({ ok: true, cible: target.nom, episode_id: episode.id, url: ficheUrl(episode.id, token), detail: "Fiche générée. Sections sans matière marquées « à alimenter »." });
+      // A3 — si l'invitation existe déjà, y injecter le lien fiche (sans écraser).
+      const url = ficheUrl(episode.id, token);
+      let event_maj: string | undefined;
+      if (episode.gcal_event_id) {
+        const r = await injectFicheLink(episode.gcal_event_id, url);
+        event_maj = r.ok ? "lien fiche ajouté à l'invitation" : `invitation non mise à jour : ${r.detail}`;
+      }
+
+      return text({ ok: true, cible: target.nom, episode_id: episode.id, url, event_maj, detail: "Fiche générée. Sections sans matière marquées « à alimenter »." });
     }
   );
 
@@ -1191,25 +1209,80 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const dateLabel = episode.date_enregistrement ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" }) : null;
       const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? null };
 
-      const results: Record<string, string> = {};
+      // A4 — statut typé par destinataire : sent | skipped(raison) | failed(erreur).
+      // Le `ok` global reflète RÉELLEMENT l'état : un envoi raté → ok:false, jamais
+      // un « ok » trompeur (sinon un agent conclurait à tort que tout est parti).
+      type MailStatus = { status: "sent" | "skipped" | "failed"; detail: string };
+      const resultats: Record<string, MailStatus> = {};
+
       if (toInvite) {
         const m = buildInviteMail(common);
         const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: [vcf] });
-        results.invite = r.ok ? `envoyé à ${toInvite}` : r.detail;
+        resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite}` } : { status: "failed", detail: r.detail };
       } else {
-        results.invite = "email de l'invité inconnu (préciser invite_email ou ajouter un contact email).";
+        resultats.invite = { status: "skipped", detail: "email de l'invité inconnu (préciser invite_email ou ajouter un contact email)." };
       }
+
       const staff = staffEmails();
       if (staff.length) {
         const m = buildStaffMail(common);
         const r = await sendGmail({ to: staff, subject: m.subject, html: m.html, attachments: [vcf] });
-        results.staff = r.ok ? `envoyé à ${staff.length} destinataire(s)` : r.detail;
+        resultats.staff = r.ok ? { status: "sent", detail: `envoyé à ${staff.length} destinataire(s)` } : { status: "failed", detail: r.detail };
       } else {
-        results.staff = "aucun staff (définir EPISODE_STAFF_EMAILS).";
+        resultats.staff = { status: "skipped", detail: "aucun staff (définir EPISODE_STAFF_EMAILS)." };
       }
-      await sb.from("episodes").update({ prep_sent_at: new Date().toISOString() }).eq("id", episode.id);
 
-      return text({ ok: true, cible: target.nom, episode_id: episode.id, fiche_url: ficheLink, resultats: results });
+      const anyFailed = Object.values(resultats).some((r) => r.status === "failed");
+      const anySent = Object.values(resultats).some((r) => r.status === "sent");
+      // On ne marque l'épisode « prep envoyée » que si au moins un envoi a réussi.
+      if (anySent) await sb.from("episodes").update({ prep_sent_at: new Date().toISOString() }).eq("id", episode.id);
+
+      return text({
+        ok: !anyFailed,
+        cible: target.nom,
+        episode_id: episode.id,
+        fiche_url: ficheLink,
+        resultats,
+        ...(anyFailed ? { error: "Au moins un envoi a échoué (voir resultats).", cause: "envoi_partiel" } : {}),
+      });
+    }
+  );
+
+  RT(
+    "check_integrations",
+    "Vérifie l'état des intégrations (santé) : base Postgres, Google Calendar, Gmail (envoi), Folk. Retour par intégration : ok / degraded / down + cause. À lancer avant un workflow épisode pour détecter un scope manquant ou une API désactivée sans attendre l'échec en plein envoi.",
+    {},
+    { readOnlyHint: true, openWorldHint: true },
+    async () => {
+      const sb = createServiceClient();
+      // Postgres
+      let postgres: { status: string; detail: string };
+      try {
+        const { error } = await sb.from("shows").select("id").limit(1);
+        postgres = error ? { status: "down", detail: error.message } : { status: "ok", detail: "Base accessible." };
+      } catch (e) {
+        postgres = { status: "down", detail: e instanceof Error ? e.message : "Erreur base" };
+      }
+      // Folk (appel léger : groupes)
+      let folk: { status: string; detail: string };
+      if (!hasFolkKey()) {
+        folk = { status: "degraded", detail: "FOLK_API_KEY absente." };
+      } else {
+        try {
+          await fetchFolkGroups();
+          folk = { status: "ok", detail: "Folk accessible." };
+        } catch (e) {
+          folk = { status: "down", detail: e instanceof Error ? e.message : "Folk injoignable" };
+        }
+      }
+      const [calendar, gmail] = await Promise.all([checkCalendar(), checkGmail()]);
+      const parts = { postgres, calendar, gmail, folk };
+      const global = Object.values(parts).every((p) => p.status === "ok")
+        ? "ok"
+        : Object.values(parts).some((p) => p.status === "down")
+          ? "down"
+          : "degraded";
+      return text({ ok: global !== "down", global, integrations: parts });
     }
   );
 

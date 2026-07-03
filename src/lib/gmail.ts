@@ -3,6 +3,7 @@
 // par GOOGLE_DELEGATION_READY : sinon on n'essaie pas (erreur structurée claire).
 
 import { SignJWT, importPKCS8 } from "jose";
+import { parseGoogleError } from "./google/errors";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const GTOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -44,6 +45,22 @@ async function gmailToken(): Promise<string | null> {
     return j.access_token;
   } catch {
     return null;
+  }
+}
+
+/** A1 — sonde légère : users.getProfile sur la boîte impersonée. Coût nul,
+ *  détecte à la fois l'API désactivée et un scope manquant. */
+export async function checkGmail(): Promise<{ status: "ok" | "degraded" | "down"; detail: string }> {
+  if (process.env.GOOGLE_DELEGATION_READY !== "true") return { status: "degraded", detail: "GOOGLE_DELEGATION_READY absent : envoi désactivé (repli)." };
+  const token = await gmailToken();
+  if (!token) return { status: "down", detail: "Jeton compte de service Gmail indisponible (clé/scope/EPISODE_SENDER)." };
+  try {
+    const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) return { status: "ok", detail: `Gmail OK (expéditeur ${sender()}).` };
+    const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Gmail");
+    return { status: "down", detail: `${g.message} — ${g.action}` };
+  } catch (e) {
+    return { status: "down", detail: e instanceof Error ? e.message : "Erreur Gmail" };
   }
 }
 
@@ -103,7 +120,7 @@ function buildMime(from: string, i: SendMailInput): string {
   return headers.join("\r\n") + parts.join("\r\n");
 }
 
-export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail: string }> {
+export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail: string; cause?: string }> {
   const to = i.to.map((e) => e.trim()).filter((e) => e.includes("@"));
   if (!to.length) return { ok: false, detail: "Aucun destinataire valide." };
   const token = await gmailToken();
@@ -119,7 +136,9 @@ export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      return { ok: false, detail: `Échec envoi (${res.status}). ${body.slice(0, 150)}` };
+      const g = parseGoogleError(res.status, body, "Gmail");
+      // Message COMPLET (A2) : cause + action, jamais tronqué.
+      return { ok: false, detail: `${g.message} — ${g.action}`, cause: g.cause };
     }
     return { ok: true, detail: `Mail envoyé à ${to.length} destinataire(s).` };
   } catch (e) {
