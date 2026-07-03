@@ -84,22 +84,31 @@ function b64url(s: string): string {
   return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Construit le message MIME (multipart/mixed si pièces jointes). */
-function buildMime(from: string, i: SendMailInput): string {
-  const boundary = "mgln_boundary_0000";
+/** Frontière multipart aléatoire (évite toute collision avec le contenu). */
+function randomBoundary(): string {
+  return "mgln_" + globalThis.crypto.randomUUID().replace(/-/g, "");
+}
+
+/**
+ * Construit le message MIME. TOUT est assemblé en un seul tableau joint par \r\n,
+ * ce qui garantit la LIGNE VIDE obligatoire (RFC 2046) entre les en-têtes racine
+ * et le premier boundary, et entre les en-têtes de chaque partie et son corps.
+ * (Le bug B1 venait d'un \r\n simple au lieu d'une ligne vide → HTML en préambule.)
+ */
+export function buildMime(from: string, i: SendMailInput): string {
   const subject = `=?UTF-8?B?${b64(i.subject)}?=`;
-  const headers = [
-    `From: ${from}`,
-    `To: ${i.to.join(", ")}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-  ];
+  const rootHeaders = [`From: ${from}`, `To: ${i.to.join(", ")}`, `Subject: ${subject}`, "MIME-Version: 1.0"];
+
+  // Sans pièce jointe : message text/html simple.
   if (!i.attachments?.length) {
-    headers.push('Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64(i.html));
-    return headers.join("\r\n");
+    return [...rootHeaders, 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64(i.html)].join("\r\n");
   }
-  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`, "");
-  const parts = [
+
+  const boundary = randomBoundary();
+  const lines = [
+    ...rootHeaders,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "", // <- ligne vide : fin des en-têtes racine, début du corps multipart
     `--${boundary}`,
     'Content-Type: text/html; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
@@ -107,17 +116,17 @@ function buildMime(from: string, i: SendMailInput): string {
     b64(i.html),
   ];
   for (const att of i.attachments) {
-    parts.push(
+    lines.push(
       `--${boundary}`,
-      `Content-Type: ${att.mimeType}; name="${att.filename}"`,
+      `Content-Type: ${att.mimeType}; charset="UTF-8"; name="${att.filename}"`,
       `Content-Disposition: attachment; filename="${att.filename}"`,
       "Content-Transfer-Encoding: base64",
       "",
       b64(att.content)
     );
   }
-  parts.push(`--${boundary}--`);
-  return headers.join("\r\n") + parts.join("\r\n");
+  lines.push(`--${boundary}--`, "");
+  return lines.join("\r\n");
 }
 
 export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail: string; cause?: string }> {

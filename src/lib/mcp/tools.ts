@@ -1223,7 +1223,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       ];
       const vcf = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf(roster) };
 
-      const dateLabel = episode.date_enregistrement ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" }) : null;
+      // B2 — heure affichée en Europe/Paris (et non en UTC serveur), sinon l'invité
+      // lit 07:30 pour un enregistrement à 09:30. TZ FR par défaut (à passer par show plus tard).
+      const dateLabel = episode.date_enregistrement
+        ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short", timeZone: "Europe/Paris" })
+        : null;
       const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? null };
 
       // A4 — statut typé par destinataire : sent | skipped(raison) | failed(erreur).
