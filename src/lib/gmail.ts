@@ -135,15 +135,21 @@ export function buildMime(from: string, i: SendMailInput): string {
   return lines.join("\r\n");
 }
 
-export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail: string; cause?: string }> {
+/** Expéditeur effectif (boîte impersonée), pour écho/diagnostic. */
+export function gmailSender(): string {
+  return sender();
+}
+
+export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail: string; cause?: string; from?: string }> {
   const to = i.to.map((e) => e.trim()).filter((e) => e.includes("@"));
   if (!to.length) return { ok: false, detail: "Aucun destinataire valide." };
+  const effectiveFrom = i.from || sender();
   const token = await gmailToken();
   if (!token) {
-    return { ok: false, detail: "Gmail (compte de service) indisponible : vérifier GOOGLE_DELEGATION_READY, le scope gmail.send et EPISODE_SENDER." };
+    return { ok: false, detail: "Gmail (compte de service) indisponible : vérifier GOOGLE_DELEGATION_READY, le scope gmail.send et EPISODE_SENDER.", from: effectiveFrom };
   }
   try {
-    const raw = b64url(buildMime(i.from || sender(), { ...i, to }));
+    const raw = b64url(buildMime(effectiveFrom, { ...i, to }));
     const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -153,10 +159,10 @@ export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail
       const body = await res.text().catch(() => "");
       const g = parseGoogleError(res.status, body, "Gmail");
       // Message COMPLET (A2) : cause + action, jamais tronqué.
-      return { ok: false, detail: `${g.message} — ${g.action}`, cause: g.cause };
+      return { ok: false, detail: `${g.message} — ${g.action}`, cause: g.cause, from: effectiveFrom };
     }
-    return { ok: true, detail: `Mail envoyé à ${to.length} destinataire(s).` };
+    return { ok: true, detail: `Mail envoyé à ${to.length} destinataire(s).`, from: effectiveFrom };
   } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : "Erreur Gmail" };
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur Gmail", from: effectiveFrom };
   }
 }

@@ -22,7 +22,7 @@ import { signFicheToken, ficheUrl } from "../fiche/token";
 import { createCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
-import { sendGmail, hasGmailSend } from "../gmail";
+import { sendGmail, hasGmailSend, gmailSender } from "../gmail";
 import { buildVcf, type VcfPerson } from "../vcf";
 import type { Stage, StaffMember } from "../types";
 
@@ -1257,10 +1257,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       type MailStatus = { status: "sent" | "skipped" | "failed"; detail: string };
       const resultats: Record<string, MailStatus> = {};
 
+      let expediteur: string | undefined; // C1 — écho de l'expéditeur EFFECTIF
       if (toInvite) {
         const m = buildInviteMail(common, lang);
         const atts = vcfInvite.content ? [vcfInvite] : [];
         const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: atts, from });
+        expediteur = r.from ?? expediteur;
         resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite}` } : { status: "failed", detail: r.detail };
       } else {
         resultats.invite = { status: "skipped", detail: "email de l'invité inconnu (préciser invite_email ou ajouter un contact email)." };
@@ -1270,6 +1272,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const m = buildStaffMail(common);
         const atts = vcfStaff.content ? [vcfStaff] : [];
         const r = await sendGmail({ to: staffTo, subject: m.subject, html: m.html, attachments: atts, from });
+        expediteur = r.from ?? expediteur;
         resultats.staff = r.ok ? { status: "sent", detail: `envoyé à ${staffTo.length} destinataire(s)` } : { status: "failed", detail: r.detail };
       } else {
         resultats.staff = { status: "skipped", detail: "aucun staff configuré (shows.staff ou EPISODE_STAFF_EMAILS)." };
@@ -1284,6 +1287,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         ok: !anyFailed,
         cible: target.nom,
         episode_id: episode.id,
+        expediteur: expediteur ?? gmailSender(), // qui a réellement envoyé (diagnostic)
+        langue: lang,
         fiche_url: ficheLink,
         resultats,
         ...(anyFailed ? { error: "Au moins un envoi a échoué (voir resultats).", cause: "envoi_partiel" } : {}),
