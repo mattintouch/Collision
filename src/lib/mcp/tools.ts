@@ -15,6 +15,9 @@ import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } f
 import { computeShowStats } from "../stats";
 import { kindAwarePatch } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
+import { buildFicheData } from "../fiche/build";
+import { generateFicheHtml } from "../fiche/generate";
+import { signFicheToken, ficheUrl } from "../fiche/token";
 import type { Stage } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -1012,6 +1015,59 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
       return error ? text({ error: error.message }) : text({ ok: true, cible: target.nom, episode_id: data });
+    }
+  );
+
+  W(
+    "generate_fiche",
+    "Génère (ou régénère) la fiche de prep d'un épisode au format Onesta, depuis le dossier enrichi, et renvoie son lien signé. Intentions : préparer l'interview, produire la fiche invité, brief de prépa. La cible doit avoir été validée (épisode existant). Sections sans matière affichées « à alimenter ».",
+    { show: z.string(), cible: z.string() },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: "Show introuvable" });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+
+      // Épisode le plus récent de la cible (la cible doit être validée).
+      const { data: ep } = await sb
+        .from("episodes")
+        .select("id, date_enregistrement")
+        .eq("cible_id", target.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!ep) return text({ error: "Aucun épisode pour cette cible : valider d'abord (validate_cible).", cause: "episode_absent", action: "Appeler validate_cible avant de générer la fiche." });
+      const episode = ep as { id: string; date_enregistrement: string | null };
+
+      // Dossier + dernier enrichissement abouti (pour résumé / raison / sources).
+      const { data: cibleRow } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
+      const { data: enrRow } = await sb
+        .from("enrichment_jobs")
+        .select("resultat")
+        .eq("cible_id", target.id)
+        .eq("statut", "done")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const enr = (enrRow as { resultat?: { resume?: string | null; raison_de_selection?: string | null; sources?: string[] } } | null)?.resultat ?? null;
+
+      const data = buildFicheData({
+        cible: cibleRow as unknown as CibleEnrichie,
+        show_nom: a.show,
+        date_enregistrement: episode.date_enregistrement,
+        enrichissement: enr,
+      });
+      const html = generateFicheHtml(data);
+      const token = await signFicheToken(episode.id);
+      const { error } = await sb
+        .from("episodes")
+        .update({ fiche_html: html, fiche_token: token, fiche_generated_at: new Date().toISOString() })
+        .eq("id", episode.id);
+      if (error) return text({ error: error.message });
+
+      return text({ ok: true, cible: target.nom, episode_id: episode.id, url: ficheUrl(episode.id, token), detail: "Fiche générée. Sections sans matière marquées « à alimenter »." });
     }
   );
 

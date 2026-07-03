@@ -17,6 +17,7 @@
 | `0028_view_explicite.sql` | Vue `cibles_enrichies` à colonnes explicites (identique fonctionnel à 0027) | Non (identique à 0027) | Sur main, dormant |
 | `0029_folk_mirror.sql` | Table `folk_people` + pg_trgm (miroir Folk, S4) | Non (resolve retombe sur le fetch live tant que la table est absente/vide) | Sur main, dormant ; le cron peuple la table une fois la migration appliquée |
 | `0030_cible_snooze.sql` | Table `cible_snooze` (bouton reporter, S5) | Non (getActiveSnoozes renvoie vide si table absente) | Sur main, dormant ; le bouton Reporter n'agit qu'une fois la table créée |
+| `0031_episode_fiche.sql` | Colonnes fiche sur `episodes` (fiche_html, fiche_token, fiche_generated_at, prep_sent_at) — S10 | Non (generate_fiche/route inertes tant que colonnes absentes) | Sur main, dormant ; requis pour generate_fiche + /fiche/[episode] |
 
 ## Déjà appliquées par Matt (rappel)
 0001→0027 appliquées à la main. 0026 (enrichment_jobs) et 0027 (portier +
