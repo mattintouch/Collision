@@ -18,6 +18,8 @@ import { kickQueue } from "../enrichment/jobs";
 import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
+import { createCalendarEvent } from "../calendar";
+import { buildEventDescription, participants, DEFAULT_LIEU } from "../episode/invitation";
 import type { Stage } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -1004,17 +1006,93 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "validate_cible",
-    "Valide une cible : bascule en épisode avec son contexte.",
-    { show: z.string(), cible: z.string() },
-    { destructiveHint: false, idempotentHint: false },
+    "Valide une cible : bascule en épisode. Si `start_iso` est fourni, crée AUSSI l'invitation d'enregistrement complète (corps détaillé : accès Studio 71, parking, durée, contact jour J, lien fiche si générée) via le compte de service, avec les participants systématiques (staff + invité), et réserve le studio (-1h/+1h). Intentions : valider, programmer l'enregistrement, inviter l'équipe.",
+    {
+      show: z.string(),
+      cible: z.string(),
+      start_iso: z.string().optional().describe("date+heure ISO de l'enregistrement (déclenche l'invitation)"),
+      duree_min: z.number().optional().describe("durée en minutes (défaut 120)"),
+      lieu: z.string().optional().describe("lieu (défaut Studio 71)"),
+      invite_email: z.string().optional().describe("email de l'invité à ajouter aux participants"),
+      participants: z.array(z.string()).optional().describe("emails supplémentaires à inviter"),
+      contact_jour_j: z.string().optional().describe("téléphone/nom du contact le jour J"),
+    },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: "Show introuvable" });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
-      const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
-      return error ? text({ error: error.message }) : text({ ok: true, cible: target.nom, episode_id: data });
+      const { data: episodeId, error } = await sb.rpc("validate_cible", { target_cible: target.id });
+      if (error) return text({ error: error.message });
+
+      // Sans date : simple bascule (comportement historique).
+      if (!a.start_iso) return text({ ok: true, cible: target.nom, episode_id: episodeId });
+
+      // Avec date : invitation complète via le compte de service (calendarBearer
+      // prend le SA quand GOOGLE_DELEGATION_READY=true ; sinon repli provider_token
+      // indisponible côté MCP → l'événement échoue proprement, la bascule reste faite).
+      const start = new Date(a.start_iso);
+      if (isNaN(start.getTime())) return text({ ok: true, cible: target.nom, episode_id: episodeId, invitation: "start_iso invalide, invitation ignorée." });
+      const dureeMin = a.duree_min ?? 120;
+      const end = new Date(start.getTime() + dureeMin * 60_000);
+      const lieu = a.lieu?.trim() || DEFAULT_LIEU;
+
+      // Lien fiche si déjà générée.
+      let ficheLink: string | null = null;
+      const { data: epRow } = await sb.from("episodes").select("fiche_token").eq("id", episodeId).maybeSingle();
+      const ficheTok = (epRow as { fiche_token?: string | null } | null)?.fiche_token;
+      if (ficheTok) ficheLink = ficheUrl(String(episodeId), ficheTok);
+
+      const description = buildEventDescription({
+        show_nom: a.show.toUpperCase(),
+        invite_nom: target.nom,
+        duree_min: dureeMin,
+        lieu,
+        contact_jour_j: a.contact_jour_j,
+        fiche_url: ficheLink,
+      });
+      const invites = participants(a.invite_email ? [a.invite_email] : [], a.participants ?? []);
+
+      const ev = await createCalendarEvent(null, {
+        summary: `Enregistrement ${a.show.toUpperCase()} — ${target.nom}`,
+        startISO: start.toISOString(),
+        endISO: end.toISOString(),
+        location: lieu,
+        attendees: invites,
+        description,
+        sendInvites: true,
+      });
+      const patch: Record<string, unknown> = { date_enregistrement: start.toISOString() };
+      if (ev.eventId) patch.gcal_event_id = ev.eventId;
+
+      // Réservation studio (-1h/+1h) si Studio 71.
+      let studioNote = "";
+      if (lieu === DEFAULT_LIEU) {
+        const studio = await createCalendarEvent(null, {
+          summary: `Studio 71 réservé — ${target.nom}`,
+          startISO: new Date(start.getTime() - 60 * 60_000).toISOString(),
+          endISO: new Date(end.getTime() + 60 * 60_000).toISOString(),
+          location: lieu,
+          attendees: [],
+          description: `Réservation studio (installation/débrief) pour ${a.show.toUpperCase()} avec ${target.nom}.`,
+          sendInvites: false,
+        });
+        if (studio.eventId) patch.gcal_studio_event_id = studio.eventId;
+        studioNote = studio.ok ? " Studio réservé (-1h/+1h)." : ` Studio : ${studio.detail}`;
+      }
+      await sb.from("episodes").update(patch).eq("id", episodeId);
+
+      return text({
+        ok: true,
+        cible: target.nom,
+        episode_id: episodeId,
+        invitation: ev.ok ? `Invitation créée${studioNote}` : `Invitation non créée : ${ev.detail}`,
+        event_link: ev.htmlLink,
+        participants: invites,
+        fiche_url: ficheLink,
+      });
     }
   );
 
