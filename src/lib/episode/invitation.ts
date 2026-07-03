@@ -12,9 +12,11 @@ export function staffEmails(): string[] {
     .filter((e) => e.includes("@"));
 }
 
-/** Fusionne staff + invité + ajouts, dédupliqué, emails valides seulement. */
-export function participants(inviteEmails: string[] = [], extra: string[] = []): string[] {
-  const all = [...staffEmails(), ...inviteEmails, ...extra].map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
+/** Fusionne staff + invité + ajouts, dédupliqué, emails valides seulement.
+ *  `staffOverride` : liste staff par show (config DB) ; sinon repli sur l'env. */
+export function participants(inviteEmails: string[] = [], extra: string[] = [], staffOverride?: string[]): string[] {
+  const base = staffOverride ?? staffEmails();
+  const all = [...base, ...inviteEmails, ...extra].map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
   return Array.from(new Set(all));
 }
 

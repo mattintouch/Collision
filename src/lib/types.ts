@@ -30,6 +30,13 @@ export type ContactKind =
 export type UserType = "admin" | "interne" | "externe";
 export type ShowRole = "admin" | "interne" | "externe";
 
+export interface StaffMember {
+  nom: string;
+  email: string;
+  telephone?: string | null;
+  role?: string | null;
+}
+
 export interface Show {
   id: string;
   slug: string;
@@ -37,6 +44,9 @@ export interface Show {
   type_pipe: PipeType;
   couleur: string | null;
   archetype_order: string[] | null;
+  sender_email?: string | null;
+  sender_name?: string | null;
+  staff?: StaffMember[] | null;
 }
 
 export interface Stage {

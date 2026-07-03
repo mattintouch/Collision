@@ -24,7 +24,7 @@ import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "
 import { buildInviteMail, buildStaffMail } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend } from "../gmail";
 import { buildVcf, type VcfPerson } from "../vcf";
-import type { Stage } from "../types";
+import type { Stage, StaffMember } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -1082,7 +1082,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         contact_jour_j: a.contact_jour_j,
         fiche_url: ficheLink,
       });
-      const invites = participants(a.invite_email ? [a.invite_email] : [], a.participants ?? []);
+      // Staff par show (config DB) sinon repli env.
+      const { data: scfg } = await sb.from("shows").select("staff").eq("id", sid).maybeSingle();
+      const cfgStaff = (((scfg as { staff?: StaffMember[] } | null)?.staff) ?? []).map((s) => s.email).filter((e) => e?.includes("@"));
+      const invites = participants(a.invite_email ? [a.invite_email] : [], a.participants ?? [], cfgStaff.length ? cfgStaff : undefined);
 
       const ev = await createCalendarEvent(null, {
         summary: `Enregistrement ${a.show.toUpperCase()} — ${target.nom}`,
@@ -1201,56 +1204,65 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!sid) return text({ error: "Show introuvable" });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
-      const { data: showRowData } = await sb.from("shows").select("nom").eq("id", sid).maybeSingle();
-      const showNom = (showRowData as { nom?: string } | null)?.nom ?? a.show;
+      const { data: showRowData } = await sb.from("shows").select("nom, sender_email, sender_name, staff").eq("id", sid).maybeSingle();
+      const showCfg = (showRowData ?? {}) as { nom?: string; sender_email?: string | null; sender_name?: string | null; staff?: StaffMember[] | null };
+      const showNom = showCfg.nom ?? a.show;
+      // En-tête From : alias du show si configuré (B3), sinon boîte impersonée par défaut.
+      const from = showCfg.sender_email
+        ? (showCfg.sender_name ? `"${showCfg.sender_name}" <${showCfg.sender_email}>` : showCfg.sender_email)
+        : undefined;
 
       const { data: ep } = await sb.from("episodes").select("id, date_enregistrement, fiche_token").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (!ep) return text({ error: "Aucun épisode : valider d'abord.", cause: "episode_absent", action: "validate_cible avant l'envoi." });
       const episode = ep as { id: string; date_enregistrement: string | null; fiche_token: string | null };
       const ficheLink = episode.fiche_token ? ficheUrl(episode.id, episode.fiche_token) : null;
 
-      // Coordonnées de l'invité (contacts de la cible) pour le VCF et l'adresse.
+      // Coordonnées réelles de l'invité (contacts de la cible) pour le VCF et l'adresse.
       const { data: contacts } = await sb.from("contacts").select("kind, valeur").eq("cible_id", target.id);
       const rows = (contacts ?? []) as { kind: string; valeur: string }[];
       const inviteEmails = rows.filter((c) => c.kind === "email").map((c) => c.valeur);
       const invitePhones = rows.filter((c) => c.kind === "telephone").map((c) => c.valeur);
       const toInvite = (a.invite_email ?? inviteEmails[0] ?? "").trim();
 
-      // Roster VCF : invité + staff (chacun reçoit les autres).
-      const roster: VcfPerson[] = [
-        { nom: target.nom, emails: inviteEmails, phones: invitePhones },
-        ...staffEmails().map((e) => ({ nom: e.split("@")[0], emails: [e] } as VcfPerson)),
-      ];
-      const vcf = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf(roster) };
+      // B4/B5 — staff depuis la config du show (nom complet, tél, rôle), repli sur
+      // l'ancienne env pour compat. Cartes VCF riches, cartes vides exclues (buildVcf).
+      const staffCfg: StaffMember[] = (showCfg.staff && showCfg.staff.length)
+        ? showCfg.staff
+        : staffEmails().map((e) => ({ nom: e.split("@")[0], email: e }));
+      const staffTo = staffCfg.map((s) => s.email).filter((e) => e?.includes("@"));
+      const staffCards: VcfPerson[] = staffCfg.map((s) => ({ nom: s.nom, emails: s.email ? [s.email] : [], phones: s.telephone ? [s.telephone] : [], role: s.role ?? null }));
+      const inviteCard: VcfPerson = { nom: target.nom, emails: inviteEmails, phones: invitePhones };
 
-      // B2 — heure affichée en Europe/Paris (et non en UTC serveur), sinon l'invité
-      // lit 07:30 pour un enregistrement à 09:30. TZ FR par défaut (à passer par show plus tard).
+      // VCF invité = uniquement le staff (pas sa propre carte, absurde) ; VCF staff = tout le monde.
+      const vcfInvite = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf(staffCards) };
+      const vcfStaff = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf([inviteCard, ...staffCards]) };
+
+      // B2 — heure en Europe/Paris (et non en UTC serveur).
       const dateLabel = episode.date_enregistrement
         ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short", timeZone: "Europe/Paris" })
         : null;
       const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? null };
 
-      // A4 — statut typé par destinataire : sent | skipped(raison) | failed(erreur).
-      // Le `ok` global reflète RÉELLEMENT l'état : un envoi raté → ok:false, jamais
-      // un « ok » trompeur (sinon un agent conclurait à tort que tout est parti).
+      // A4 — statut typé par destinataire + `ok` global honnête.
       type MailStatus = { status: "sent" | "skipped" | "failed"; detail: string };
       const resultats: Record<string, MailStatus> = {};
 
       if (toInvite) {
         const m = buildInviteMail(common);
-        const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: [vcf] });
+        const atts = vcfInvite.content ? [vcfInvite] : [];
+        const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: atts, from });
         resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite}` } : { status: "failed", detail: r.detail };
       } else {
         resultats.invite = { status: "skipped", detail: "email de l'invité inconnu (préciser invite_email ou ajouter un contact email)." };
       }
 
-      const staff = staffEmails();
-      if (staff.length) {
+      if (staffTo.length) {
         const m = buildStaffMail(common);
-        const r = await sendGmail({ to: staff, subject: m.subject, html: m.html, attachments: [vcf] });
-        resultats.staff = r.ok ? { status: "sent", detail: `envoyé à ${staff.length} destinataire(s)` } : { status: "failed", detail: r.detail };
+        const atts = vcfStaff.content ? [vcfStaff] : [];
+        const r = await sendGmail({ to: staffTo, subject: m.subject, html: m.html, attachments: atts, from });
+        resultats.staff = r.ok ? { status: "sent", detail: `envoyé à ${staffTo.length} destinataire(s)` } : { status: "failed", detail: r.detail };
       } else {
-        resultats.staff = { status: "skipped", detail: "aucun staff (définir EPISODE_STAFF_EMAILS)." };
+        resultats.staff = { status: "skipped", detail: "aucun staff configuré (shows.staff ou EPISODE_STAFF_EMAILS)." };
       }
 
       const anyFailed = Object.values(resultats).some((r) => r.status === "failed");
@@ -1266,6 +1278,36 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         resultats,
         ...(anyFailed ? { error: "Au moins un envoi a échoué (voir resultats).", cause: "envoi_partiel" } : {}),
       });
+    }
+  );
+
+  W(
+    "set_show_config",
+    "Configure l'envoi d'un show : expéditeur (alias, ex. gdiy@collision.studio + nom d'affichage) et staff systématiquement invité (nom, email, téléphone, rôle). Remplace le staff en dur. Le staff alimente les invitations ET le VCF des mails de prep. Passer seulement les champs à changer.",
+    {
+      show: z.string(),
+      sender_email: z.string().optional().describe("alias expéditeur (doit être Send-as sur la boîte impersonée)"),
+      sender_name: z.string().optional().describe("nom d'affichage de l'expéditeur"),
+      staff: z.array(z.object({
+        nom: z.string(),
+        email: z.string(),
+        telephone: z.string().optional(),
+        role: z.string().optional(),
+      })).optional().describe("liste complète du staff (remplace l'existant)"),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const patch: Record<string, unknown> = {};
+      if (a.sender_email !== undefined) patch.sender_email = a.sender_email;
+      if (a.sender_name !== undefined) patch.sender_name = a.sender_name;
+      if (a.staff !== undefined) patch.staff = a.staff;
+      if (Object.keys(patch).length === 0) return text({ error: "Rien à configurer (fournir sender_email, sender_name ou staff)." });
+      const { error } = await sb.from("shows").update(patch).eq("id", sid);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, show: a.show, configure: Object.keys(patch) });
     }
   );
 

@@ -56,8 +56,9 @@ describe("buildVcf", () => {
     expect(v).toContain("END:VCARD");
   });
 
-  it("concatène plusieurs cartes et ignore les sans-nom", () => {
-    const vcf = buildVcf([{ nom: "A", emails: ["a@b.c"] }, { nom: "" }, { nom: "B" }]);
+  it("ne garde que les cartes utiles (nom + un moyen de contact)", () => {
+    // A a un email → gardé ; "" sans nom → exclu ; B sans contact → exclu (B4).
+    const vcf = buildVcf([{ nom: "A", emails: ["a@b.c"] }, { nom: "" }, { nom: "B" }, { nom: "C", phones: ["+33600"] }]);
     expect((vcf.match(/BEGIN:VCARD/g) ?? []).length).toBe(2);
   });
 

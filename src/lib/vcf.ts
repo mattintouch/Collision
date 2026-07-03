@@ -35,7 +35,16 @@ export function buildVcard(p: VcfPerson): string {
   return lines.join("\r\n");
 }
 
-/** Concatène plusieurs cartes en un seul fichier .vcf. */
+/** Une carte est utile si elle a un nom ET au moins un moyen de contact (B4).
+ *  Une carte sans email ni téléphone (ex. dérivée d'un local-part d'email) est
+ *  indigente et exclue. */
+export function isUsefulCard(p: VcfPerson): boolean {
+  const hasContact = (p.emails?.some((e) => e?.trim()) ?? false) || (p.phones?.some((t) => t?.trim()) ?? false);
+  return !!p.nom?.trim() && hasContact;
+}
+
+/** Concatène les cartes utiles en un seul fichier .vcf. */
 export function buildVcf(people: VcfPerson[]): string {
-  return people.filter((p) => p.nom?.trim()).map(buildVcard).join("\r\n") + "\r\n";
+  const cards = people.filter(isUsefulCard).map(buildVcard);
+  return cards.length ? cards.join("\r\n") + "\r\n" : "";
 }

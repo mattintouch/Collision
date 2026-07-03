@@ -10,8 +10,11 @@ const GTOKEN_URL = "https://oauth2.googleapis.com/token";
 
 let cache: { token: string; exp: number } | null = null;
 
+/** Boîte réellement impersonée pour l'envoi. Pour l'approche alias (B3), c'est la
+ *  boîte qui PORTE les alias des shows (ex. celle de Vadim) : GMAIL_IMPERSONATE.
+ *  Repli sur EPISODE_SENDER / GOOGLE_IMPERSONATE_EMAIL (compat). */
 function sender(): string {
-  return process.env.EPISODE_SENDER ?? process.env.GOOGLE_IMPERSONATE_EMAIL ?? "";
+  return process.env.GMAIL_IMPERSONATE ?? process.env.EPISODE_SENDER ?? process.env.GOOGLE_IMPERSONATE_EMAIL ?? "";
 }
 
 export function hasGmailSend(): boolean {
@@ -75,6 +78,9 @@ export interface SendMailInput {
   subject: string;
   html: string;
   attachments?: MailAttachment[];
+  /** En-tête From (ex. `"Génération Do It Yourself" <gdiy@collision.studio>`).
+   *  L'alias doit être « Send as » sur la boîte impersonée. Défaut : la boîte. */
+  from?: string;
 }
 
 function b64(s: string): string {
@@ -137,7 +143,7 @@ export async function sendGmail(i: SendMailInput): Promise<{ ok: boolean; detail
     return { ok: false, detail: "Gmail (compte de service) indisponible : vérifier GOOGLE_DELEGATION_READY, le scope gmail.send et EPISODE_SENDER." };
   }
   try {
-    const raw = b64url(buildMime(sender(), { ...i, to }));
+    const raw = b64url(buildMime(i.from || sender(), { ...i, to }));
     const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
