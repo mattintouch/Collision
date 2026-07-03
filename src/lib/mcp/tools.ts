@@ -19,7 +19,10 @@ import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
 import { createCalendarEvent } from "../calendar";
-import { buildEventDescription, participants, DEFAULT_LIEU } from "../episode/invitation";
+import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
+import { buildInviteMail, buildStaffMail } from "../episode/prep-mail";
+import { sendGmail, hasGmailSend } from "../gmail";
+import { buildVcf, type VcfPerson } from "../vcf";
 import type { Stage } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -1146,6 +1149,67 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (error) return text({ error: error.message });
 
       return text({ ok: true, cible: target.nom, episode_id: episode.id, url: ficheUrl(episode.id, token), detail: "Fiche générée. Sections sans matière marquées « à alimenter »." });
+    }
+  );
+
+  W(
+    "send_prep_email",
+    "Envoie les mails de préparation d'un épisode (envoyer le brief, prévenir l'invité et le staff) depuis la boîte du show, avec les coordonnées des participants en pièce jointe (VCF) et le lien de la fiche. Deux gabarits : invité + staff. La cible doit être validée. Exige le compte de service Gmail (délégation).",
+    { show: z.string(), cible: z.string(), invite_email: z.string().optional(), contact_jour_j: z.string().optional() },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    async (a) => {
+      if (!hasGmailSend()) {
+        return text({ ok: false, error: "Envoi Gmail indisponible.", cause: "gmail_absent", action: "Poser GOOGLE_DELEGATION_READY=true, déléguer le scope gmail.send et définir EPISODE_SENDER (ou GOOGLE_IMPERSONATE_EMAIL)." });
+      }
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: "Show introuvable" });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      const { data: showRowData } = await sb.from("shows").select("nom").eq("id", sid).maybeSingle();
+      const showNom = (showRowData as { nom?: string } | null)?.nom ?? a.show;
+
+      const { data: ep } = await sb.from("episodes").select("id, date_enregistrement, fiche_token").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (!ep) return text({ error: "Aucun épisode : valider d'abord.", cause: "episode_absent", action: "validate_cible avant l'envoi." });
+      const episode = ep as { id: string; date_enregistrement: string | null; fiche_token: string | null };
+      const ficheLink = episode.fiche_token ? ficheUrl(episode.id, episode.fiche_token) : null;
+
+      // Coordonnées de l'invité (contacts de la cible) pour le VCF et l'adresse.
+      const { data: contacts } = await sb.from("contacts").select("kind, valeur").eq("cible_id", target.id);
+      const rows = (contacts ?? []) as { kind: string; valeur: string }[];
+      const inviteEmails = rows.filter((c) => c.kind === "email").map((c) => c.valeur);
+      const invitePhones = rows.filter((c) => c.kind === "telephone").map((c) => c.valeur);
+      const toInvite = (a.invite_email ?? inviteEmails[0] ?? "").trim();
+
+      // Roster VCF : invité + staff (chacun reçoit les autres).
+      const roster: VcfPerson[] = [
+        { nom: target.nom, emails: inviteEmails, phones: invitePhones },
+        ...staffEmails().map((e) => ({ nom: e.split("@")[0], emails: [e] } as VcfPerson)),
+      ];
+      const vcf = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf(roster) };
+
+      const dateLabel = episode.date_enregistrement ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" }) : null;
+      const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? null };
+
+      const results: Record<string, string> = {};
+      if (toInvite) {
+        const m = buildInviteMail(common);
+        const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: [vcf] });
+        results.invite = r.ok ? `envoyé à ${toInvite}` : r.detail;
+      } else {
+        results.invite = "email de l'invité inconnu (préciser invite_email ou ajouter un contact email).";
+      }
+      const staff = staffEmails();
+      if (staff.length) {
+        const m = buildStaffMail(common);
+        const r = await sendGmail({ to: staff, subject: m.subject, html: m.html, attachments: [vcf] });
+        results.staff = r.ok ? `envoyé à ${staff.length} destinataire(s)` : r.detail;
+      } else {
+        results.staff = "aucun staff (définir EPISODE_STAFF_EMAILS).";
+      }
+      await sb.from("episodes").update({ prep_sent_at: new Date().toISOString() }).eq("id", episode.id);
+
+      return text({ ok: true, cible: target.nom, episode_id: episode.id, fiche_url: ficheLink, resultats: results });
     }
   );
 

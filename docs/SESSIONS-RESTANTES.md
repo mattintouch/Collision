@@ -43,16 +43,25 @@ densifiées ; annotations explicites. Sans migration).
   on aura les chiffres. Mécanisme = table `score_config` lue par
   computeCibleScore (plumbing serveur + board).
 
-## S9 + S10 — Production (invitation enrichie, VCF, mails de prep, /fiche/[episode])
-- Gros chantier, DERRIÈRE le flag GOOGLE_DELEGATION_READY (comme S2 Calendar).
-- Dépend de la délégation Workspace (geste P4) ET de migrations (tables episodes
-  enrichies, stockage HTML de fiche). Gabarit déjà déposé
-  (docs/gabarits/fiche-gdiy-onesta_1.html + GABARIT-FICHE.md).
-- À coder en une session dédiée : validate_cible enrichi (participants, corps
-  complet, compte de service), génération VCF, mails Gmail (EPISODE_SENDER),
-  route /fiche/[episode] (lien signé), génération HTML depuis le gabarit + le
-  dossier enrichi, section sans matière affichée comme manquante.
-- Report : volume + dépendance P4 + migrations non applicables sans Matt.
+## S9 + S10 — Production — LIVRÉ (dormant jusqu'à migration 0031 + P4)
+- Fondations : générateur de fiche Onesta (fiche/generate + css) + VCF (vcf.ts).
+- Fiche : migration 0031 (colonnes fiche sur episodes), route publique
+  /fiche/[episode] à lien signé, buildFicheData(dossier), outil generate_fiche.
+- Invitation S9 : validate_cible enrichi (corps complet Studio 71 + participants
+  systématiques + réservation studio) via compte de service.
+- Mails S10 : bridge Gmail (gmail.send SA), gabarits invité + staff, VCF en PJ,
+  outil send_prep_email. Section sans matière = « à alimenter ».
+- Activation : migration 0031 + P4 (délégation calendar.events + gmail.send) +
+  GOOGLE_DELEGATION_READY=true. Env à poser : EPISODE_STAFF_EMAILS (staff
+  systématique), NEXT_PUBLIC_APP_URL (base des liens de fiche, sinon relatif).
+
+## Reste (non urgent, hors périmètre immédiat)
+- Prose copilote de la fiche (questions réseaux, questions profondes,
+  masterclass) : aujourd'hui « à alimenter ». À générer par le copilote depuis
+  le dossier. Fine-tuning du prompt après 3-4 fiches réelles (décision brief).
+- Figures structurées de l'enrichissement (décision #10) : alimentent la
+  section 04 « En chiffres ». À ajouter au ProfileProposal.
+- Poids de score configurables (S7) : item septembre.
 
 ## Pourquoi ne pas tout pousser dormant maintenant
 Écrire du code dépendant d'un schéma non appliqué, sans pouvoir l'exécuter
