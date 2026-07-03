@@ -9,7 +9,7 @@
   0031 colonnes fiche sur episodes.
 
 ## En attente
-Aucune.
+- `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 
 > Dès que la chaîne CI est allumée (P1/P2 + baseline), les futures migrations
 > s'appliquent automatiquement au merge sur main, avant le déploiement.

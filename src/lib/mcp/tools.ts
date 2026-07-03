@@ -191,6 +191,18 @@ export function requiredScope(name: string, args: unknown): "write" | "admin" {
   return "write";
 }
 
+/** A6 — ids des cibles de test d'un show (à exclure des stats/score/sélection).
+ *  Défensif : colonne is_test absente → ensemble vide. */
+async function testCibleIds(sb: SB, showId: string): Promise<Set<string>> {
+  try {
+    const { data, error } = await sb.from("cibles").select("id").eq("show_id", showId).eq("is_test", true);
+    if (error) return new Set();
+    return new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+  } catch {
+    return new Set();
+  }
+}
+
 /** Écrit une ligne d'audit (best-effort, jamais bloquant). actor jamais nul. */
 async function auditWrite(tool: string, actor: string, payload: unknown, ok: boolean, detail: string | null): Promise<void> {
   try {
@@ -365,9 +377,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const { data: sn } = await sb.from("cible_snooze").select("cible_id").gt("snoozed_until", new Date().toISOString());
         snoozed = new Set(((sn ?? []) as { cible_id: string }[]).map((r) => r.cible_id));
       } catch { /* table absente → aucun report */ }
+      const tests = await testCibleIds(sb, sid); // A6 : hors cibles de test
       const scored = rows
         .map((r) => ({ r, s: computeCibleScore(r as unknown as ScoreInput, estival) }))
-        .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)) && !snoozed.has(x.r.id))
+        .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)) && !snoozed.has(x.r.id) && !tests.has(x.r.id))
         .sort((x, y) => y.s.score - x.s.score)
         .slice(0, Math.min(a.limit ?? 5, 10));
       const cibles = scored.map(({ r, s }) => {
@@ -587,6 +600,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         canal: z.string().optional(),
         date: z.string().optional().describe("date ISO (défaut : maintenant)"),
       }).optional().describe("première touche à journaliser avec la fiche"),
+      is_test: z.boolean().optional().describe("cible de test : exclue des stats, du score et de la sélection du jour"),
     },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
@@ -607,6 +621,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const c = await ensureCible(sb, show, a.nom);
       if (!c) return text({ error: "Création échouée" });
       delete patch.nom; // déjà posé par ensureCible
+      if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
       if (Object.keys(patch).length) await sb.from("cibles").update(patch).eq("id", c.id);
       if (a.watchlist) {
         const err = await setCibleWatchlists(sb, c.id, a.watchlist);
@@ -915,6 +930,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       note_priorite: z.number().int().min(1).max(5).optional().describe("priorité manuelle 1-5"),
       stage: z.string().optional().describe("clé d'étape (ex. identifie, qualifie, contacte, confirme, programme, enregistre, publie) — publie = déjà invité"),
       watchlist: z.array(z.string()).optional().describe("remplace les watchlists (clés/libellés)"),
+      is_test: z.boolean().optional().describe("marque/démarque une cible de test (exclue des stats/score/sélection)"),
     },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
@@ -949,6 +965,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         if (!st) return text({ error: `Étape inconnue : ${a.stage}` });
         patch.stage_id = (st as { id: string }).id;
       }
+      if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
       if (Object.keys(patch).length === 0 && a.watchlist === undefined) {
         return text({ error: "Aucun champ à mettre à jour." });
       }
@@ -1295,18 +1312,19 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const [{ data: stages }, { data: rows }, { data: cibleIdsRows }] = await Promise.all([
+      const [{ data: stages }, { data: rows }, { data: cibleIdsRows }, tests] = await Promise.all([
         sb.from("stages").select("*").eq("show_id", sid).order("position"),
-        sb.from("cibles_enrichies").select("stage_key, stage_position, archive").eq("show_id", sid),
+        sb.from("cibles_enrichies").select("id, stage_key, stage_position, archive").eq("show_id", sid),
         sb.from("cibles").select("id").eq("show_id", sid),
+        testCibleIds(sb, sid),
       ]);
-      const stats = computeShowStats(
-        (stages ?? []) as Stage[],
-        (rows ?? []) as { stage_key: string | null; stage_position: number | null; archive: boolean }[]
-      );
+      // A6 : les cibles de test ne comptent pas dans les stats.
+      const statRows = ((rows ?? []) as { id: string; stage_key: string | null; stage_position: number | null; archive: boolean }[])
+        .filter((r) => !tests.has(r.id));
+      const stats = computeShowStats((stages ?? []) as Stage[], statRows);
 
       // Feedback (S7) : issues des touches renseignées. Base du tuning de septembre.
-      const ids = ((cibleIdsRows ?? []) as { id: string }[]).map((c) => c.id);
+      const ids = ((cibleIdsRows ?? []) as { id: string }[]).map((c) => c.id).filter((id) => !tests.has(id));
       const feedback = { reponse_positive: 0, reponse_negative: 0, silence: 0, avance_stage: 0, taux_reponse: null as number | null };
       if (ids.length) {
         const { data: touches } = await sb.from("touches").select("resultat").in("cible_id", ids).not("resultat", "is", null);

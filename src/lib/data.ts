@@ -122,7 +122,19 @@ export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
     .from("cibles_enrichies")
     .select("*")
     .eq("show_id", showId);
-  return data ?? [];
+  const rows = data ?? [];
+  // A6 : exclure les cibles de test (défensif si la colonne is_test n'existe pas
+  // encore → aucune exclusion, aucune régression).
+  try {
+    const { data: tests, error } = await supabase.from("cibles").select("id").eq("show_id", showId).eq("is_test", true);
+    if (!error && tests?.length) {
+      const testIds = new Set((tests as { id: string }[]).map((t) => t.id));
+      return rows.filter((r) => !testIds.has(r.id));
+    }
+  } catch {
+    /* colonne absente → pas d'exclusion */
+  }
+  return rows;
 }
 
 /** Cibles « reportées » (snooze S5) encore actives, parmi une liste d'ids.
