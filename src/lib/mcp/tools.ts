@@ -343,9 +343,15 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const rows = (data ?? []) as unknown as CibleEnrichie[];
       const estival = estivalActif();
       const WON = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
+      // Cibles reportées (snooze S5) : exclues du jour. Défensif si table absente.
+      let snoozed = new Set<string>();
+      try {
+        const { data: sn } = await sb.from("cible_snooze").select("cible_id").gt("snoozed_until", new Date().toISOString());
+        snoozed = new Set(((sn ?? []) as { cible_id: string }[]).map((r) => r.cible_id));
+      } catch { /* table absente → aucun report */ }
       const scored = rows
         .map((r) => ({ r, s: computeCibleScore(r as unknown as ScoreInput, estival) }))
-        .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)))
+        .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)) && !snoozed.has(x.r.id))
         .sort((x, y) => y.s.score - x.s.score)
         .slice(0, Math.min(a.limit ?? 5, 10));
       const cibles = scored.map(({ r, s }) => {

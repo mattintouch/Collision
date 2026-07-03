@@ -125,6 +125,25 @@ export async function getCibles(showId: string): Promise<CibleEnrichie[]> {
   return data ?? [];
 }
 
+/** Cibles « reportées » (snooze S5) encore actives, parmi une liste d'ids.
+ *  Défensif : si la table n'existe pas encore (avant migration 0030), renvoie
+ *  un ensemble vide → aucune cible masquée, aucune régression. */
+export async function getActiveSnoozes(cibleIds: string[]): Promise<Set<string>> {
+  if (!cibleIds.length) return new Set();
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("cible_snooze")
+      .select("cible_id")
+      .in("cible_id", cibleIds)
+      .gt("snoozed_until", new Date().toISOString());
+    if (error) return new Set();
+    return new Set(((data ?? []) as { cible_id: string }[]).map((r) => r.cible_id));
+  } catch {
+    return new Set();
+  }
+}
+
 export interface MyProfile {
   id: string;
   email: string;

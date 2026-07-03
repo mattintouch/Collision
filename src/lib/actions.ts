@@ -139,6 +139,23 @@ export async function draftOpening(input: {
   return { ok: true, draft, source };
 }
 
+/** S5 — reporter une cible : la sortir de la session du jour jusqu'à +N jours (défaut 3). */
+export async function snoozeCible(input: {
+  cible_id: string;
+  show_slug: string;
+  days?: number;
+}): Promise<ActionResult> {
+  const days = Math.max(1, Math.min(input.days ?? 3, 30));
+  const until = new Date(Date.now() + days * 86_400_000).toISOString();
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("cible_snooze")
+    .upsert({ cible_id: input.cible_id, snoozed_until: until }, { onConflict: "cible_id" });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/aujourdhui`);
+  return { ok: true, detail: `Reportée de ${days} jour(s).` };
+}
+
 const DEFAULT_LIEU = "Studio 71, 71 rue de Saussure, 75017 Paris";
 
 /**

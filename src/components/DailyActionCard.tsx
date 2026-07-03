@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { logTouche, draftOpening } from "@/lib/actions";
+import { logTouche, draftOpening, snoozeCible } from "@/lib/actions";
 import type { Playbook } from "@/lib/types";
 
 export interface DailyAction {
@@ -53,6 +53,16 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
         }
       })
       .finally(() => setDrafting(false));
+  }
+
+  function reporter() {
+    start(async () => {
+      const r = await snoozeCible({ cible_id: action.id, show_slug: showSlug, days: 3 });
+      if (r.ok) {
+        setDone(true);
+        router.refresh(); // la cible sort de la liste du jour
+      }
+    });
   }
 
   function copy() {
@@ -140,6 +150,9 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
           />
           <button onClick={log} disabled={pending || !contenu.trim()} className="btn-jaune shrink-0 disabled:opacity-40">
             Logger la touche
+          </button>
+          <button onClick={reporter} disabled={pending} className="btn-ghost shrink-0 px-2 py-1.5 text-sm text-blanc-muted disabled:opacity-40" title="Sortir de la session du jour pendant 3 jours">
+            Reporter
           </button>
         </div>
       )}

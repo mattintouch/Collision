@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getCibles, getShow } from "@/lib/data";
+import { getCibles, getShow, getActiveSnoozes } from "@/lib/data";
 import {
   computeCibleScore,
   computeResurgence,
@@ -21,14 +21,15 @@ export default async function AujourdhuiPage({
   const show = await getShow(params.show);
   if (!show) notFound();
   const cibles = await getCibles(show.id);
+  const snoozed = await getActiveSnoozes(cibles.map((c) => c.id));
   kickQueue(); // draine la file d'enrichissement en tâche de fond (plan Hobby)
   const estival = estivalActif();
 
-  // Même logique que l'outil MCP `daily_five` : top par score, hors placeholders
-  // et cibles gagnées. On garde les 5 premières pour une session courte.
+  // Même logique que l'outil MCP `daily_five` : top par score, hors placeholders,
+  // cibles gagnées et cibles reportées (snooze). Les 5 premières pour une session courte.
   const scored = cibles
     .map((c) => ({ c, s: computeCibleScore(c as unknown as ScoreInput, estival) }))
-    .filter((x) => !x.s.placeholder && !(x.c.stage_key && WON.has(x.c.stage_key)))
+    .filter((x) => !x.s.placeholder && !(x.c.stage_key && WON.has(x.c.stage_key)) && !snoozed.has(x.c.id))
     .sort((a, b) => b.s.score - a.s.score)
     .slice(0, 5);
 

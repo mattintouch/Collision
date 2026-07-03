@@ -23,12 +23,12 @@ non nul, Calendar derrière GOOGLE_DELEGATION_READY, undo archivage board).
   (test resolve.test.ts). Le « < 500 ms » se vérifiera en prod une fois 0029
   appliquée et le cron passé une fois.
 
-## S5 — Copilote sur la carte « Aujourd'hui » + bouton reporter
-- La page /[show]/aujourdhui et DailyActionCard existent (brouillon par gabarit,
-  copier, logger). Restent : brouillon rédigé par le copilote (appel API, pas de
-  migration) et bouton « reporter » (snooze) qui SORT la cible du jour.
-- Le snooze a besoin d'un champ persistant (`snoozed_until` sur cibles) →
-  migration. Report pour la même raison que S4.
+## S5 — Copilote sur la carte « Aujourd'hui » + bouton reporter — FAIT
+- Brouillon rédigé par le copilote : livré (composeDraft + action draftOpening +
+  bouton sur la carte, repli gabarit). Sans migration.
+- Bouton « Reporter » (snooze 3 j) : livré via table dédiée `cible_snooze`
+  (migration 0030), exclusion dans la page « Aujourd'hui » ET dans daily_five
+  (MCP). Défensif : sans la table, rien n'est masqué (dormant, zéro régression).
 
 ## S7 — Feedback du score
 - Déjà en place : champ `resultat` sur touches (migration 0024, appliquée) +
