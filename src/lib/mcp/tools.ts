@@ -1207,10 +1207,15 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data: showRowData } = await sb.from("shows").select("nom, sender_email, sender_name, staff").eq("id", sid).maybeSingle();
       const showCfg = (showRowData ?? {}) as { nom?: string; sender_email?: string | null; sender_name?: string | null; staff?: StaffMember[] | null };
       const showNom = showCfg.nom ?? a.show;
-      // En-tête From : alias du show si configuré (B3), sinon boîte impersonée par défaut.
+      // En-tête From : config du show si présente, sinon expéditeur global
+      // (EPISODE_SENDER + EPISODE_SENDER_NAME), sinon boîte impersonée par défaut.
+      const gEmail = process.env.EPISODE_SENDER;
+      const gName = process.env.EPISODE_SENDER_NAME;
       const from = showCfg.sender_email
         ? (showCfg.sender_name ? `"${showCfg.sender_name}" <${showCfg.sender_email}>` : showCfg.sender_email)
-        : undefined;
+        : gEmail
+          ? (gName ? `"${gName}" <${gEmail}>` : gEmail)
+          : undefined;
 
       const { data: ep } = await sb.from("episodes").select("id, date_enregistrement, fiche_token").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (!ep) return text({ error: "Aucun épisode : valider d'abord.", cause: "episode_absent", action: "validate_cible avant l'envoi." });
