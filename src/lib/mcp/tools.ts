@@ -21,7 +21,7 @@ import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
 import { createCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
-import { buildInviteMail, buildStaffMail } from "../episode/prep-mail";
+import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend } from "../gmail";
 import { buildVcf, type VcfPerson } from "../vcf";
 import type { Stage, StaffMember } from "../types";
@@ -1193,7 +1193,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   W(
     "send_prep_email",
     "Envoie les mails de préparation d'un épisode (envoyer le brief, prévenir l'invité et le staff) depuis la boîte du show, avec les coordonnées des participants en pièce jointe (VCF) et le lien de la fiche. Deux gabarits : invité + staff. La cible doit être validée. Exige le compte de service Gmail (délégation).",
-    { show: z.string(), cible: z.string(), invite_email: z.string().optional(), contact_jour_j: z.string().optional() },
+    { show: z.string(), cible: z.string(), invite_email: z.string().optional(), contact_jour_j: z.string().optional(), langue: z.enum(["fr", "en"]).optional().describe("langue du mail invité (défaut : déduite du playbook)") },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       if (!hasGmailSend()) {
@@ -1216,6 +1216,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!ep) return text({ error: "Aucun épisode : valider d'abord.", cause: "episode_absent", action: "validate_cible avant l'envoi." });
       const episode = ep as { id: string; date_enregistrement: string | null; fiche_token: string | null };
       const ficheLink = episode.fiche_token ? ficheUrl(episode.id, episode.fiche_token) : null;
+
+      // Langue du mail invité : override explicite, sinon déduite du playbook.
+      const { data: cRow } = await sb.from("cibles").select("playbook").eq("id", target.id).maybeSingle();
+      const pbLang = String(((cRow as { playbook?: { langue?: string } } | null)?.playbook?.langue) ?? "").toLowerCase();
+      const lang: MailLang = a.langue ?? (pbLang.startsWith("en") ? "en" : "fr");
 
       // Coordonnées réelles de l'invité (contacts de la cible) pour le VCF et l'adresse.
       const { data: contacts } = await sb.from("contacts").select("kind, valeur").eq("cible_id", target.id);
@@ -1248,7 +1253,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const resultats: Record<string, MailStatus> = {};
 
       if (toInvite) {
-        const m = buildInviteMail(common);
+        const m = buildInviteMail(common, lang);
         const atts = vcfInvite.content ? [vcfInvite] : [];
         const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: atts, from });
         resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite}` } : { status: "failed", detail: r.detail };
