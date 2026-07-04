@@ -32,13 +32,22 @@ function ficheBlock(url: string | null | undefined, lang: MailLang): string {
   return `<p>${label} : <a href="${esc(url)}" style="color:#1B3FBF">${esc(url)}</a></p>`;
 }
 
+/** Lien Google Maps construit depuis l'adresse (F2). Pas d'adresse en dur :
+ *  fonctionne pour tout lieu passé à validate_cible. */
+function mapsUrl(lieu: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lieu)}`;
+}
+
 function logistique(i: PrepMailInput, lang: MailLang): string {
   const L = lang === "en"
     ? { date: "Date", lieu: "Location", contact: "Day-of contact" }
     : { date: "Date", lieu: "Lieu", contact: "Contact jour J" };
+  const lieuHtml = i.lieu
+    ? `<a href="${esc(mapsUrl(i.lieu))}" style="color:#1B3FBF">${esc(i.lieu)}</a>`
+    : "";
   const lignes = [
     i.date_label ? `<li>${L.date} : <b>${esc(i.date_label)}</b></li>` : "",
-    i.lieu ? `<li>${L.lieu} : ${esc(i.lieu)}</li>` : "",
+    i.lieu ? `<li>${L.lieu} : ${lieuHtml}</li>` : "",
     i.contact_jour_j ? `<li>${L.contact} : ${esc(i.contact_jour_j)}</li>` : "",
   ].filter(Boolean).join("");
   return lignes ? `<ul>${lignes}</ul>` : "";

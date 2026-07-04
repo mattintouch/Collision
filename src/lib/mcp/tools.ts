@@ -23,7 +23,7 @@ import { createCalendarEvent, injectFicheLink, checkCalendar } from "../calendar
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend, gmailSender } from "../gmail";
-import { buildVcf, type VcfPerson } from "../vcf";
+import { buildVcard, isUsefulCard, vcfFileName, type VcfPerson } from "../vcf";
 import type { Stage, StaffMember } from "../types";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -1237,18 +1237,33 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const invitePhones = rows.filter((c) => c.kind === "telephone").map((c) => c.valeur);
       const toInvite = (a.invite_email ?? inviteEmails[0] ?? "").trim();
 
-      // B4/B5 — staff depuis la config du show (nom complet, tél, rôle), repli sur
-      // l'ancienne env pour compat. Cartes VCF riches, cartes vides exclues (buildVcf).
+      // B4/B5 — staff depuis la config du show (nom, tél, rôle, in_vcf), repli env.
       const staffCfg: StaffMember[] = (showCfg.staff && showCfg.staff.length)
         ? showCfg.staff
         : staffEmails().map((e) => ({ nom: e.split("@")[0], email: e }));
-      const staffTo = staffCfg.map((s) => s.email).filter((e) => e?.includes("@"));
-      const staffCards: VcfPerson[] = staffCfg.map((s) => ({ nom: s.nom, emails: s.email ? [s.email] : [], phones: s.telephone ? [s.telephone] : [], role: s.role ?? null }));
+
+      // D3 — identités d'expéditeur à exclure des destinataires ET du VCF
+      // (la boîte impersonée + l'alias d'affichage : Vadim ne s'auto-notifie pas).
+      const identityAddrs = new Set(
+        [gmailSender(), process.env.EPISODE_FROM_EMAIL].filter((x): x is string => !!x).map((s) => s.toLowerCase())
+      );
+      const staffTo = staffCfg.map((s) => s.email).filter((e) => e?.includes("@") && !identityAddrs.has(e.toLowerCase()));
+
+      const toVcf = (s: StaffMember): VcfPerson => ({ nom: s.nom, emails: s.email ? [s.email] : [], phones: s.telephone ? [s.telephone] : [], role: s.role ?? null });
       const inviteCard: VcfPerson = { nom: target.nom, emails: inviteEmails, phones: invitePhones };
 
-      // VCF invité = uniquement le staff (pas sa propre carte, absurde) ; VCF staff = tout le monde.
-      const vcfInvite = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf(staffCards) };
-      const vcfStaff = { filename: "participants.vcf", mimeType: "text/vcard", content: buildVcf([inviteCard, ...staffCards]) };
+      // F1 — pièces jointes VCF : UNE par personne (import plus fiable), asymétriques.
+      // Mail invité : les cartes du staff flaggé in_vcf (ex. Matt + Clémence), hors
+      // identité expéditeur. Mail staff : la carte de l'invité (celle dont l'équipe
+      // a besoin), pas les cartes des collègues qu'ils ont déjà.
+      const inviteVcfAtts = staffCfg
+        .filter((s) => s.in_vcf && !identityAddrs.has((s.email ?? "").toLowerCase()))
+        .map(toVcf)
+        .filter(isUsefulCard)
+        .map((p) => ({ filename: vcfFileName(p.nom), mimeType: "text/vcard", content: buildVcard(p) }));
+      const staffVcfAtts = isUsefulCard(inviteCard)
+        ? [{ filename: vcfFileName(target.nom), mimeType: "text/vcard", content: buildVcard(inviteCard) }]
+        : [];
 
       // B2 — heure en Europe/Paris (et non en UTC serveur).
       const dateLabel = episode.date_enregistrement
@@ -1263,18 +1278,16 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       let expediteur: string | undefined; // C1 — écho de l'expéditeur EFFECTIF
       if (toInvite) {
         const m = buildInviteMail(common, lang);
-        const atts = vcfInvite.content ? [vcfInvite] : [];
-        const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: atts, from });
+        const r = await sendGmail({ to: [toInvite], subject: m.subject, html: m.html, attachments: inviteVcfAtts, from });
         expediteur = r.from ?? expediteur;
-        resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite}` } : { status: "failed", detail: r.detail };
+        resultats.invite = r.ok ? { status: "sent", detail: `envoyé à ${toInvite} (${inviteVcfAtts.length} carte(s) jointe(s))` } : { status: "failed", detail: r.detail };
       } else {
         resultats.invite = { status: "skipped", detail: "email de l'invité inconnu (préciser invite_email ou ajouter un contact email)." };
       }
 
       if (staffTo.length) {
         const m = buildStaffMail(common);
-        const atts = vcfStaff.content ? [vcfStaff] : [];
-        const r = await sendGmail({ to: staffTo, subject: m.subject, html: m.html, attachments: atts, from });
+        const r = await sendGmail({ to: staffTo, subject: m.subject, html: m.html, attachments: staffVcfAtts, from });
         expediteur = r.from ?? expediteur;
         resultats.staff = r.ok ? { status: "sent", detail: `envoyé à ${staffTo.length} destinataire(s)` } : { status: "failed", detail: r.detail };
       } else {
@@ -1311,6 +1324,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         email: z.string(),
         telephone: z.string().optional(),
         role: z.string().optional(),
+        in_vcf: z.boolean().optional().describe("true = sa carte part en PJ du mail invité"),
       })).optional().describe("liste complète du staff (remplace l'existant)"),
     },
     { destructiveHint: false, idempotentHint: true },

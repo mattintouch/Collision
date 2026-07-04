@@ -48,3 +48,9 @@ export function buildVcf(people: VcfPerson[]): string {
   const cards = people.filter(isUsefulCard).map(buildVcard);
   return cards.length ? cards.join("\r\n") + "\r\n" : "";
 }
+
+/** Nom de fichier .vcf propre à partir du nom (F1 : un fichier par personne). */
+export function vcfFileName(nom: string): string {
+  const slug = nom.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${slug || "contact"}.vcf`;
+}

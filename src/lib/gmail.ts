@@ -95,6 +95,25 @@ function randomBoundary(): string {
   return "mgln_" + globalThis.crypto.randomUUID().replace(/-/g, "");
 }
 
+/** Encoded-word RFC 2047 si non-ASCII, sinon tel quel. */
+function headerWord(s: string): string {
+  return /^[\x00-\x7F]*$/.test(s) ? s : `=?UTF-8?B?${b64(s)}?=`;
+}
+
+/**
+ * En-tête From correct (D1). Le display name non-ASCII (« …l'équipe… ») doit être
+ * un encoded-word, sinon l'UTF-8 brut est ré-encodé par un intermédiaire et donne
+ * « l'ÃƒÂ©quipe ». On sépare nom/adresse et on encode le nom une seule fois.
+ */
+export function encodeFrom(from: string): string {
+  const m = from.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (!m) return from.trim(); // adresse seule, pas de display name
+  const name = m[1].trim();
+  const addr = m[2].trim();
+  if (!name) return `<${addr}>`;
+  return `${headerWord(name)} <${addr}>`;
+}
+
 /**
  * Construit le message MIME. TOUT est assemblé en un seul tableau joint par \r\n,
  * ce qui garantit la LIGNE VIDE obligatoire (RFC 2046) entre les en-têtes racine
@@ -103,7 +122,7 @@ function randomBoundary(): string {
  */
 export function buildMime(from: string, i: SendMailInput): string {
   const subject = `=?UTF-8?B?${b64(i.subject)}?=`;
-  const rootHeaders = [`From: ${from}`, `To: ${i.to.join(", ")}`, `Subject: ${subject}`, "MIME-Version: 1.0"];
+  const rootHeaders = [`From: ${encodeFrom(from)}`, `To: ${i.to.join(", ")}`, `Subject: ${subject}`, "MIME-Version: 1.0"];
 
   // Sans pièce jointe : message text/html simple.
   if (!i.attachments?.length) {

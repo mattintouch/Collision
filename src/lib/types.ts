@@ -35,6 +35,8 @@ export interface StaffMember {
   email: string;
   telephone?: string | null;
   role?: string | null;
+  /** true = sa carte de visite part en pièce jointe du mail invité (F1). */
+  in_vcf?: boolean | null;
 }
 
 export interface Show {
