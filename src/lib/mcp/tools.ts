@@ -1207,9 +1207,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data: showRowData } = await sb.from("shows").select("nom, sender_email, sender_name, staff").eq("id", sid).maybeSingle();
       const showCfg = (showRowData ?? {}) as { nom?: string; sender_email?: string | null; sender_name?: string | null; staff?: StaffMember[] | null };
       const showNom = showCfg.nom ?? a.show;
-      // En-tête From : config du show si présente, sinon expéditeur global
-      // (EPISODE_SENDER + EPISODE_SENDER_NAME), sinon boîte impersonée par défaut.
-      const gEmail = process.env.EPISODE_SENDER;
+      // En-tête From : config du show si présente, sinon expéditeur global.
+      // IMPORTANT : l'adresse From peut être un ALIAS (ex. vadim@collision.studio)
+      // DIFFÉRENT de la boîte impersonée (EPISODE_SENDER = la principale réelle,
+      // ex. vadim@stefani.fr). On ne peut impersoner qu'une principale, mais on
+      // peut envoyer « as » un alias de ce compte. D'où EPISODE_FROM_EMAIL dédié.
+      const gEmail = process.env.EPISODE_FROM_EMAIL ?? process.env.EPISODE_SENDER;
       const gName = process.env.EPISODE_SENDER_NAME;
       const from = showCfg.sender_email
         ? (showCfg.sender_name ? `"${showCfg.sender_name}" <${showCfg.sender_email}>` : showCfg.sender_email)
