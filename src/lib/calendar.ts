@@ -327,14 +327,17 @@ export async function injectFicheLink(eventId: string, ficheUrl: string): Promis
   }
 }
 
-/** A1 — sonde légère Calendar : liste 1 calendrier via le compte de service. */
+/** A1 — sonde Calendar DANS le scope calendar.events : on liste les événements du
+ *  calendrier primary (autorisé par calendar.events). On n'utilise PAS
+ *  calendarList.list, qui exige un scope de lecture d'agendas non accordé
+ *  (faux négatif « insufficient scopes »). */
 export async function checkCalendar(): Promise<{ status: "ok" | "degraded" | "down"; detail: string }> {
   if (process.env.GOOGLE_DELEGATION_READY !== "true") return { status: "degraded", detail: "GOOGLE_DELEGATION_READY absent : Calendar sur repli provider_token." };
   const token = await calendarServiceToken();
-  if (!token) return { status: "down", detail: "Jeton compte de service Calendar indisponible (clé/scope/organisateur)." };
+  if (!token) return { status: "down", detail: "Jeton compte de service Calendar indisponible : la délégation n'autorise pas calendar.events pour l'identité impersonée (EPISODE_SENDER)." };
   try {
-    const res = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1", { headers: { Authorization: `Bearer ${token}` } });
-    if (res.ok) return { status: "ok", detail: "Calendar OK." };
+    const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events?maxResults=1", { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) return { status: "ok", detail: "Calendar OK (événements accessibles)." };
     const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
     return { status: "down", detail: `${g.message} — ${g.action}` };
   } catch (e) {

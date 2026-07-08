@@ -51,20 +51,17 @@ async function gmailToken(): Promise<string | null> {
   }
 }
 
-/** A1 — sonde légère : users.getProfile sur la boîte impersonée. Coût nul,
- *  détecte à la fois l'API désactivée et un scope manquant. */
+/** A1 — sonde Gmail. Le scope gmail.send N'AUTORISE PAS users.getProfile (lecture),
+ *  donc on ne l'appelle pas (faux négatif « insufficient scopes »). On vérifie
+ *  plutôt que le compte de service obtient un jeton pour le scope gmail.send : si
+ *  la délégation ne l'autorisait pas (ou identité invalide), le point de jeton
+ *  Google renverrait une erreur et gmailToken() serait null. Un jeton = envoi
+ *  autorisé. (L'API Gmail activée ne se confirme définitivement qu'à l'envoi réel.) */
 export async function checkGmail(): Promise<{ status: "ok" | "degraded" | "down"; detail: string }> {
   if (process.env.GOOGLE_DELEGATION_READY !== "true") return { status: "degraded", detail: "GOOGLE_DELEGATION_READY absent : envoi désactivé (repli)." };
   const token = await gmailToken();
-  if (!token) return { status: "down", detail: "Jeton compte de service Gmail indisponible (clé/scope/EPISODE_SENDER)." };
-  try {
-    const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${token}` } });
-    if (res.ok) return { status: "ok", detail: `Gmail OK (expéditeur ${sender()}).` };
-    const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Gmail");
-    return { status: "down", detail: `${g.message} — ${g.action}` };
-  } catch (e) {
-    return { status: "down", detail: e instanceof Error ? e.message : "Erreur Gmail" };
-  }
+  if (!token) return { status: "down", detail: "Jeton gmail.send indisponible : la délégation n'autorise pas gmail.send pour l'identité impersonée (EPISODE_SENDER), ou l'identité est invalide." };
+  return { status: "ok", detail: `Gmail OK (scope gmail.send autorisé, expéditeur ${sender()}).` };
 }
 
 export interface MailAttachment {
