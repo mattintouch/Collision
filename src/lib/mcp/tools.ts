@@ -19,7 +19,7 @@ import { kickQueue } from "../enrichment/jobs";
 import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
-import { createCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
+import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend, gmailSender } from "../gmail";
@@ -181,7 +181,7 @@ async function autoAttachAppuiContacts(
 }
 
 /** Outils destructifs : exigent le scope admin (décision #6). */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts"]);
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -618,6 +618,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         if (!st) return text({ error: `Étape inconnue : ${a.stage}` });
         patch.stage_id = (st as { id: string }).id;
       }
+      // Transparence : create_cible réutilise un homonyme existant (même archivé)
+      // au lieu d'échouer. On détecte l'état AVANT pour l'annoncer (reused/was_archived).
+      const pre = await resolveCible(sb, show.id, a.nom);
+      let was_archived = false;
+      if (pre) {
+        const { data: preRow } = await sb.from("cibles").select("archive").eq("id", pre.id).maybeSingle();
+        was_archived = !!(preRow as { archive?: boolean } | null)?.archive;
+      }
       const c = await ensureCible(sb, show, a.nom);
       if (!c) return text({ error: "Création échouée" });
       delete patch.nom; // déjà posé par ensureCible
@@ -659,6 +667,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       return text({
         ok: true,
         cible: c,
+        reused: !!pre,
+        was_archived,
         applique: Object.keys(patch),
         watchlist: a.watchlist,
         stage: a.stage,
@@ -1126,6 +1136,49 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         fiche_url: ficheLink,
         avertissement,
       });
+    }
+  );
+
+  W(
+    "cancel_episode",
+    "Annule un ou des épisodes : supprime l'invitation Google Calendar et la réservation studio (les invités sont prévenus), puis retire l'épisode. Passer `episode_id` (précis) OU `cible` (annule tous ses épisodes). À utiliser pour effacer une invitation devenue fantôme.",
+    { show: z.string(), cible: z.string().optional(), episode_id: z.string().optional() },
+    { destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: "Show introuvable" });
+
+      // Épisodes visés : par id précis, ou tous ceux de la cible.
+      let query = sb.from("episodes").select("id, gcal_event_id, gcal_studio_event_id").eq("show_id", sid);
+      if (a.episode_id) {
+        query = query.eq("id", a.episode_id);
+      } else if (a.cible) {
+        const target = await resolveCible(sb, sid, a.cible);
+        if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+        query = query.eq("cible_id", target.id);
+      } else {
+        return text({ error: "Préciser episode_id ou cible.", cause: "parametre_manquant", action: "Fournir episode_id (précis) ou cible (tous ses épisodes)." });
+      }
+      const { data: eps } = await query;
+      const rows = (eps ?? []) as { id: string; gcal_event_id: string | null; gcal_studio_event_id: string | null }[];
+      if (!rows.length) return text({ ok: true, annules: 0, detail: "Aucun épisode correspondant." });
+
+      const details: unknown[] = [];
+      for (const ep of rows) {
+        const events: string[] = [];
+        if (ep.gcal_event_id) {
+          const r = await deleteCalendarEvent(null, ep.gcal_event_id, true);
+          events.push(`invitation: ${r.ok ? "supprimée" : r.detail}`);
+        }
+        if (ep.gcal_studio_event_id) {
+          const r = await deleteCalendarEvent(null, ep.gcal_studio_event_id, true);
+          events.push(`studio: ${r.ok ? "libéré" : r.detail}`);
+        }
+        await sb.from("episodes").delete().eq("id", ep.id);
+        details.push({ episode_id: ep.id, events });
+      }
+      return text({ ok: true, annules: rows.length, details });
     }
   );
 
