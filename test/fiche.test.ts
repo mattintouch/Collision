@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "../src/lib/fiche/sections";
+import { slugify, FICHE_STATUTS } from "../src/lib/fiche/store";
 import { buildVcf, buildVcard } from "../src/lib/vcf";
 
 describe("catalogue des sections (brief GDIY)", () => {
@@ -17,6 +18,21 @@ describe("catalogue des sections (brief GDIY)", () => {
   });
   it("couvre les 19 sections du brief", () => {
     expect(FICHE_SECTIONS.length).toBe(19);
+  });
+});
+
+describe("store des fiches structurées", () => {
+  it("slugify : accents retirés, minuscules, tirets", () => {
+    expect(slugify("Raphaël Chiche")).toBe("raphael-chiche");
+    expect(slugify("François O'Neil")).toBe("francois-o-neil");
+    expect(slugify("  Étienne   Klein  ")).toBe("etienne-klein");
+  });
+  it("slugify : chaîne vide → repli stable", () => {
+    expect(slugify("")).toBe("fiche");
+    expect(slugify("!!!")).toBe("fiche");
+  });
+  it("statuts : la progression attendue du brief", () => {
+    expect(FICHE_STATUTS).toEqual(["draft", "en_challenge", "finale", "verrouillee"]);
   });
 });
 

@@ -19,6 +19,15 @@ import { kickQueue } from "../enrichment/jobs";
 import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
 import { signFicheToken, ficheUrl } from "../fiche/token";
+import { FICHE_SECTIONS } from "../fiche/sections";
+import {
+  FICHE_STATUTS,
+  resolveFiche,
+  ensureFiche,
+  ficheSections,
+  writeSection,
+  type FicheRow,
+} from "../fiche/store";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
@@ -1572,6 +1581,248 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (error) return text({ error: error.message });
       kickQueue(); // draine en tâche de fond ; le reste part au fil des appels/lectures
       return text({ ok: true, en_file: ids.length, detail: "Jobs d'enrichissement en file — traités en tâche de fond (quelques-uns par appel). Suivre via get_dossier." });
+    }
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Fiches prépa STRUCTURÉES (brief GDIY, incrément II). Chaque fiche porte les
+  // 19 sections du catalogue (src/lib/fiche/sections.ts), éditables une à une,
+  // versionnées, commentables. Statut : draft → en_challenge → finale →
+  // verrouillee. Écriture réservée à l'équipe (service role), donc scope write.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Vue légère d'une fiche pour list_fiches / get_fiche. */
+  const ficheSummary = (f: FicheRow) => ({
+    id: f.id,
+    slug: f.slug,
+    invite: f.invite_nom,
+    statut: f.statut,
+    version: f.version,
+    date_enregistrement: f.date_enregistrement,
+    updated_at: f.updated_at,
+  });
+
+  RT(
+    "list_fiches",
+    "Liste les fiches de préparation d'un show : slug, invité, statut (draft, en_challenge, finale, verrouillee), version, date d'enregistrement, nombre de commentaires ouverts. Intentions : voir les fiches en cours, retrouver une fiche par invité.",
+    { show: z.string().optional().describe("slug ou id ; omis = tous les shows"), statut: z.enum(FICHE_STATUTS).optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      let sid: string | null = null;
+      if (a.show) {
+        sid = await showId(sb, a.show);
+        if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      }
+      let q = sb.from("fiches").select("*").order("updated_at", { ascending: false });
+      if (sid) q = q.eq("show_id", sid);
+      if (a.statut) q = q.eq("statut", a.statut);
+      const { data } = await q;
+      const fiches = (data ?? []) as FicheRow[];
+      // Commentaires ouverts par fiche (une requête groupée).
+      const ids = fiches.map((f) => f.id);
+      const openByFiche = new Map<string, number>();
+      if (ids.length) {
+        const { data: cs } = await sb.from("fiche_comments").select("fiche_id").eq("resolved", false).in("fiche_id", ids);
+        for (const r of ((cs ?? []) as { fiche_id: string }[])) openByFiche.set(r.fiche_id, (openByFiche.get(r.fiche_id) ?? 0) + 1);
+      }
+      return text({
+        total: fiches.length,
+        fiches: fiches.map((f) => ({ ...ficheSummary(f), commentaires_ouverts: openByFiche.get(f.id) ?? 0 })),
+      });
+    }
+  );
+
+  RT(
+    "get_fiche",
+    "Renvoie une fiche complète : métadonnées, les 19 sections avec leur contenu structuré (JSON), les commentaires ouverts et les notes à intégrer. Résoudre par slug, id, ou nom d'invité. Intentions : lire la fiche, préparer le challenge, réviser avant l'enregistrement.",
+    { fiche: z.string().describe("slug, id ou nom d'invité"), show: z.string().optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const sections = await ficheSections(sb, f.id);
+      const catalog = new Map(FICHE_SECTIONS.map((s) => [s.id, s]));
+      const { data: comments } = await sb.from("fiche_comments").select("id, section_id, author, text, resolved, created_at").eq("fiche_id", f.id).eq("resolved", false).order("created_at");
+      const { data: notes } = await sb.from("fiche_notes").select("id, text, source, integrated, created_at").eq("fiche_id", f.id).eq("integrated", false).order("created_at");
+      return text({
+        ...ficheSummary(f),
+        cible_id: f.cible_id,
+        show_id: f.show_id,
+        sections: sections.map((s) => {
+          const def = catalog.get(s.section_id);
+          const empty = !s.content || Object.keys(s.content).length === 0;
+          return {
+            section_id: s.section_id,
+            titre: def?.titre ?? s.section_id,
+            num: def?.num ?? null,
+            version: s.version,
+            vide: empty,
+            content: s.content ?? {},
+          };
+        }),
+        commentaires_ouverts: comments ?? [],
+        notes_a_integrer: notes ?? [],
+      });
+    }
+  );
+
+  RT(
+    "get_section",
+    "Renvoie une seule section d'une fiche (contenu structuré, version, rôle de cadrage). Pratique pour éditer finement sans recharger toute la fiche. section_id stable (ex. playbook, chiffres, dix_questions, questions_reseaux, zone_grise).",
+    { fiche: z.string(), section_id: z.string().describe("clé stable de section"), show: z.string().optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const def = FICHE_SECTIONS.find((s) => s.id === a.section_id);
+      if (!def) return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
+      const { data } = await sb.from("fiche_sections").select("content, version, updated_at, updated_by").eq("fiche_id", f.id).eq("section_id", a.section_id).maybeSingle();
+      const row = data as { content: Record<string, unknown>; version: number; updated_at: string; updated_by: string | null } | null;
+      return text({
+        fiche: f.slug,
+        section_id: a.section_id,
+        titre: def.titre,
+        num: def.num ?? null,
+        role: def.role ?? null,
+        version: row?.version ?? 0,
+        content: row?.content ?? {},
+      });
+    }
+  );
+
+  W(
+    "update_section",
+    "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section. Intentions : rédiger une section, corriger le playbook, injecter les questions réseaux.",
+    {
+      fiche: z.string(),
+      section_id: z.string().describe("clé stable (ex. enjeu, chiffres, playbook, dix_questions, zone_grise)"),
+      content: z.record(z.any()).describe("objet JSON du contenu de la section (remplace l'existant)"),
+      show: z.string().optional(),
+    },
+    { destructiveHint: false, idempotentHint: false },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : édition impossible. Repasser en_challenge via set_status.", cause: "fiche_verrouillee" });
+      const def = FICHE_SECTIONS.find((s) => s.id === a.section_id);
+      if (!def) return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
+      const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
+      const r = await writeSection(sb, f.id, a.section_id, a.content, author);
+      if (!r) return text({ error: `Section inconnue : ${a.section_id}.` });
+      return text({ ok: true, fiche: f.slug, section_id: a.section_id, titre: def.titre, version: r.version });
+    }
+  );
+
+  W(
+    "add_comment",
+    "Ajoute un commentaire de challenge ancré à une section (façon commentaire Google Docs). Sert au dialogue Matt / Clémence sur une fiche : signaler un manque, contester un angle, demander une source. Reste ouvert jusqu'à resolve_comment.",
+    {
+      fiche: z.string(),
+      section_id: z.string().optional().describe("section visée ; omis = commentaire général sur la fiche"),
+      text: z.string().describe("le commentaire"),
+      author: z.string().optional().describe("auteur (défaut : identité de l'appelant)"),
+      show: z.string().optional(),
+    },
+    { destructiveHint: false, idempotentHint: false },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      if (a.section_id && !FICHE_SECTIONS.some((s) => s.id === a.section_id)) {
+        return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
+      }
+      const author = a.author ?? extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
+      const { data, error } = await sb
+        .from("fiche_comments")
+        .insert({ fiche_id: f.id, section_id: a.section_id ?? null, author, text: a.text, resolved: false })
+        .select("id")
+        .single();
+      if (error) return text({ error: error.message });
+      return text({ ok: true, fiche: f.slug, comment_id: (data as { id: string }).id, section_id: a.section_id ?? null });
+    }
+  );
+
+  W(
+    "resolve_comment",
+    "Marque un commentaire de challenge comme résolu (traité). Intentions : clore un point du challenge, nettoyer les commentaires ouverts avant de passer la fiche en finale.",
+    { comment_id: z.string().describe("id du commentaire (voir get_fiche)") },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const { data, error } = await sb.from("fiche_comments").update({ resolved: true }).eq("id", a.comment_id).select("id, fiche_id").maybeSingle();
+      if (error) return text({ error: error.message });
+      if (!data) return text({ error: `Commentaire introuvable : ${a.comment_id}.` });
+      return text({ ok: true, comment_id: a.comment_id });
+    }
+  );
+
+  W(
+    "set_status",
+    "Change le statut d'une fiche : draft (rédaction), en_challenge (relecture Matt/Clémence), finale (validée), verrouillee (figée à J-1). Une fiche verrouillée n'est plus éditable (déverrouiller en repassant en_challenge). Intentions : envoyer au challenge, valider, verrouiller avant l'enregistrement.",
+    { fiche: z.string(), statut: z.enum(FICHE_STATUTS), show: z.string().optional() },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      // Garde-fou : verrouiller une fiche qui a encore des commentaires ouverts est
+      // probablement une erreur ; on le signale sans bloquer (l'équipe décide).
+      let avertissement: string | undefined;
+      if (a.statut === "verrouillee") {
+        const { count } = await sb.from("fiche_comments").select("id", { count: "exact", head: true }).eq("fiche_id", f.id).eq("resolved", false);
+        if ((count ?? 0) > 0) avertissement = `${count} commentaire(s) encore ouvert(s) au verrouillage.`;
+      }
+      const { error } = await sb.from("fiches").update({ statut: a.statut, updated_at: new Date().toISOString() }).eq("id", f.id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, fiche: f.slug, statut_precedent: f.statut, statut: a.statut, ...(avertissement ? { avertissement } : {}) });
+    }
+  );
+
+  W(
+    "add_note",
+    "Injecte de la matière brute rattachée à une fiche, à intégrer plus tard dans les sections (add_note pendant la préparation : une info entendue, un article, une remarque). Reste « à intégrer » jusqu'à traitement. Intentions : noter une info à chaud, déposer une source à exploiter.",
+    { fiche: z.string(), text: z.string(), source: z.string().optional().describe("origine (url, personne, contexte)"), show: z.string().optional() },
+    { destructiveHint: false, idempotentHint: false },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const { data, error } = await sb
+        .from("fiche_notes")
+        .insert({ fiche_id: f.id, text: a.text, source: a.source ?? null, integrated: false })
+        .select("id")
+        .single();
+      if (error) return text({ error: error.message });
+      return text({ ok: true, fiche: f.slug, note_id: (data as { id: string }).id });
+    }
+  );
+
+  W(
+    "create_fiche",
+    "Crée une fiche de préparation structurée pour une cible validée et sème les 19 sections vides du catalogue (à alimenter ensuite via update_section ou la génération). Idempotent : une seule fiche par cible ; réappelée, renvoie l'existante en complétant les sections manquantes. Slug = prénom-nom (unique).",
+    { show: z.string(), cible: z.string() },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const target = await resolveCible(sb, sid, a.cible);
+      if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      // Date d'enregistrement depuis l'épisode le plus récent, si présent.
+      const { data: ep } = await sb.from("episodes").select("date_enregistrement").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const date = (ep as { date_enregistrement?: string | null } | null)?.date_enregistrement ?? null;
+      const { fiche, created } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: date });
+      return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length });
     }
   );
 }
