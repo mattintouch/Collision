@@ -28,6 +28,7 @@ import {
   writeSection,
   type FicheRow,
 } from "../fiche/store";
+import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
@@ -1823,6 +1824,37 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const date = (ep as { date_enregistrement?: string | null } | null)?.date_enregistrement ?? null;
       const { fiche, created } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: date });
       return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length });
+    }
+  );
+
+  W(
+    "suggest_questions_reseaux",
+    "Propose des questions « clips » calibrées sur l'invité d'une fiche : questions clickbait à dégainer en tournage (moment de mou, relance) pour fabriquer un extrait viral. Ressorts : argent, échec, contre-pied, confession. Vadim propose, l'équipe challenge. apply=true écrit la section questions_reseaux (non destructif) ; sinon, renvoie seulement les propositions.",
+    { fiche: z.string(), count: z.number().optional().describe("nombre de questions (défaut 8, max 12)"), apply: z.boolean().optional().describe("true = écrit la section questions_reseaux de la fiche"), show: z.string().optional() },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      // Contexte invité depuis la cible (dossier enrichi) si rattachée.
+      const guest: GuestContext = { nom: f.invite_nom };
+      if (f.cible_id) {
+        const { data: c } = await sb.from("cibles_enrichies").select("role, organisation, secteur, sujets").eq("id", f.cible_id).maybeSingle();
+        const row = c as { role?: string | null; organisation?: string | null; secteur?: string | null; sujets?: string[] | null } | null;
+        if (row) { guest.role = row.role; guest.organisation = row.organisation; guest.secteur = row.secteur; guest.sujets = row.sujets; }
+        const { data: enr } = await sb.from("enrichment_jobs").select("resultat").eq("cible_id", f.cible_id).eq("statut", "done").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+        guest.resume = (enr as { resultat?: { resume?: string | null } } | null)?.resultat?.resume ?? null;
+      }
+      const { questions, demo } = await suggestQuestionsReseaux(guest, a.count ?? 8);
+      let ecrit = false;
+      if (a.apply) {
+        if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : écriture impossible.", cause: "fiche_verrouillee", questions });
+        const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
+        await writeSection(sb, f.id, "questions_reseaux", { questions }, author);
+        ecrit = true;
+      }
+      return text({ ok: true, fiche: f.slug, invite: f.invite_nom, demo, ecrit, count: questions.length, questions, ...(demo ? { note: "Mode démo (pas de clé Anthropic ou recherche vide) : questions génériques par ressort." } : {}) });
     }
   );
 }

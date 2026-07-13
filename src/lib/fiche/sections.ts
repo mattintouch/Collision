@@ -23,7 +23,7 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "entourage", titre: "Entourage", num: "07", role: "mentors, associés, rencontres pivots, ennemis utiles. Au moins une question dessus" },
   { id: "tensions", titre: "Tensions", num: "08", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },
   { id: "questions_recurrentes", titre: "Questions récurrentes (à dépasser)", num: "09", role: "questions déjà posées 10 fois + réponse rodée en 1 ligne. À ne pas reposer telles quelles" },
-  { id: "questions_reseaux", titre: "Questions réseaux", num: "10", role: "vide à la génération, alimentée via MCP : question, auteur, plateforme, intérêt. Rappel si vide à J-2" },
+  { id: "questions_reseaux", titre: "Questions clips", num: "10", role: "questions clickbait à dégainer en tournage pour fabriquer un clip (moment de mou, relance). Proposées par Vadim, challengées par l'équipe. Chaque item : question (tutoiement), ressort (argent, échec, contre-pied, confession), clip (réaction visée)" },
   { id: "sequencage", titre: "Séquençage", num: "11", role: "6-8 blocs sur 2h30, alterner récit et extraction, monter en intimité, timings mono" },
   { id: "dix_questions", titre: "Les 10 questions", num: "12", role: "10 questions + relances. Courtes, directes, tutoiement, sans guillemets, majorité en 'comment'" },
   { id: "zone_grise", titre: "Zone grise", num: "13", role: "bandeau ambre : notes internes non vérifiées, à faire confirmer par l'invité" },

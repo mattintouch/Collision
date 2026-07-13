@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "../src/lib/fiche/sections";
 import { slugify, FICHE_STATUTS } from "../src/lib/fiche/store";
+import { suggestQuestionsReseaux } from "../src/lib/fiche/questions";
 import { buildVcf, buildVcard } from "../src/lib/vcf";
 
 describe("catalogue des sections (brief GDIY)", () => {
@@ -33,6 +34,37 @@ describe("store des fiches structurées", () => {
   });
   it("statuts : la progression attendue du brief", () => {
     expect(FICHE_STATUTS).toEqual(["draft", "en_challenge", "finale", "verrouillee"]);
+  });
+});
+
+describe("questions clips (questions_reseaux)", () => {
+  it("mode démo (sans clé) : jeu réparti sur les ressorts", async () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const { questions, demo } = await suggestQuestionsReseaux({ nom: "Test Invité" }, 8);
+      expect(demo).toBe(true);
+      expect(questions.length).toBe(8);
+      const ressorts = new Set(questions.map((q) => q.ressort));
+      expect(ressorts.has("argent")).toBe(true);
+      expect(ressorts.has("echec")).toBe(true);
+      expect(ressorts.has("contre_pied")).toBe(true);
+      expect(ressorts.has("confession")).toBe(true);
+      // Style maison : pas de tiret cadratin dans les questions produites.
+      expect(questions.every((q) => !q.question.includes("—"))).toBe(true);
+    } finally {
+      if (prev !== undefined) process.env.ANTHROPIC_API_KEY = prev;
+    }
+  });
+  it("borne le nombre demandé (min 3, max 12)", async () => {
+    const prev = process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const min = await suggestQuestionsReseaux({ nom: "X" }, 1);
+      expect(min.questions.length).toBe(3);
+    } finally {
+      if (prev !== undefined) process.env.ANTHROPIC_API_KEY = prev;
+    }
   });
 });
 
