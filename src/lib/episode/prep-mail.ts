@@ -53,28 +53,36 @@ function logistique(i: PrepMailInput, lang: MailLang): string {
   return lignes ? `<ul>${lignes}</ul>` : "";
 }
 
-/** Mail à l'invité (FR ou EN selon la langue de l'invité). */
+/**
+ * Mail à l'invité (FR ou EN). NE contient PAS la fiche de prep (interne à
+ * l'équipe). Recentré sur l'esprit éditorial et les 3 questions récurrentes,
+ * pour que l'invité arrive préparé. Le tutoiement porte la proximité maison.
+ */
 export function buildInviteMail(i: PrepMailInput, lang: MailLang = "fr"): { subject: string; html: string } {
   const prenom = i.invite_nom.split(/\s+/)[0];
   if (lang === "en") {
-    const subject = `Preparing your episode on ${i.show_nom}`;
+    const subject = `Your episode on ${i.show_nom}`;
     const html = shell([
       `<p>Hi ${esc(prenom)},</p>`,
-      `<p>Thank you for joining us on ${esc(i.show_nom)}. Here are the practical details.</p>`,
+      `<p>Thanks for joining ${esc(i.show_nom)}. A few practical details, then what to expect.</p>`,
       logistique(i, "en"),
-      ficheBlock(i.fiche_url, "en"),
-      `<p>The team's contact details are attached (vCard). Feel free to reach out with any question.</p>`,
+      `<p>What drives us: understanding the <b>how</b>. We want to go beyond what has already been told and really grasp how you did things. The conversation is direct and informal.</p>`,
+      `<p>Three questions come up every episode, so you can think about them beforehand:</p>`,
+      `<ul><li>introduce yourself in a few words;</li><li>a book you would recommend;</li><li>the advice you would give your younger self.</li></ul>`,
+      `<p>The team's contact details are attached (vCard). Reach out anytime.</p>`,
       `<p>See you soon,<br>${esc(SIGN_EN)}</p>`,
     ].join(""));
     return { subject, html };
   }
-  const subject = `Préparation de votre passage sur ${i.show_nom}`;
+  const subject = `Ton passage sur ${i.show_nom}`;
   const html = shell([
     `<p>Bonjour ${esc(prenom)},</p>`,
-    `<p>Merci d'avoir accepté l'enregistrement sur ${esc(i.show_nom)}. Voici les informations pratiques.</p>`,
+    `<p>Merci d'avoir accepté l'enregistrement sur ${esc(i.show_nom)}. Quelques infos pratiques, puis l'esprit de l'échange.</p>`,
     logistique(i, "fr"),
-    ficheBlock(i.fiche_url, "fr"),
-    `<p>Les coordonnées de l'équipe sont en pièce jointe (carte de visite). N'hésitez pas à revenir vers nous pour toute question.</p>`,
+    `<p>Ce qui nous anime : comprendre le <b>comment</b>. On cherche à aller plus loin que ce qui a déjà été raconté, à saisir vraiment ta manière de faire. L'échange est direct, et on se tutoie pour la proximité avec l'auditeur.</p>`,
+    `<p>Trois questions reviennent à chaque épisode, tu peux déjà y penser :</p>`,
+    `<ul><li>te présenter en quelques mots ;</li><li>une recommandation de livre ;</li><li>le conseil que tu te donnerais à toi plus jeune.</li></ul>`,
+    `<p>Les coordonnées de l'équipe sont en pièce jointe (carte de visite). N'hésite pas pour toute question.</p>`,
     `<p>À très vite,<br>${esc(SIGN_FR)}</p>`,
   ].join(""));
   return { subject, html };
