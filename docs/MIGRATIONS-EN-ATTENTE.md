@@ -13,4 +13,7 @@
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 
 > Dès que la chaîne CI est allumée (P1/P2 + baseline), les futures migrations
+> - `0034_fiches.sql` : système de fiches structurées (fiches + sections + versions + commentaires + notes, brief GDIY). Dormant.
+
+> Dès que la chaîne CI est allumée (P1/P2 + baseline), les futures migrations
 > s'appliquent automatiquement au merge sur main, avant le déploiement.

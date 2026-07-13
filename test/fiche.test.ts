@@ -1,6 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
+import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "../src/lib/fiche/sections";
 import { buildVcf, buildVcard } from "../src/lib/vcf";
+
+describe("catalogue des sections (brief GDIY)", () => {
+  it("section_id uniques", () => {
+    expect(new Set(FICHE_SECTION_IDS).size).toBe(FICHE_SECTION_IDS.length);
+  });
+  it("contient playbook (critère d'acceptation : une fiche sans playbook est un échec)", () => {
+    expect(FICHE_SECTION_IDS).toContain("playbook");
+  });
+  it("ordre : en-tête avant playbook avant sources avant footer", () => {
+    expect(sectionPosition("entete")).toBeLessThan(sectionPosition("playbook"));
+    expect(sectionPosition("playbook")).toBeLessThan(sectionPosition("sources"));
+    expect(sectionPosition("sources")).toBeLessThan(sectionPosition("footer"));
+  });
+  it("couvre les 19 sections du brief", () => {
+    expect(FICHE_SECTIONS.length).toBe(19);
+  });
+});
 
 describe("generateFicheHtml", () => {
   it("produit un document autonome avec les tokens Onesta", () => {
