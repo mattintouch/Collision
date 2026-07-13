@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "../src/lib/fiche/sections";
 import { slugify, FICHE_STATUTS } from "../src/lib/fiche/store";
+import { SECTION_CONTRACTS, DEFAULT_CHECKLIST } from "../src/lib/fiche/schema";
 import { suggestQuestionsReseaux } from "../src/lib/fiche/questions";
 import { buildVcf, buildVcard } from "../src/lib/vcf";
 
@@ -17,8 +18,19 @@ describe("catalogue des sections (brief GDIY)", () => {
     expect(sectionPosition("playbook")).toBeLessThan(sectionPosition("sources"));
     expect(sectionPosition("sources")).toBeLessThan(sectionPosition("footer"));
   });
-  it("couvre les 19 sections du brief", () => {
-    expect(FICHE_SECTIONS.length).toBe(19);
+  it("couvre les sections du brief + ajouts Matt (présentation, anecdotes)", () => {
+    expect(FICHE_SECTIONS.length).toBe(21);
+    expect(FICHE_SECTION_IDS).toContain("presentation");
+    expect(FICHE_SECTION_IDS).toContain("anecdotes");
+  });
+  it("chaque section porte son contrat d'édition (get_section → update_section)", () => {
+    for (const id of FICHE_SECTION_IDS) {
+      expect(SECTION_CONTRACTS[id], `contrat manquant : ${id}`).toBeDefined();
+    }
+  });
+  it("la checklist par défaut inclut machine à café et climatisation", () => {
+    expect(DEFAULT_CHECKLIST).toContain("Éteindre la machine à café");
+    expect(DEFAULT_CHECKLIST).toContain("Climatisation OK");
   });
 });
 

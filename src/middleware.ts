@@ -8,6 +8,6 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Toutes les routes sauf assets statiques et fichiers à extension.
-    "/((?!_next/static|_next/image|favicon.ico|icons/|logos/|.*\\.(?:svg|png|jpg|jpeg|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icons/|logos/|fonts/|.*\\.(?:svg|png|jpg|jpeg|webp|ico|woff2)$).*)",
   ],
 };

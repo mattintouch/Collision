@@ -1,0 +1,43 @@
+/* Système GDIY (handoff design) : Tungsten caps + neo-grotesk + mono, noir/blanc
+   éditorial. Portée limitée au segment /fiches (design distinct du Cockpit). */
+
+@font-face {
+  font-family: "Tungsten Condensed";
+  src: url("/fonts/gdiy/TungstenCondensed-Semibold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Tungsten Condensed";
+  src: url("/fonts/gdiy/TungstenCondensed-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Tungsten Compressed";
+  src: url("/fonts/gdiy/TungstenCompressed-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+.gdiy {
+  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+  color: #0a0a0a;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+.gdiy a {
+  color: #000000;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.gdiy a:hover { color: #6b6b65; }
+.gdiy input[type="checkbox"] { accent-color: #000000; }
+.gdiy ::selection { background: #f4c435; color: #000; }
+
+@keyframes gdiy-recpulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.25; }
+  100% { opacity: 1; }
+}

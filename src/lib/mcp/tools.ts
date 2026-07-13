@@ -18,8 +18,9 @@ import { kindAwarePatch } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { buildFicheData } from "../fiche/build";
 import { generateFicheHtml } from "../fiche/generate";
-import { signFicheToken, ficheUrl } from "../fiche/token";
+import { signFicheToken, ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS } from "../fiche/sections";
+import { SECTION_CONTRACTS } from "../fiche/schema";
 import {
   FICHE_STATUTS,
   resolveFiche,
@@ -1593,6 +1594,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   // ─────────────────────────────────────────────────────────────────────────
 
   /** Vue légère d'une fiche pour list_fiches / get_fiche. */
+  const fichePageUrl = (slug: string) => {
+    const base = baseUrl();
+    return base ? `${base}/fiches/${slug}` : `/fiches/${slug}`;
+  };
   const ficheSummary = (f: FicheRow) => ({
     id: f.id,
     slug: f.slug,
@@ -1601,6 +1606,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     version: f.version,
     date_enregistrement: f.date_enregistrement,
     updated_at: f.updated_at,
+    url: fichePageUrl(f.slug),
   });
 
   RT(
@@ -1692,13 +1698,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         role: def.role ?? null,
         version: row?.version ?? 0,
         content: row?.content ?? {},
+        contrat: SECTION_CONTRACTS[a.section_id] ?? null, // forme attendue par update_section
       });
     }
   );
 
   W(
     "update_section",
-    "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section. Intentions : rédiger une section, corriger le playbook, injecter les questions réseaux.",
+    "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section : appeler get_section d'abord, son champ `contrat` donne la forme exacte attendue. Intentions : rédiger une section, corriger le playbook, injecter les questions clips.",
     {
       fiche: z.string(),
       section_id: z.string().describe("clé stable (ex. enjeu, chiffres, playbook, dix_questions, zone_grise)"),
@@ -1823,7 +1830,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data: ep } = await sb.from("episodes").select("date_enregistrement").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       const date = (ep as { date_enregistrement?: string | null } | null)?.date_enregistrement ?? null;
       const { fiche, created } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: date });
-      return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length });
+      return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length, url: fichePageUrl(fiche.slug) });
     }
   );
 
