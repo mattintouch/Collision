@@ -1660,10 +1660,26 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sid = a.show ? await showId(sb, a.show) : null;
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      kickQueue(); // lecture chaude : draine la génération en cours (plan Hobby)
       const sections = await ficheSections(sb, f.id);
       const catalog = new Map(FICHE_SECTIONS.map((s) => [s.id, s]));
       const { data: comments } = await sb.from("fiche_comments").select("id, section_id, author, text, resolved, created_at").eq("fiche_id", f.id).eq("resolved", false).order("created_at");
       const { data: notes } = await sb.from("fiche_notes").select("id, text, source, integrated, created_at").eq("fiche_id", f.id).eq("integrated", false).order("created_at");
+      // Avancement de la génération (jobs fiche:* de la cible, hors anciens done).
+      let generation: unknown;
+      if (f.cible_id) {
+        const { data: jobs } = await sb
+          .from("enrichment_jobs")
+          .select("objectif, statut, error, updated_at")
+          .eq("cible_id", f.cible_id)
+          .like("objectif", `${FICHE_JOB_PREFIX}%`)
+          .order("updated_at", { ascending: false })
+          .limit(8);
+        const rows = (jobs ?? []) as { objectif: string; statut: string; error: string | null }[];
+        if (rows.length) {
+          generation = rows.map((j) => ({ groupe: j.objectif.slice(FICHE_JOB_PREFIX.length), statut: j.statut, ...(j.error ? { error: j.error } : {}) }));
+        }
+      }
       return text({
         ...ficheSummary(f),
         cible_id: f.cible_id,
@@ -1682,6 +1698,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         }),
         commentaires_ouverts: comments ?? [],
         notes_a_integrer: notes ?? [],
+        ...(generation ? { generation } : {}),
       });
     }
   );
