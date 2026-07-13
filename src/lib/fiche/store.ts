@@ -46,8 +46,10 @@ export function slugify(nom: string): string {
     .slice(0, 80) || "fiche";
 }
 
-/** Slug unique dans la table (suffixe -2, -3… si collision sur une autre fiche). */
-async function uniqueSlug(sb: SB, base: string, exceptId?: string): Promise<string> {
+/** Slug unique dans la table. URL courte d'abord (prenom-nom) ; en cas de
+ *  collision (invité qui revient), suffixe par la date d'enregistrement
+ *  (annee, puis annee-mois), enfin un compteur en dernier recours. */
+async function uniqueSlug(sb: SB, base: string, dateEnr?: string | null, exceptId?: string): Promise<string> {
   const { data } = await sb.from("fiches").select("id, slug").ilike("slug", `${base}%`);
   const taken = new Set(
     ((data ?? []) as { id: string; slug: string }[])
@@ -55,10 +57,14 @@ async function uniqueSlug(sb: SB, base: string, exceptId?: string): Promise<stri
       .map((r) => r.slug)
   );
   if (!taken.has(base)) return base;
-  for (let i = 2; i < 1000; i++) {
-    const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+  const d = dateEnr ? new Date(dateEnr) : null;
+  const candidates: string[] = [];
+  if (d && !Number.isNaN(d.getTime())) {
+    candidates.push(`${base}-${d.getFullYear()}`);
+    candidates.push(`${base}-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
+  for (let i = 2; i < 1000; i++) candidates.push(`${base}-${i}`);
+  for (const candidate of candidates) if (!taken.has(candidate)) return candidate;
   return `${base}-${Date.now()}`;
 }
 
@@ -96,7 +102,7 @@ export async function ensureFiche(
     }
   }
   const base = slugify(input.invite_nom);
-  const slug = await uniqueSlug(sb, base);
+  const slug = await uniqueSlug(sb, base, input.date_enregistrement);
   const { data, error } = await sb
     .from("fiches")
     .insert({

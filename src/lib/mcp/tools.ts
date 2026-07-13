@@ -16,9 +16,7 @@ import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } f
 import { computeShowStats } from "../stats";
 import { kindAwarePatch } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
-import { buildFicheData } from "../fiche/build";
-import { generateFicheHtml } from "../fiche/generate";
-import { signFicheToken, ficheUrl, baseUrl } from "../fiche/token";
+import { ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS } from "../fiche/sections";
 import { SECTION_CONTRACTS } from "../fiche/schema";
 import {
@@ -30,8 +28,9 @@ import {
   type FicheRow,
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
+import { FICHE_GROUPES, FICHE_JOB_PREFIX } from "../fiche/generation";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
-import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU } from "../episode/invitation";
+import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend, gmailSender } from "../gmail";
 import { buildVcard, isUsefulCard, vcfFileName, type VcfPerson } from "../vcf";
@@ -1053,11 +1052,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       show: z.string(),
       cible: z.string(),
       start_iso: z.string().optional().describe("date+heure ISO de l'enregistrement (déclenche l'invitation)"),
-      duree_min: z.number().optional().describe("durée en minutes (défaut 120)"),
+      duree_min: z.number().optional().describe("durée en minutes (défaut 180, « environ 3 h »)"),
       lieu: z.string().optional().describe("lieu (défaut Studio 71)"),
       invite_email: z.string().optional().describe("email de l'invité à ajouter aux participants"),
       participants: z.array(z.string()).optional().describe("emails supplémentaires à inviter"),
-      contact_jour_j: z.string().optional().describe("téléphone/nom du contact le jour J"),
+      contact_jour_j: z.string().optional().describe("contact jour J (défaut : Clémence + Matéo, enregistrés)"),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
@@ -1085,16 +1084,25 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (dow !== 2 && dow !== 4) warns.push("créneau hors convention (mardi/jeudi)");
       if (hm && hm !== "09:30") warns.push("heure hors convention (9h30)");
       const avertissement = warns.length ? warns.join(" ; ") + " — vérifier le créneau." : undefined;
-      const dureeMin = a.duree_min ?? 120;
+      const dureeMin = a.duree_min ?? DEFAULT_DUREE_MIN;
       const end = new Date(start.getTime() + dureeMin * 60_000);
       const lieu = a.lieu?.trim() || DEFAULT_LIEU;
 
-      // Lien fiche si déjà générée.
+      // Lien fiche : la fiche STRUCTURÉE (/fiches/{slug}, accès team) si elle
+      // existe, sinon l'ancien lien signé de l'épisode.
       let ficheLink: string | null = null;
-      const { data: epRow } = await sb.from("episodes").select("fiche_token").eq("id", episodeId).maybeSingle();
-      const ficheTok = (epRow as { fiche_token?: string | null } | null)?.fiche_token;
-      if (ficheTok) ficheLink = ficheUrl(String(episodeId), ficheTok);
+      const { data: fRow } = await sb.from("fiches").select("slug").eq("cible_id", target.id).maybeSingle();
+      if ((fRow as { slug?: string } | null)?.slug) {
+        ficheLink = fichePageUrl((fRow as { slug: string }).slug);
+      } else {
+        const { data: epRow } = await sb.from("episodes").select("fiche_token").eq("id", episodeId).maybeSingle();
+        const ficheTok = (epRow as { fiche_token?: string | null } | null)?.fiche_token;
+        if (ficheTok) ficheLink = ficheUrl(String(episodeId), ficheTok);
+      }
 
+      // Langue de l'invitation : déduite du playbook de la cible (invité anglophone).
+      const { data: pbRow } = await sb.from("cibles").select("playbook").eq("id", target.id).maybeSingle();
+      const pbLang = String(((pbRow as { playbook?: { langue?: string } } | null)?.playbook?.langue) ?? "").toLowerCase();
       const description = buildEventDescription({
         show_nom: a.show.toUpperCase(),
         invite_nom: target.nom,
@@ -1102,7 +1110,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         lieu,
         contact_jour_j: a.contact_jour_j,
         fiche_url: ficheLink,
-      });
+      }, pbLang.startsWith("en") ? "en" : "fr");
       // Staff par show (config DB) sinon repli env.
       const { data: scfg } = await sb.from("shows").select("staff").eq("id", sid).maybeSingle();
       const cfgStaff = (((scfg as { staff?: StaffMember[] } | null)?.staff) ?? []).map((s) => s.email).filter((e) => e?.includes("@"));
@@ -1195,9 +1203,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "generate_fiche",
-    "Génère (ou régénère) la fiche de prep d'un épisode au format Onesta, depuis le dossier enrichi, et renvoie son lien signé. Intentions : préparer l'interview, produire la fiche invité, brief de prépa. La cible doit avoir été validée (épisode existant). Sections sans matière affichées « à alimenter ».",
-    { show: z.string(), cible: z.string() },
-    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) qui remplissent les 21 sections en tâche de fond. Chiffres sourcés et datés, notes internes basculées en zone grise. Suivre l'avancement via get_fiche. Relançable : régénère les groupes demandés (les sections réécrites sont versionnées).",
+    {
+      show: z.string(),
+      cible: z.string(),
+      groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule"])).optional().describe("groupes à (re)générer (défaut : les 4)"),
+    },
+    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
@@ -1205,52 +1217,45 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
 
-      // Épisode le plus récent de la cible (la cible doit être validée).
-      const { data: ep } = await sb
-        .from("episodes")
-        .select("id, date_enregistrement, gcal_event_id")
-        .eq("cible_id", target.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!ep) return text({ error: "Aucun épisode pour cette cible : valider d'abord (validate_cible).", cause: "episode_absent", action: "Appeler validate_cible avant de générer la fiche." });
-      const episode = ep as { id: string; date_enregistrement: string | null; gcal_event_id: string | null };
+      // Fiche structurée (créée si absente), datée depuis l'épisode s'il existe.
+      const { data: ep } = await sb.from("episodes").select("id, date_enregistrement, gcal_event_id").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const episode = ep as { id: string; date_enregistrement: string | null; gcal_event_id: string | null } | null;
+      const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: episode?.date_enregistrement ?? null });
+      if (fiche.statut === "verrouillee") return text({ error: "Fiche verrouillée : régénération impossible. Repasser en_challenge via set_status.", cause: "fiche_verrouillee" });
 
-      // Dossier + dernier enrichissement abouti (pour résumé / raison / sources).
-      const { data: cibleRow } = await sb.from("cibles_enrichies").select("*").eq("id", target.id).single();
-      const { data: enrRow } = await sb
+      // Un job par groupe de recherche ; pas de doublon si un job du groupe est déjà en file.
+      const groupes = a.groupes?.length ? Array.from(new Set(a.groupes)) : [...FICHE_GROUPES];
+      const { data: encours } = await sb
         .from("enrichment_jobs")
-        .select("resultat")
+        .select("objectif")
         .eq("cible_id", target.id)
-        .eq("statut", "done")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const enr = (enrRow as { resultat?: { resume?: string | null; raison_de_selection?: string | null; sources?: string[] } } | null)?.resultat ?? null;
+        .in("statut", ["pending", "running"]);
+      const deja = new Set(((encours ?? []) as { objectif: string }[]).map((j) => j.objectif));
+      const nouveaux = groupes.map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
+      if (nouveaux.length) {
+        const { error } = await sb.from("enrichment_jobs").insert(nouveaux.map((objectif) => ({ cible_id: target.id, objectif, apply: false })));
+        if (error) return text({ error: error.message });
+      }
+      kickQueue();
 
-      const data = buildFicheData({
-        cible: cibleRow as unknown as CibleEnrichie,
-        show_nom: a.show,
-        date_enregistrement: episode.date_enregistrement,
-        enrichissement: enr,
-      });
-      const html = generateFicheHtml(data);
-      const token = await signFicheToken(episode.id);
-      const { error } = await sb
-        .from("episodes")
-        .update({ fiche_html: html, fiche_token: token, fiche_generated_at: new Date().toISOString() })
-        .eq("id", episode.id);
-      if (error) return text({ error: error.message });
-
-      // A3 — si l'invitation existe déjà, y injecter le lien fiche (sans écraser).
-      const url = ficheUrl(episode.id, token);
+      const url = fichePageUrl(fiche.slug);
+      // A3 — si l'invitation Calendar existe, y pointer la fiche (lien court, accès team).
       let event_maj: string | undefined;
-      if (episode.gcal_event_id) {
+      if (episode?.gcal_event_id) {
         const r = await injectFicheLink(episode.gcal_event_id, url);
         event_maj = r.ok ? "lien fiche ajouté à l'invitation" : `invitation non mise à jour : ${r.detail}`;
       }
 
-      return text({ ok: true, cible: target.nom, episode_id: episode.id, url, event_maj, detail: "Fiche générée. Sections sans matière marquées « à alimenter »." });
+      return text({
+        ok: true,
+        cible: target.nom,
+        fiche: fiche.slug,
+        url,
+        en_file: nouveaux.length,
+        deja_en_cours: groupes.length - nouveaux.length,
+        event_maj,
+        detail: "Génération en tâche de fond (4 recherches : portrait, chiffres, angles, déroulé). La fiche se remplit progressivement, suivre via get_fiche.",
+      });
     }
   );
 
@@ -1287,7 +1292,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data: ep } = await sb.from("episodes").select("id, date_enregistrement, fiche_token").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (!ep) return text({ error: "Aucun épisode : valider d'abord.", cause: "episode_absent", action: "validate_cible avant l'envoi." });
       const episode = ep as { id: string; date_enregistrement: string | null; fiche_token: string | null };
-      const ficheLink = episode.fiche_token ? ficheUrl(episode.id, episode.fiche_token) : null;
+      // Lien fiche pour le staff : la fiche STRUCTURÉE (/fiches/{slug}, URL courte,
+      // derrière le login) si elle existe, sinon l'ancien lien signé (long).
+      const { data: ficheRow } = await sb.from("fiches").select("slug").eq("cible_id", target.id).maybeSingle();
+      const ficheLink = (ficheRow as { slug?: string } | null)?.slug
+        ? fichePageUrl((ficheRow as { slug: string }).slug)
+        : episode.fiche_token ? ficheUrl(episode.id, episode.fiche_token) : null;
 
       // Langue du mail invité : override explicite, sinon déduite du playbook.
       const { data: cRow } = await sb.from("cibles").select("playbook").eq("id", target.id).maybeSingle();
@@ -1333,7 +1343,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const dateLabel = episode.date_enregistrement
         ? new Date(episode.date_enregistrement).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short", timeZone: "Europe/Paris" })
         : null;
-      const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? null };
+      const common = { invite_nom: target.nom, show_nom: showNom, date_label: dateLabel, lieu: DEFAULT_LIEU, fiche_url: ficheLink, contact_jour_j: a.contact_jour_j ?? DEFAULT_CONTACTS_JOUR_J.join(" · ") };
 
       // A4 — statut typé par destinataire + `ok` global honnête.
       type MailStatus = { status: "sent" | "skipped" | "failed"; detail: string };

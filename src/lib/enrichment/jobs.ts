@@ -10,6 +10,8 @@
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
+import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
+import type { FicheRow } from "../fiche/store";
 import type { CibleEnrichie } from "../types";
 
 const STALE_MINUTES = 10;
@@ -60,6 +62,24 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     try {
       const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", job.cible_id).single();
       if (!row) throw new Error("Cible introuvable");
+
+      // Jobs de GÉNÉRATION DE FICHE (objectif "fiche:<groupe>") : une recherche
+      // web = quelques sections écrites sur la fiche structurée de la cible.
+      if (job.objectif.startsWith(FICHE_JOB_PREFIX)) {
+        const groupe = job.objectif.slice(FICHE_JOB_PREFIX.length) as FicheGroupe;
+        if (!FICHE_GROUPES.includes(groupe)) throw new Error(`Groupe de génération inconnu : ${groupe}`);
+        const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
+        if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
+        const r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches });
+        await sb
+          .from("enrichment_jobs")
+          .update({ statut: "done", resultat: { groupe, sections: r.sections }, error: null, updated_at: nowIso() })
+          .eq("id", job.id);
+        details.push({ id: job.id, ok: true, groupe, sections: r.sections });
+        traites += 1;
+        continue;
+      }
+
       const proposal = await enrichCibleProfile(row as CibleEnrichie, { maxSearches, model });
       if (!proposal) throw new Error("Recherche web sans résultat exploitable");
       let applied: string[] | undefined;
