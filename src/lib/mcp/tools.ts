@@ -1864,7 +1864,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   W(
     "suggest_questions_reseaux",
     "Propose des questions « clips » calibrées sur l'invité d'une fiche : questions clickbait à dégainer en tournage (moment de mou, relance) pour fabriquer un extrait viral. Ressorts : argent, échec, contre-pied, confession. Vadim propose, l'équipe challenge. apply=true écrit la section questions_reseaux (non destructif) ; sinon, renvoie seulement les propositions.",
-    { fiche: z.string(), count: z.number().optional().describe("nombre de questions (défaut 8, max 12)"), apply: z.boolean().optional().describe("true = écrit la section questions_reseaux de la fiche"), show: z.string().optional() },
+    { fiche: z.string(), count: z.number().optional().describe("nombre de questions (défaut 10, max 12)"), apply: z.boolean().optional().describe("true = écrit la section questions_reseaux de la fiche"), show: z.string().optional() },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a, extra) => {
       const sb = createServiceClient();
@@ -1880,7 +1880,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const { data: enr } = await sb.from("enrichment_jobs").select("resultat").eq("cible_id", f.cible_id).eq("statut", "done").order("updated_at", { ascending: false }).limit(1).maybeSingle();
         guest.resume = (enr as { resultat?: { resume?: string | null } } | null)?.resultat?.resume ?? null;
       }
-      const { questions, demo } = await suggestQuestionsReseaux(guest, a.count ?? 8);
+      const { questions, demo } = await suggestQuestionsReseaux(guest, a.count ?? 10);
       let ecrit = false;
       if (a.apply) {
         if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : écriture impossible.", cause: "fiche_verrouillee", questions });
