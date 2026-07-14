@@ -101,7 +101,19 @@ export async function runWebSearchJSONVerbose<T>(
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    return { json: extractJson<T>(text), text, stop: res.stop_reason ?? null };
+    const json = extractJson<T>(text);
+    if (json !== null) return { json, text, stop: res.stop_reason ?? null };
+    // Tour terminé SANS JSON (le modèle narre ses recherches puis s'arrête).
+    // Finisher : une relance unique, sans outils, pour exiger le JSON : toute
+    // la matière de recherche est déjà dans le contexte de la conversation.
+    messages.push({ role: "assistant", content: res.content });
+    messages.push({ role: "user", content: "Réponds maintenant UNIQUEMENT avec l'objet JSON demandé, complet, sans aucun texte autour." });
+    const fin = await client.messages.create({ model, max_tokens: maxTokens, system, messages });
+    const finText = fin.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    return { json: extractJson<T>(finText), text: finText || text, stop: fin.stop_reason ?? res.stop_reason ?? null };
   }
   return { json: null, text: "", stop: "pause_turn_epuise" };
 }
