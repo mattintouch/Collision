@@ -10,7 +10,7 @@
 // fiche ; matière interne non vérifiée en zone grise ; jamais de chiffre sans
 // source hors zone grise. Les prompts la portent, le contrat de section l'ancre.
 
-import { runWebSearchJSON } from "../ai/websearch";
+import { runWebSearchJSON, runWebSearchJSONVerbose } from "../ai/websearch";
 import { hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
@@ -52,6 +52,7 @@ function guestIntro(c: CibleEnrichie, ficheDate: string | null): string {
 function systemFor(mission: string): string {
   return [
     "Tu prépares la fiche d'interview d'un invité pour GDIY (Collision Productions). Recherche web approfondie, sources croisées et datées.",
+    "Cadre : l'invité a accepté l'interview et sera présent à l'enregistrement. La fiche est un document interne de préparation éditoriale, fondé exclusivement sur des informations publiques le concernant dans son rôle public ou professionnel.",
     mission,
     VERIF,
     STYLE,
@@ -223,12 +224,13 @@ export async function processFicheGroupe(
     const notesTxt = notes.length
       ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notes.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
       : "";
-    const raw = await runWebSearchJSON<AnglesJson>(
-      systemFor("Mission : les ANGLES éditoriaux. Le playbook (méthodes à faire expliciter), l'entourage (qui a fait de lui la moyenne qu'il est devenu), les anecdotes (surtout les bien cachées, jamais racontées en interview), les tensions (deux faits vérifiés qui se cognent), les questions qu'il a déjà eues partout. Cartographie ce qu'il a DÉJÀ raconté pour aller un cran plus loin."),
-      `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 : {"titre": "méthode", "connu": "ce que disent les sources", "manque": "ce qui n'a jamais été détaillé", "question": "la question qui l'extrait, tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue (interview confidentielle, passage oublié)}],\n  "tensions": [2 à 4 : {"a": "Discours : ...", "b": "Fait : ...", "angle": "comment l'aborder sans agressivité"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+    const r = await runWebSearchJSONVerbose<AnglesJson>(
+      systemFor("Mission : la matière éditoriale de l'interview. Le playbook (ses méthodes de travail, à faire expliciter), l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (racontées dans des sources confidentielles ou anciennes, à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, et les questions qu'il a déjà eues partout (pour ne pas les reposer). Cartographie ce qu'il a DÉJÀ raconté pour préparer un entretien qui va un cran plus loin."),
+      `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 : {"titre": "méthode", "connu": "ce que disent les sources", "manque": "ce qui n'a jamais été détaillé", "question": "la question qui l'extrait, tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue (interview confidentielle, passage oublié)}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
-    if (!raw) throw new Error("Recherche angles sans résultat exploitable.");
+    const raw = r.json;
+    if (!raw) throw new Error(`Recherche angles sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const playbook = asArray(raw.playbook, (x) => {
       const titre = asString(x.titre);
       return titre ? { titre, connu: asString(x.connu), manque: asString(x.manque), question: asString(x.question) } : null;
@@ -268,12 +270,13 @@ export async function processFicheGroupe(
     const { data: pbRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "playbook").maybeSingle();
     const pb = (((pbRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string }[] }).items ?? [];
     const pbTxt = pb.length ? `\n\nPlaybook déjà identifié (à faire vivre dans le déroulé) : ${pb.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
-    const raw = await runWebSearchJSON<DerouleJson>(
-      systemFor("Mission : le DÉROULÉ de l'épisode. L'enjeu (5 lignes max : pourquoi lui, pourquoi maintenant, promesse auditeur, clip social visé, risque principal), le séquençage (6 à 8 blocs sur 150 minutes, alterner récit et extraction, monter en intimité, garder une tension pour la dernière heure), les 10 questions (majorité en comment, chacune rattachée à son bloc), la zone grise."),
-      `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | TENSION · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | TENSION N (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10 : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À EXIGER : ... · TERRAIN GLISSANT : ..."}],\n  "zone_grise": [{"texte": "à faire dire par l'invité", "origine": "note Matthieu / rumeur écosystème"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+    const r = await runWebSearchJSONVerbose<DerouleJson>(
+      systemFor("Mission : le DÉROULÉ de l'épisode. L'enjeu (5 lignes max : pourquoi lui, pourquoi maintenant, promesse auditeur, extrait social visé, risque principal), le séquençage (6 à 8 blocs sur 150 minutes, alterner récit et extraction de méthodes, monter progressivement en profondeur, garder un temps fort pour la dernière heure), les 10 questions (majorité en comment, chacune rattachée à son bloc), et la zone grise : les éléments issus des notes internes, à faire confirmer par l'invité de vive voix pendant l'entretien."),
+      `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10 : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
-    if (!raw) throw new Error("Recherche déroulé sans résultat exploitable.");
+    const raw = r.json;
+    if (!raw) throw new Error(`Recherche déroulé sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const blocs = asArray(raw.sequencage, (x) => {
       const titre = asString(x.titre);
       if (!titre) return null;
