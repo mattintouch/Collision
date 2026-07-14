@@ -5,6 +5,7 @@
 
 import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/service";
+import { kickQueue } from "@/lib/enrichment/jobs";
 import { resolveFiche, ficheSections } from "@/lib/fiche/store";
 import {
   asArray, asNumber, asString, asStringArray, safeUrl,
@@ -31,6 +32,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const sb = createServiceClient();
   const fiche = await resolveFiche(sb, params.slug);
   if (!fiche) notFound();
+  kickQueue(); // lecture chaude : recharger la fiche draine la génération en cours
 
   const sections = await ficheSections(sb, fiche.id);
   const c = new Map<string, Content>(sections.map((s) => [s.section_id, (s.content ?? {}) as Content]));
