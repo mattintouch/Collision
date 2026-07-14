@@ -97,8 +97,24 @@ export async function ensureFiche(
   if (input.cible_id) {
     const { data } = await sb.from("fiches").select("*").eq("cible_id", input.cible_id).maybeSingle();
     if (data) {
-      await seedSections(sb, (data as FicheRow).id);
-      return { fiche: data as FicheRow, created: false };
+      let fiche = data as FicheRow;
+      // Synchronisation après renommage de la cible : le nom d'invité et le
+      // slug de la fiche suivent (URL propre). L'ancien slug cesse de répondre.
+      if (fiche.invite_nom !== input.invite_nom) {
+        const base = slugify(input.invite_nom);
+        const slug = fiche.slug === base
+          ? fiche.slug
+          : await uniqueSlug(sb, base, input.date_enregistrement ?? fiche.date_enregistrement, fiche.id);
+        const { data: maj } = await sb
+          .from("fiches")
+          .update({ invite_nom: input.invite_nom, slug, updated_at: new Date().toISOString() })
+          .eq("id", fiche.id)
+          .select("*")
+          .single();
+        if (maj) fiche = maj as FicheRow;
+      }
+      await seedSections(sb, fiche.id);
+      return { fiche, created: false };
     }
   }
   const base = slugify(input.invite_nom);
