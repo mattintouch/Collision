@@ -22,7 +22,7 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "checklist_prerec", titre: "Checklist pré-rec", role: "cases à cocher persistées : avion x2, café+eau, machine à café éteinte, clim, son+cams, brief invité, photos. TOUTE la checklist cochée pour lancer le REC" },
 
   // ── Bloc A : comprendre (lecture avant enregistrement) ───────────────────
-  { id: "enjeu", titre: "Enjeu de l'épisode", num: "A1", bloc: "A", role: "pourquoi cet invité, pourquoi maintenant, ce que l'épisode doit produire" },
+  { id: "enjeu", titre: "Enjeu de l'épisode", num: "A1", bloc: "A", role: "la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif), et la leçon transférable explicitement nommée (doctrine, couche C)" },
   { id: "recit_canonique", titre: "Récit canonique", num: "A2", bloc: "A", role: "l'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés : origines, bascules, ascension, statut actuel. INTERDITS : SIREN, toque, adresses, données d'annuaire (sauf pertinence narrative). Doit permettre de reformuler la trajectoire de mémoire" },
   { id: "mecanique_succes", titre: "Mécanique du succès", num: "A3", bloc: "A", role: "OBLIGATOIRE, cœur de la fiche : définition du « meilleur » avec métrique explicite, pairs nommés et positionnement relatif, 3 à 5 points de divergence datés (décisions structurantes), contrefactuel signalé comme raisonnement" },
   { id: "univers", titre: "Univers / marché", num: "A4", bloc: "A", role: "adapté au profil : marché (entrepreneur), discipline et hiérarchie (sportif), écosystème professionnel (avocat, médecin). Taille, économie, acteurs, tendances multi-années, tout sourcé et daté. Visuels barres/timeline réutilisables" },
@@ -33,7 +33,7 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "trente_secondes", titre: "30 secondes avant d'entrer", num: "B1", bloc: "B", role: "qui, fait d'armes, pourquoi maintenant, état d'esprit probable de l'invité" },
   { id: "chiffres", titre: "En chiffres", num: "B2", bloc: "B", role: "JAMAIS VIDE : 8 à 15 données clés sourcées et datées, mélange invité + univers" },
   { id: "parcours", titre: "Parcours", num: "B3", bloc: "B", role: "dates en gras, sans point final, nettoyé des données d'annuaire, chaque ligne peut déclencher une question" },
-  { id: "playbook", titre: "Playbook", num: "B4", bloc: "B", role: "5-8 méthodes : ce qu'on sait, ce qui manque, la question qui l'extrait. OBLIGATOIRE (critère d'acceptation du brief, conservé au contrat v2)" },
+  { id: "playbook", titre: "Playbook", num: "B4", bloc: "B", role: "SECTION REINE (doctrine) : 5-8 systèmes couvrant les 3 familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Format : établi / opaque / la question qui force la mécanique (critère, seuil, arbitrage, cas précis). OBLIGATOIRE" },
   { id: "entourage", titre: "Entourage", num: "B5", bloc: "B", role: "mentors, associés, rencontres pivots, ennemis utiles. Au moins une question dessus" },
   { id: "anecdotes", titre: "Anecdotes sur l'invité", num: "B6", bloc: "B", role: "anecdotes sourcées, les bien cachées marquées en bonus (cachee=true) : matériau narratif exclusif" },
   { id: "tensions", titre: "Tensions", num: "B7", bloc: "B", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },

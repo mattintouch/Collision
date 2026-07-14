@@ -21,7 +21,9 @@ export interface EnteteContent {
 }
 
 export interface ChecklistContent { items?: string[] }
-export interface EnjeuContent { texte?: string }
+/** A1 Enjeu : promesse de dynamique + risque, ET la leçon transférable
+ *  explicitement nommée (doctrine de profondeur, couche C). */
+export interface EnjeuContent { texte?: string; lecon?: string }
 export interface SourcesContent { liens?: LienDate[] }
 export interface TrenteSecondesContent { items?: { label: string; texte: string }[] }
 
@@ -150,7 +152,10 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     liens: [{ label: "LinkedIn", url: "https://www.linkedin.com/in/..." }],
   },
   checklist_prerec: { items: DEFAULT_CHECKLIST },
-  enjeu: { texte: "Pourquoi cet invité, pourquoi maintenant, ce que l'épisode doit produire. 5 lignes max." },
+  enjeu: {
+    texte: "La promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif). 5 lignes max.",
+    lecon: "La leçon transférable à un auditeur étranger au domaine, explicite, une à deux phrases.",
+  },
   recit_canonique: { paragraphes: ["L'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés.", "Origines, bascules, ascension, statut actuel. Pas de données d'annuaire."] },
   mecanique_succes: {
     definition: "En quoi il est le meilleur de son univers, avec la métrique explicite (taux, palmarès, part de marché).",
@@ -159,7 +164,8 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     contrefactuel: "Ce qui serait arrivé sans ces décisions (raisonnement, pas un fait).",
   },
   univers: {
-    intro: ["Le marché ou l'écosystème de l'invité : taille, économie, acteurs, tendances multi-années. Tout sourcé et daté."],
+    intro: ["Le marché ou l'écosystème de l'invité : taille, économie, acteurs, tendances multi-années. Tout sourcé et daté. Couche B : subordonnée à la mécanique personnelle."],
+    distinctions: ["Distinction sectorielle à tenir au micro, ex. la biopharma n'est pas la MedTech : molécules vs dispositifs, dix ans vs cycle court."],
     barres: { titre: "CA sur 10 ans, Md€", note: "explication courte", source: "documents annuels", valeurs: [{ label: "24", affiche: "9,9", valeur: 9.9, plein: true }] },
     comparaison: { titre: "Croissance comparée", source: "rapports annuels", valeurs: [{ nom: "iliad", affiche: "+125 %", pct: 125, hero: true }] },
     rentabilite: { titre: "Rentabilité", note: "la question à en tirer", source: "résultats annuels", valeurs: [{ label: "2024", affiche: "37 %", pct: 37 }] },

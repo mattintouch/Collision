@@ -115,6 +115,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
       return items.length ? items : DEFAULT_CHECKLIST;
     })(),
     enjeu: asString(get("enjeu").texte),
+    lecon: asString(get("enjeu").lecon),
     recit: asStringArray(get("recit_canonique").paragraphes),
     mecanique: (() => {
       const definition = asString(mec.definition);
@@ -132,6 +133,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
       return { definition, pairs, divergences, contrefactuel };
     })(),
     univers_intro: asStringArray(univers.intro),
+    distinctions: asStringArray(univers.distinctions),
     personnel: (() => {
       const items = asArray(perso.items, (x) => {
         const texte = asString(x.texte);

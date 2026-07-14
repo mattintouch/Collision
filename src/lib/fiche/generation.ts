@@ -46,6 +46,18 @@ const REGLES = [
   "URLs : uniquement des URLs réellement rencontrées dans tes recherches. AUCUNE URL reconstruite, devinée ou complétée. En cas de doute, omets l'URL.",
 ].join("\n");
 
+/** Doctrine de profondeur GDIY (pack Matthieu, v2 juillet 2026) : grille
+ *  permanente injectée dans chaque prompt de génération. */
+const DOCTRINE = [
+  "DOCTRINE DE PROFONDEUR (permanente) :",
+  "- Extraire le SYSTÈME, pas l'histoire : le mode opératoire reproductible. La question utile n'est jamais « qu'as-tu fait » mais « comment tu produis ce que tu produis, de façon répétable ».",
+  "- Trois familles de mécaniques à chercher chez TOUT invité : action (le geste, l'exécution, la routine concrète), réflexion (comment il décide, arbitre, tranche sous incertitude), innovation (comment il va chercher sa singularité face à ses pairs).",
+  "- Trois couches : A la mécanique personnelle (priorité absolue, environ 60 % de l'antenne), B l'état de l'art du domaine (environ 20 %, SUBORDONNÉE : elle arme l'intervieweur et n'existe que pour éclairer une pratique de l'invité, jamais un sujet en soi), C la leçon transférable à un auditeur étranger au domaine (environ 20 %, explicitement nommée, jamais implicite).",
+  "- ARCHÉTYPE : identifie-le et calibre les mécaniques. Fondateur/entrepreneur (défaut) : le pari initial, l'allocation du risque, le pivot, la décision de financement. Dirigeant de grand groupe coté (exception) : l'ascension et l'exercice du pouvoir à l'échelle, décider sous contrainte de conseil et d'actionnaires. Artiste : processus créatif, routine d'atelier, source de singularité, rapport à la critique. Sportif : entraînement, routines, préparation mentale, gestion du pic et de la pression. Avocat : construction du dossier, stratégie d'audience, lecture de l'adversaire, incertitude du verdict. Médecin/scientifique : décision sous incertitude, diagnostic, rapport à l'erreur, éthique de la preuve. Politique : conquête et exercice du pouvoir, arbitrage conviction/opinion, NEUTRALITÉ, la méthode et non la polémique. Hybride : croiser les grilles et chercher la tension entre elles, souvent la zone la plus riche.",
+  "- DISTINCTION SECTORIELLE : identifie les termes adjacents que le grand public confond (ex. biopharma ≠ MedTech) et pose la distinction dans la fiche, pour que l'intervieweur la formule lui-même au micro.",
+  "- Test de qualité d'une question : si la réponse attendue pourrait figurer dans un article déjà publié, la question est faible. Reformuler jusqu'à exiger un critère, un seuil, un arbitrage, un cas précis, que seule la personne assise en face peut donner.",
+].join("\n");
+
 function guestIntro(c: CibleEnrichie, ficheDate: string | null): string {
   const bits = [
     c.role ? `${c.role}` : null,
@@ -62,6 +74,7 @@ function systemFor(mission: string): string {
     "Tu prépares la fiche d'interview d'un invité pour GDIY (Collision Productions). Recherche web approfondie, sources croisées et datées.",
     "Cadre : l'invité a accepté l'interview et sera présent à l'enregistrement. La fiche est un document interne de préparation éditoriale, fondé exclusivement sur des informations publiques le concernant dans son rôle public ou professionnel.",
     mission,
+    DOCTRINE,
     REGLES,
     STYLE,
     "Réponds UNIQUEMENT en JSON, sans texte autour, au format exact demandé.",
@@ -91,6 +104,7 @@ interface ChiffresJson {
     contrefactuel?: string;
   };
   univers_intro?: string[];
+  distinctions?: string[];
   barres?: { titre?: string; note?: string; source?: string; valeurs?: { label?: string; affiche?: string; valeur?: number; plein?: boolean }[] };
   comparaison?: { titre?: string; source?: string; valeurs?: { nom?: string; affiche?: string; pct?: number; hero?: boolean }[] };
   rentabilite?: { titre?: string; note?: string; source?: string; valeurs?: { label?: string; affiche?: string; pct?: number }[] };
@@ -111,6 +125,7 @@ interface AnglesJson {
 
 interface DerouleJson {
   enjeu?: string;
+  lecon?: string;
   sequencage?: { debut_min?: number; fin_min?: number; court?: string; titre?: string; intention?: string; mode?: string; rappel_label?: string; rappel?: string }[];
   dix_questions?: { num?: string; bloc?: number; texte?: string; note?: string }[];
   zone_grise?: { texte?: string; origine?: string }[];
@@ -249,8 +264,8 @@ export async function processFicheGroupe(
 
   if (groupe === "chiffres") {
     const r = await runWebSearchJSONVerbose<ChiffresJson>(
-      systemFor("Mission : la MÉCANIQUE DU SUCCÈS (cœur de la fiche), l'UNIVERS et les CHIFFRES. Mécanique : en quoi il est le meilleur de son univers avec une métrique explicite, ses pairs et concurrents nommés avec positionnement relatif, 3 à 5 points de divergence datés (les décisions structurantes qui ont fait décrocher sa trajectoire de celle de ses pairs), et un contrefactuel signalé comme raisonnement. Univers : le marché ou l'écosystème adapté au profil (marché sectoriel pour un entrepreneur, discipline et hiérarchie pour un sportif, écosystème professionnel pour un avocat ou un médecin), taille, économie, acteurs, tendances multi-années. Chiffres : 8 à 15 données clés sourcées et datées, mélange invité + univers, JAMAIS vide."),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "mecanique": {\n    "definition": "en quoi il est le meilleur, métrique explicite (taux, palmarès, part de marché, influence mesurable)",\n    "pairs": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité"}],\n    "divergences": [3 à 5 : {"date": "2012", "decision": "la décision structurante", "effet": "ce qu'elle a produit"}],\n    "contrefactuel": "ce qui serait arrivé sans ces décisions (raisonnement, pas un fait)"\n  },\n  "univers_intro": ["1 à 3 paragraphes : le marché ou l'écosystème, taille, économie, acteurs, tendances (chiffres sourcés dans le texte)"],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (si données chiffrées multi-années disponibles),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (si comparaison vérifiable),\n  "rentabilite": {"titre", "note", "source", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]} (si pertinent),\n  "timeline": {"titre": "Les bascules", "jalons": [{"annee": "12", "titre", "texte", "cle": true}]},\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée"}] (mélange invité + univers, source OBLIGATOIRE),\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : la MÉCANIQUE DU SUCCÈS (cœur de la fiche), l'UNIVERS et les CHIFFRES. Mécanique : en quoi il est le meilleur de son univers avec une métrique explicite, ses pairs et concurrents nommés avec positionnement relatif, 3 à 5 points de divergence datés (les décisions structurantes qui ont fait décrocher sa trajectoire de celle de ses pairs), et un contrefactuel signalé comme raisonnement. Univers (couche B, SUBORDONNÉE à la mécanique personnelle : elle arme l'intervieweur, elle n'est pas un sujet en soi) : le marché ou l'écosystème adapté au profil, taille, économie, acteurs, tendances multi-années, ET les distinctions sectorielles à tenir (les termes adjacents que le grand public confond, à poser pour que l'intervieweur ne se fasse pas reprendre). Chiffres : 8 à 15 données clés sourcées et datées, mélange invité + univers, JAMAIS vide."),
+      `${intro}\n\nRenvoie un objet JSON : {\n  "mecanique": {\n    "definition": "en quoi il est le meilleur, métrique explicite (taux, palmarès, part de marché, influence mesurable)",\n    "pairs": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité"}],\n    "divergences": [3 à 5 : {"date": "2012", "decision": "la décision structurante", "effet": "ce qu'elle a produit"}],\n    "contrefactuel": "ce qui serait arrivé sans ces décisions (raisonnement, pas un fait)"\n  },\n  "univers_intro": ["1 à 3 paragraphes : le marché ou l'écosystème, taille, économie, acteurs, tendances (chiffres sourcés dans le texte)"],\n  "distinctions": ["0 à 3 : distinction sectorielle à tenir, ex. la biopharma n'est pas la MedTech : dispositifs vs molécules, cycle court vs dix ans"],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (si données chiffrées multi-années disponibles),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (si comparaison vérifiable),\n  "rentabilite": {"titre", "note", "source", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]} (si pertinent),\n  "timeline": {"titre": "Les bascules", "jalons": [{"annee": "12", "titre", "texte", "cle": true}]},\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée"}] (mélange invité + univers, source OBLIGATOIRE),\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     const raw = r.json;
@@ -276,6 +291,8 @@ export async function processFicheGroupe(
     const univers: Content = {};
     const intro2 = (raw.univers_intro ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
     if (intro2.length) univers.intro = intro2;
+    const distinctions = (raw.distinctions ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
+    if (distinctions.length) univers.distinctions = distinctions;
     if (raw.barres?.titre && Array.isArray(raw.barres.valeurs) && raw.barres.valeurs.length) univers.barres = raw.barres;
     if (raw.comparaison && Array.isArray(raw.comparaison.valeurs) && raw.comparaison.valeurs.length) univers.comparaison = raw.comparaison;
     if (raw.rentabilite && Array.isArray(raw.rentabilite.valeurs) && raw.rentabilite.valeurs.length) univers.rentabilite = raw.rentabilite;
@@ -299,8 +316,8 @@ export async function processFicheGroupe(
       ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notes.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
       : "";
     const r = await runWebSearchJSONVerbose<AnglesJson>(
-      systemFor("Mission : la matière éditoriale de l'interview. Le playbook (ses méthodes de travail, à faire expliciter), l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
-      `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 : {"titre": "méthode", "connu": "ce que disent les sources", "manque": "ce qui n'a jamais été détaillé", "question": "la question qui l'extrait, tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : la matière éditoriale de l'interview. Le PLAYBOOK est la section reine : 5 à 8 SYSTÈMES de l'invité, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur son archétype. Pour chaque système : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (elle doit exiger un critère, un seuil, un arbitrage ou un cas précis, jamais une réponse d'article). Plus l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
+      `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 systèmes couvrant action, réflexion ET innovation : {"titre": "le système", "connu": "ce que les sources établissent", "manque": "ce qui reste opaque", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     const raw = r.json;
@@ -350,8 +367,8 @@ export async function processFicheGroupe(
     const pb = (((pbRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string }[] }).items ?? [];
     const pbTxt = pb.length ? `\n\nPlaybook déjà identifié (à faire vivre dans le déroulé) : ${pb.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
     const r = await runWebSearchJSONVerbose<DerouleJson>(
-      systemFor("Mission : le DÉROULÉ de l'épisode. L'enjeu (pourquoi cet invité, pourquoi maintenant, ce que l'épisode doit produire, 5 lignes max), le séquençage (6 à 8 blocs sur 150 minutes, alterner récit et extraction de méthodes, monter progressivement en profondeur, garder un temps fort pour la dernière heure), les 10 questions (majorité en comment, chacune rattachée à son bloc), et la zone grise : les éléments issus des notes internes, à faire confirmer par l'invité de vive voix pendant l'entretien."),
-      `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10 : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : le DÉROULÉ de l'épisode, structuré par les trois couches. L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Le séquençage : 6 à 8 blocs sur 150 minutes, environ 60 % du temps sur la mécanique personnelle, alterner récit et extraction, placer UN bloc de pédagogie courte au milieu, ancré sur un cas concret (jamais abstrait), monter en intimité vers la fin, clore sur la leçon transférable. Les 10 questions : majorité en comment, chacune rattachée à son bloc ; AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité). La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix."),
+      `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     const raw = r.json;
@@ -379,7 +396,7 @@ export async function processFicheGroupe(
       const texte = asString(x.texte);
       return texte ? { texte, origine: asString(x.origine) } : null;
     });
-    await put("enjeu", { texte: asString(raw.enjeu) }, !!asString(raw.enjeu));
+    await put("enjeu", { texte: asString(raw.enjeu), lecon: asString(raw.lecon) }, !!asString(raw.enjeu) || !!asString(raw.lecon));
     await put("sequencage", { blocs }, blocs.length > 0);
     await put("dix_questions", { questions }, questions.length > 0);
     await put("zone_grise", { items: zone }, zone.length > 0);

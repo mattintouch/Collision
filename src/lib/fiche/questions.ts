@@ -35,7 +35,8 @@ function coerceRessort(r: unknown): QuestionRessort {
 
 const SYSTEM = [
   "Tu proposes des questions « clips » pour Génération Do It Yourself (GDIY), podcast d'entrepreneurs de Collision Productions.",
-  "But : en plein enregistrement, sur un moment de mou ou pour relancer, l'hôte dégaine une de ces questions. La réponse doit être courte, franche, et devenir un extrait viral pour les réseaux.",
+  "But : en plein enregistrement, sur un moment de mou ou pour relancer, l'hôte dégaine une de ces questions. La réponse doit être courte, franche, et devenir un short viral pour les réseaux.",
+  "Doctrine de ton (impérative) : les clips portent l'ÉMOTION et la SURPRISE, jamais la démonstration. Fun, surprenant, humain, immédiatement partageable : le décalage, l'aveu, le contre-pied, la question enfantine sur un sujet sérieux. Le fond dense vit ailleurs (les 10 questions), la légèreté vit ici.",
   "Chaque question exploite un ressort qui performe : argent (le tabou), échec ou point de rupture, contre-pied (opinion tranchée), confession ou coulisses.",
   "Le clickbait tient à trois leviers : un écart d'information, une charge émotionnelle, une réponse exploitable en clip vertical.",
   "Calibre les questions sur l'invité (son parcours, son secteur, ses zones sensibles). Évite le générique quand un angle propre à l'invité existe.",

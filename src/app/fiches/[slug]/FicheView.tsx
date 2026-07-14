@@ -50,6 +50,7 @@ export interface FicheViewData {
   };
   checklist: string[];
   enjeu?: string;
+  lecon?: string;
   recit: string[];
   mecanique: {
     definition?: string;
@@ -58,6 +59,7 @@ export interface FicheViewData {
     contrefactuel?: string;
   } | null;
   univers_intro: string[];
+  distinctions: string[];
   personnel: { bandeau: string; items: { texte: string; source: string }[] } | null;
   a_lire: ALireLien[];
   trente_secondes: { label: string; texte: string }[];
@@ -214,10 +216,16 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const renderSection = (id: string): React.ReactNode => {
     switch (id) {
       case "enjeu":
-        return data.enjeu ? (
+        return data.enjeu || data.lecon ? (
           <section key={id} style={sectionStyle}>
             <h2 style={h2Style}>L&apos;enjeu</h2>
-            <p style={{ ...proseStyle, margin: "14px 0 0 0" }}>{data.enjeu}</p>
+            {data.enjeu && <p style={{ ...proseStyle, margin: "14px 0 0 0" }}>{data.enjeu}</p>}
+            {data.lecon && (
+              <div style={{ marginTop: 16, borderLeft: "3px solid #000", paddingLeft: 14 }}>
+                <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>LEÇON TRANSFÉRABLE</span>
+                <p style={{ fontSize: 16, lineHeight: 1.55, margin: "6px 0 0 0", fontWeight: 600 }}>{data.lecon}</p>
+              </div>
+            )}
           </section>
         ) : null;
 
@@ -279,13 +287,23 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
       case "univers": {
         const hasVisuels = !!(v.barres || v.comparaison || v.rentabilite || v.timeline);
-        if (!data.univers_intro.length && !hasVisuels) return null;
+        if (!data.univers_intro.length && !hasVisuels && !data.distinctions.length) return null;
         return (
           <section key={id} style={sectionStyle}>
             <h2 style={h2Style}>Univers / marché</h2>
             {data.univers_intro.map((p, i) => (
               <p key={i} style={{ ...proseStyle, margin: "14px 0 0 0" }}>{p}</p>
             ))}
+            {data.distinctions.length > 0 && (
+              <div style={{ marginTop: 18, border: "1px solid #000", padding: "12px 16px" }}>
+                <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>DISTINCTIONS À TENIR AU MICRO</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                  {data.distinctions.map((d, i) => (
+                    <span key={i} style={{ fontSize: 15, lineHeight: 1.5 }}>{d}</span>
+                  ))}
+                </div>
+              </div>
+            )}
             {v.barres && v.barres.valeurs.length > 0 && (
               <div style={{ marginTop: 32 }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
