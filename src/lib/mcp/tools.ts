@@ -28,7 +28,7 @@ import {
   type FicheRow,
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
-import { FICHE_GROUPES, FICHE_JOB_PREFIX, enqueueFicheGeneration } from "../fiche/generation";
+import { FICHE_GROUPES, FICHE_JOB_PREFIX, enqueueFicheGeneration, type FicheGroupe } from "../fiche/generation";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
@@ -1240,7 +1240,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (fiche.statut === "verrouillee") return text({ error: "Fiche verrouillée : régénération impossible. Repasser en_challenge via set_status.", cause: "fiche_verrouillee" });
 
       // Un job par groupe de recherche ; pas de doublon si un job du groupe est déjà en file.
-      const groupes = a.groupes?.length ? Array.from(new Set(a.groupes)) : [...FICHE_GROUPES];
+      const groupes: FicheGroupe[] = a.groupes?.length ? Array.from(new Set(a.groupes as FicheGroupe[])) : [...FICHE_GROUPES];
       let enFile = 0;
       try {
         enFile = await enqueueFicheGeneration(sb, target.id, groupes);
