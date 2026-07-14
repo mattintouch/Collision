@@ -1,18 +1,20 @@
-// /fiches/{slug} : rendu de la fiche de préparation structurée (tables 0034).
-// Lecture via service role (la page est derrière l'auth de l'app, middleware).
+// /fiches/{slug} : rendu de la fiche de préparation structurée (contrat v2,
+// Bloc A / Bloc B). Lecture via service role (page derrière l'auth de l'app).
 // Le serveur coerce le JSON de chaque section vers le contrat de rendu ; toute
-// section vide ou non applicable est absente de la page (règle du brief).
+// section vide ou non applicable est absente de la page. L'ordre des sections
+// par fiche (colonne position) est respecté, défaut au catalogue.
 
 import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/service";
 import { kickQueue } from "@/lib/enrichment/jobs";
+import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections } from "@/lib/fiche/store";
 import {
   asArray, asNumber, asString, asStringArray, safeUrl,
-  DEFAULT_CHECKLIST, DEFAULT_FOOTER,
+  DEFAULT_CHECKLIST, DEFAULT_FOOTER, DEFAULT_PERSONNEL_BANDEAU,
   type LienDate,
 } from "@/lib/fiche/schema";
-import FicheView, { type FicheViewData, type FicheBloc, type FicheQuestion } from "./FicheView";
+import FicheView, { type FicheViewData, type FicheBloc, type FicheQuestion, type ALireLien } from "./FicheView";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,26 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const sections = await ficheSections(sb, fiche.id);
   const c = new Map<string, Content>(sections.map((s) => [s.section_id, (s.content ?? {}) as Content]));
   const get = (id: string): Content => c.get(id) ?? {};
+  // Ordre par fiche (réordonnable, contrat §4) : l'ordre de ficheSections.
+  const ordre = sections.map((s) => s.section_id);
+
+  // Journal de génération (contrat §3.6) : dernier état par groupe.
+  let generation: { groupe: string; statut: string; error?: string; quand?: string }[] = [];
+  if (fiche.cible_id) {
+    const { data: jobs } = await sb
+      .from("enrichment_jobs")
+      .select("objectif, statut, error, updated_at")
+      .eq("cible_id", fiche.cible_id)
+      .like("objectif", `${FICHE_JOB_PREFIX}%`)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    const derniers = new Map<string, { groupe: string; statut: string; error?: string; quand?: string }>();
+    for (const j of ((jobs ?? []) as { objectif: string; statut: string; error: string | null; updated_at: string }[])) {
+      const groupe = j.objectif.slice(FICHE_JOB_PREFIX.length);
+      if (!derniers.has(groupe)) derniers.set(groupe, { groupe, statut: j.statut, error: j.error ?? undefined, quand: j.updated_at });
+    }
+    generation = Array.from(derniers.values());
+  }
 
   const entete = get("entete");
   const sticky = get("sticky_header");
@@ -61,17 +83,21 @@ export default async function FichePage({ params }: { params: { slug: string } }
     return { num: asString(x.num) ?? "", bloc: asNumber(x.bloc) ?? -1, texte, note: asString(x.note) };
   }).map((q, i) => ({ ...q, num: q.num || pad2(i + 1) }));
 
-  const entreprise = get("entreprise");
-  const barres = (entreprise.barres ?? null) as Content | null;
-  const comparaison = (entreprise.comparaison ?? null) as Content | null;
-  const rentabilite = (entreprise.rentabilite ?? null) as Content | null;
-  const timeline = (entreprise.timeline ?? null) as Content | null;
+  const univers = get("univers");
+  const barres = (univers.barres ?? null) as Content | null;
+  const comparaison = (univers.comparaison ?? null) as Content | null;
+  const rentabilite = (univers.rentabilite ?? null) as Content | null;
+  const timeline = (univers.timeline ?? null) as Content | null;
+  const mec = get("mecanique_succes");
+  const perso = get("personnel");
 
   const data: FicheViewData = {
     slug: fiche.slug,
     invite_nom: fiche.invite_nom,
     statut: fiche.statut,
     version: fiche.version,
+    ordre,
+    generation,
     entete: {
       numero: asString(entete.numero),
       titre_lignes: titreLignes.length ? titreLignes : fiche.invite_nom.split(/\s+/),
@@ -89,13 +115,50 @@ export default async function FichePage({ params }: { params: { slug: string } }
       return items.length ? items : DEFAULT_CHECKLIST;
     })(),
     enjeu: asString(get("enjeu").texte),
-    sources_rapides: liens(get("sources_rapides").liens),
+    recit: asStringArray(get("recit_canonique").paragraphes),
+    mecanique: (() => {
+      const definition = asString(mec.definition);
+      const pairs = asArray(mec.pairs, (x) => {
+        const nom = asString(x.nom);
+        return nom ? { nom, position: asString(x.position) } : null;
+      });
+      const divergences = asArray(mec.divergences, (x) => {
+        const date = asString(x.date);
+        const decision = asString(x.decision);
+        return date && decision ? { date, decision, effet: asString(x.effet) } : null;
+      });
+      const contrefactuel = asString(mec.contrefactuel);
+      if (!definition && !pairs.length && !divergences.length && !contrefactuel) return null;
+      return { definition, pairs, divergences, contrefactuel };
+    })(),
+    univers_intro: asStringArray(univers.intro),
+    personnel: (() => {
+      const items = asArray(perso.items, (x) => {
+        const texte = asString(x.texte);
+        const source = asString(x.source);
+        return texte && source ? { texte, source } : null;
+      });
+      if (!items.length) return null;
+      return { bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU, items };
+    })(),
+    a_lire: asArray(get("a_lire").liens, (x) => {
+      const titre = asString(x.titre);
+      if (!titre) return null;
+      const niveau = asString(x.niveau);
+      return {
+        niveau: niveau === "indispensable" || niveau === "utile" || niveau === "optionnel" ? niveau : undefined,
+        titre,
+        date: asString(x.date),
+        temps_lecture: asString(x.temps_lecture),
+        apport: asString(x.apport),
+        url: safeUrl(x.url),
+      } as ALireLien;
+    }),
     trente_secondes: asArray(get("trente_secondes").items, (x) => {
       const label = asString(x.label);
       const texte = asString(x.texte);
       return label && texte ? { label, texte } : null;
     }),
-    presentation: asStringArray(get("presentation").paragraphes),
     anecdotes: asArray(get("anecdotes").items, (x) => {
       const texte = asString(x.texte);
       return texte ? { texte, source: asString(x.source), cachee: x.cachee === true } : null;
@@ -105,7 +168,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
       const libelle = asString(x.libelle);
       return valeur && libelle ? { valeur, libelle, source: asString(x.source) } : null;
     }),
-    entreprise: {
+    visuels: {
       barres: barres && asString(barres.titre)
         ? {
             titre: asString(barres.titre)!,

@@ -17,8 +17,8 @@ import { computeShowStats } from "../stats";
 import { kindAwarePatch } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
-import { FICHE_SECTIONS } from "../fiche/sections";
-import { SECTION_CONTRACTS } from "../fiche/schema";
+import { FICHE_SECTIONS, canonicalSectionId } from "../fiche/sections";
+import { SECTION_CONTRACTS, isEmptyContent } from "../fiche/schema";
 import {
   FICHE_STATUTS,
   resolveFiche,
@@ -1713,19 +1713,20 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sid = a.show ? await showId(sb, a.show) : null;
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
-      const def = FICHE_SECTIONS.find((s) => s.id === a.section_id);
+      const sectionId = canonicalSectionId(a.section_id); // alias v1 acceptés
+      const def = FICHE_SECTIONS.find((s) => s.id === sectionId);
       if (!def) return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
-      const { data } = await sb.from("fiche_sections").select("content, version, updated_at, updated_by").eq("fiche_id", f.id).eq("section_id", a.section_id).maybeSingle();
+      const { data } = await sb.from("fiche_sections").select("content, version, updated_at, updated_by").eq("fiche_id", f.id).eq("section_id", sectionId).maybeSingle();
       const row = data as { content: Record<string, unknown>; version: number; updated_at: string; updated_by: string | null } | null;
       return text({
         fiche: f.slug,
-        section_id: a.section_id,
+        section_id: sectionId,
         titre: def.titre,
         num: def.num ?? null,
         role: def.role ?? null,
         version: row?.version ?? 0,
         content: row?.content ?? {},
-        contrat: SECTION_CONTRACTS[a.section_id] ?? null, // forme attendue par update_section
+        contrat: SECTION_CONTRACTS[sectionId] ?? null, // forme attendue par update_section
       });
     }
   );
@@ -1746,12 +1747,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
       if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : édition impossible. Repasser en_challenge via set_status.", cause: "fiche_verrouillee" });
-      const def = FICHE_SECTIONS.find((s) => s.id === a.section_id);
+      const sectionId = canonicalSectionId(a.section_id); // alias v1 acceptés
+      const def = FICHE_SECTIONS.find((s) => s.id === sectionId);
       if (!def) return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
       const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
-      const r = await writeSection(sb, f.id, a.section_id, a.content, author);
+      const r = await writeSection(sb, f.id, sectionId, a.content, author);
       if (!r) return text({ error: `Section inconnue : ${a.section_id}.` });
-      return text({ ok: true, fiche: f.slug, section_id: a.section_id, titre: def.titre, version: r.version });
+      return text({ ok: true, fiche: f.slug, section_id: sectionId, titre: def.titre, version: r.version });
     }
   );
 
@@ -1809,6 +1811,21 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sid = a.show ? await showId(sb, a.show) : null;
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      // Gate du contrat v2 (§3.5) : passage en_challenge refusé si la mécanique
+      // du succès (A3), l'univers (A4) ou les chiffres (B2) sont vides.
+      if (a.statut === "en_challenge") {
+        const requises = ["mecanique_succes", "univers", "chiffres"];
+        const { data: secs } = await sb.from("fiche_sections").select("section_id, content").eq("fiche_id", f.id).in("section_id", requises);
+        const parId = new Map(((secs ?? []) as { section_id: string; content: unknown }[]).map((s) => [s.section_id, s.content]));
+        const vides = requises.filter((id) => isEmptyContent(parId.get(id)));
+        if (vides.length) {
+          return text({
+            error: `Passage en_challenge refusé : section(s) obligatoire(s) vide(s) : ${vides.join(", ")}.`,
+            cause: "sections_obligatoires_vides",
+            action: "Lancer generate_fiche (groupe chiffres) ou remplir via update_section, puis réessayer.",
+          });
+        }
+      }
       // Garde-fou : verrouiller une fiche qui a encore des commentaires ouverts est
       // probablement une erreur ; on le signale sans bloquer (l'équipe décide).
       let avertissement: string | undefined;

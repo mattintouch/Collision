@@ -70,7 +70,17 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         if (!FICHE_GROUPES.includes(groupe)) throw new Error(`Groupe de génération inconnu : ${groupe}`);
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
         if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
-        const r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches });
+        // Contrat v2 §3.6 : retry automatique (2 tentatives) sur erreur API/JSON.
+        let r: { sections: string[] } | null = null;
+        let lastErr: unknown;
+        for (let tentative = 1; tentative <= 2 && !r; tentative++) {
+          try {
+            r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches });
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        if (!r) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
         await sb
           .from("enrichment_jobs")
           .update({ statut: "done", resultat: { groupe, sections: r.sections }, error: null, updated_at: nowIso() })

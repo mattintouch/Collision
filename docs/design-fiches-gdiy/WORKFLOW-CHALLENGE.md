@@ -23,7 +23,12 @@ Chaque section s'édite indépendamment. La boucle type :
 1. `get_section(fiche, section_id)` : renvoie le contenu actuel ET le champ `contrat`, l'exemple JSON exact que la section attend.
 2. `update_section(fiche, section_id, content)` : remplace le contenu. Chaque écriture archive la version précédente (rollback possible) et incrémente la version.
 
-Sections (`section_id`) : sticky_header, entete, checklist_prerec, enjeu, sources_rapides, trente_secondes, presentation, chiffres, parcours, entreprise, playbook, entourage, anecdotes, tensions, questions_recurrentes, questions_reseaux (questions clips), sequencage, dix_questions, zone_grise, sources, footer.
+Sections (`section_id`, contrat v2 Bloc A/B) :
+- Bloc A (comprendre) : enjeu, recit_canonique, mecanique_succes (OBLIGATOIRE), univers, personnel, a_lire.
+- Bloc B (console) : trente_secondes, chiffres (jamais vide), parcours, playbook (OBLIGATOIRE), entourage, anecdotes, tensions, questions_recurrentes, questions_reseaux (questions clips), sequencage, dix_questions, zone_grise, sources.
+- Chrome : sticky_header, entete, checklist_prerec, footer.
+- Alias hérités acceptés : presentation → recit_canonique, entreprise → univers, sources_rapides → a_lire.
+- Gate : passage en_challenge refusé si mecanique_succes, univers ou chiffres est vide.
 
 Règles de contenu :
 - Une section vide n'apparaît pas sur la page. Aucune obligation de tout remplir.

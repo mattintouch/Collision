@@ -25,13 +25,36 @@ export interface EnjeuContent { texte?: string }
 export interface SourcesContent { liens?: LienDate[] }
 export interface TrenteSecondesContent { items?: { label: string; texte: string }[] }
 
-/** Présentation exhaustive de l'invité, en haut de fiche (paragraphes libres). */
-export interface PresentationContent { paragraphes?: string[] }
+/** A2 Récit canonique : l'histoire maîtrisée, 5 à 8 paragraphes de prose. */
+export interface RecitContent { paragraphes?: string[] }
+
+/** A3 Mécanique du succès (OBLIGATOIRE, cœur de la fiche). */
+export interface MecaniqueContent {
+  definition?: string;    // le « meilleur » dans son univers, métrique explicite
+  pairs?: { nom: string; position?: string }[]; // concurrents nommés + positionnement relatif
+  divergences?: { date: string; decision: string; effet?: string }[]; // 3-5 points datés
+  contrefactuel?: string; // signalé comme raisonnement, pas comme fait
+}
+
+/** A5 Personnel : éléments publics uniquement, source obligatoire par item. */
+export interface PersonnelContent {
+  bandeau?: string; // avertissement d'usage (défaut DEFAULT_PERSONNEL_BANDEAU)
+  items?: { texte: string; source: string }[];
+}
+
+/** A6 À lire : 5 à 8 sources hiérarchisées, URLs vérifiées à la génération. */
+export type NiveauLecture = "indispensable" | "utile" | "optionnel";
+export interface ALireContent {
+  liens?: { niveau?: NiveauLecture; titre: string; date?: string; temps_lecture?: string; apport?: string; url?: string }[];
+}
 
 /** Anecdotes sourcées ; cachee=true = bonus bien caché, mis en avant au rendu. */
 export interface AnecdotesContent {
   items?: { texte: string; source?: string; cachee?: boolean }[];
 }
+
+export const DEFAULT_PERSONNEL_BANDEAU =
+  "Matière pour le rapport et les relances, diffusion à l'antenne à valider au cas par cas.";
 
 export interface KpiCard { valeur: string; libelle: string; source?: string }
 export interface ChiffresContent { kpis?: KpiCard[] }
@@ -127,18 +150,29 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     liens: [{ label: "LinkedIn", url: "https://www.linkedin.com/in/..." }],
   },
   checklist_prerec: { items: DEFAULT_CHECKLIST },
-  enjeu: { texte: "L'enjeu de l'épisode en 5 lignes max : pourquoi lui, pourquoi maintenant, promesse, clip social visé, risque principal." },
-  sources_rapides: { liens: [{ date: "MARS 2025", titre: "Titre du lien", apport: "ce que la source apporte", url: "https://..." }] },
+  enjeu: { texte: "Pourquoi cet invité, pourquoi maintenant, ce que l'épisode doit produire. 5 lignes max." },
+  recit_canonique: { paragraphes: ["L'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés.", "Origines, bascules, ascension, statut actuel. Pas de données d'annuaire."] },
+  mecanique_succes: {
+    definition: "En quoi il est le meilleur de son univers, avec la métrique explicite (taux, palmarès, part de marché).",
+    pairs: [{ nom: "Pair ou concurrent", position: "positionnement relatif de l'invité" }],
+    divergences: [{ date: "2012", decision: "la décision structurante", effet: "ce qu'elle a produit" }],
+    contrefactuel: "Ce qui serait arrivé sans ces décisions (raisonnement, pas un fait).",
+  },
+  univers: {
+    intro: ["Le marché ou l'écosystème de l'invité : taille, économie, acteurs, tendances multi-années. Tout sourcé et daté."],
+    barres: { titre: "CA sur 10 ans, Md€", note: "explication courte", source: "documents annuels", valeurs: [{ label: "24", affiche: "9,9", valeur: 9.9, plein: true }] },
+    comparaison: { titre: "Croissance comparée", source: "rapports annuels", valeurs: [{ nom: "iliad", affiche: "+125 %", pct: 125, hero: true }] },
+    rentabilite: { titre: "Rentabilité", note: "la question à en tirer", source: "résultats annuels", valeurs: [{ label: "2024", affiche: "37 %", pct: 37 }] },
+    timeline: { titre: "Les bascules", jalons: [{ annee: "12", titre: "Free Mobile", texte: "Le forfait à 2 euros.", cle: true }] },
+  },
+  personnel: {
+    bandeau: DEFAULT_PERSONNEL_BANDEAU,
+    items: [{ texte: "Élément personnel PUBLIC (famille, épreuve, passion).", source: "source publique datée, OBLIGATOIRE" }],
+  },
+  a_lire: { liens: [{ niveau: "indispensable", titre: "Titre de la source", date: "mars 2025", temps_lecture: "12 min", apport: "ce que la source apporte en une phrase", url: "https://... (vérifiée, jamais reconstruite)" }] },
   trente_secondes: { items: [{ label: "Qui", texte: "..." }, { label: "Fait d'armes", texte: "..." }, { label: "Pourquoi maintenant", texte: "..." }, { label: "État d'esprit", texte: "..." }] },
-  presentation: { paragraphes: ["Portrait exhaustif de l'invité, un paragraphe par idée.", "Origines, construction, réputation, style en interview."] },
   chiffres: { kpis: [{ valeur: "9,9 Md€", libelle: "CA groupe 2024", source: "iliad, mars 2025" }] },
   parcours: { lignes: [{ annee: "1999", texte: "Lance Free, accès internet sans abonnement" }] },
-  entreprise: {
-    barres: { titre: "CA iliad, 10 ans", note: "explication courte", source: "iliad, documents annuels", valeurs: [{ label: "24", affiche: "9,9", valeur: 9.9, plein: true }] },
-    comparaison: { titre: "Croissance du CA 2015-2024, télécoms France", source: "rapports annuels", valeurs: [{ nom: "iliad", affiche: "+125 %", pct: 125, hero: true }] },
-    rentabilite: { titre: "Rentabilité", note: "la question à en tirer", source: "résultats annuels", valeurs: [{ label: "2024", affiche: "37 %", pct: 37 }] },
-    timeline: { titre: "iliad, les bascules", jalons: [{ annee: "12", titre: "Free Mobile", texte: "Le forfait à 2 euros.", cle: true }] },
-  },
   playbook: { intro: "Cinq systèmes identifiés dans les sources.", items: [{ titre: "Le pricing comme arme", connu: "ce qu'on sait", manque: "ce qui manque", question: "la question qui l'extrait" }] },
   entourage: { personnes: [{ nom: "Cyril Poidatz", role: "cofondateur iliad", texte: "pourquoi il compte" }] },
   anecdotes: { items: [{ texte: "Anecdote sourcée sur l'invité.", source: "livre 2023, ch. 4", cachee: false }, { texte: "Anecdote bien cachée, jamais racontée en interview.", source: "podcast confidentiel 2019", cachee: true }] },

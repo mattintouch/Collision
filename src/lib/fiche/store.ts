@@ -4,7 +4,7 @@
 // l'équipe, pas d'un utilisateur authentifié côté navigateur.
 
 import type { createServiceClient } from "../supabase/service";
-import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "./sections";
+import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "./sections";
 
 type SB = ReturnType<typeof createServiceClient>;
 
@@ -121,10 +121,23 @@ export async function ensureFiche(
   return { fiche: data as FicheRow, created: true };
 }
 
-/** Insère les sections du catalogue absentes de la fiche (contenu vide). */
+/** Insère les sections du catalogue absentes de la fiche (contenu vide).
+ *  Migration douce (contrat v2 §5) : une ancienne clé (presentation, entreprise,
+ *  sources_rapides) encore présente est RENOMMÉE vers sa nouvelle clé, contenu
+ *  conservé, plutôt que doublée. */
 export async function seedSections(sb: SB, ficheId: string): Promise<void> {
-  const { data } = await sb.from("fiche_sections").select("section_id").eq("fiche_id", ficheId);
-  const present = new Set(((data ?? []) as { section_id: string }[]).map((r) => r.section_id));
+  const { data } = await sb.from("fiche_sections").select("id, section_id").eq("fiche_id", ficheId);
+  const rows = ((data ?? []) as { id: string; section_id: string }[]);
+  const present = new Set(rows.map((r) => r.section_id));
+  // Renommage des clés héritées vers les clés du contrat v2 (contenu conservé).
+  for (const r of rows) {
+    const canonical = canonicalSectionId(r.section_id);
+    if (canonical !== r.section_id && !present.has(canonical)) {
+      await sb.from("fiche_sections").update({ section_id: canonical, position: sectionPosition(canonical) }).eq("id", r.id);
+      present.add(canonical);
+      present.delete(r.section_id);
+    }
+  }
   const missing = FICHE_SECTIONS.filter((s) => !present.has(s.id));
   if (!missing.length) return;
   await sb.from("fiche_sections").insert(
@@ -138,11 +151,21 @@ export async function seedSections(sb: SB, ficheId: string): Promise<void> {
   );
 }
 
-/** Sections d'une fiche, ordonnées selon le catalogue. */
+/** Sections d'une fiche, ordonnées par leur position PAR FICHE (réordonnable,
+ *  contrat v2 §4), repli sur l'ordre du catalogue. Les clés héritées sont
+ *  présentées sous leur clé canonique (migration douce à la lecture). */
 export async function ficheSections(sb: SB, ficheId: string): Promise<FicheSectionRow[]> {
   const { data } = await sb.from("fiche_sections").select("*").eq("fiche_id", ficheId).order("position");
-  const rows = (data ?? []) as FicheSectionRow[];
-  return rows.sort((a, b) => sectionPosition(a.section_id) - sectionPosition(b.section_id));
+  const rows = ((data ?? []) as FicheSectionRow[]).map((r) => ({ ...r, section_id: canonicalSectionId(r.section_id) }));
+  // Dédoublonnage héritée/canonique : la ligne au contenu non vide gagne.
+  const byId = new Map<string, FicheSectionRow>();
+  for (const r of rows) {
+    const existing = byId.get(r.section_id);
+    if (!existing || Object.keys(existing.content ?? {}).length === 0) byId.set(r.section_id, r);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => (a.position - b.position) || (sectionPosition(a.section_id) - sectionPosition(b.section_id))
+  );
 }
 
 /** Écrit une section (remplacement complet du contenu) avec versioning :
@@ -155,6 +178,7 @@ export async function writeSection(
   content: Record<string, unknown>,
   author: string | null
 ): Promise<{ version: number } | null> {
+  sectionId = canonicalSectionId(sectionId); // alias hérités acceptés à l'écriture
   if (!FICHE_SECTION_IDS.includes(sectionId)) return null;
   const { data: cur } = await sb
     .from("fiche_sections")

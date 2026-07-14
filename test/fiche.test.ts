@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
-import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition } from "../src/lib/fiche/sections";
+import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "../src/lib/fiche/sections";
 import { slugify, FICHE_STATUTS } from "../src/lib/fiche/store";
 import { SECTION_CONTRACTS, DEFAULT_CHECKLIST } from "../src/lib/fiche/schema";
 import { suggestQuestionsReseaux } from "../src/lib/fiche/questions";
@@ -18,10 +18,21 @@ describe("catalogue des sections (brief GDIY)", () => {
     expect(sectionPosition("playbook")).toBeLessThan(sectionPosition("sources"));
     expect(sectionPosition("sources")).toBeLessThan(sectionPosition("footer"));
   });
-  it("couvre les sections du brief + ajouts Matt (présentation, anecdotes)", () => {
-    expect(FICHE_SECTIONS.length).toBe(21);
-    expect(FICHE_SECTION_IDS).toContain("presentation");
-    expect(FICHE_SECTION_IDS).toContain("anecdotes");
+  it("couvre le contrat v2 : Bloc A + Bloc B + chrome", () => {
+    expect(FICHE_SECTIONS.length).toBe(23);
+    for (const id of ["recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire", "anecdotes"]) {
+      expect(FICHE_SECTION_IDS).toContain(id);
+    }
+    // Le playbook reste (critère d'acceptation du brief), en Bloc B.
+    expect(FICHE_SECTIONS.find((s) => s.id === "playbook")?.bloc).toBe("B");
+    expect(FICHE_SECTIONS.find((s) => s.id === "mecanique_succes")?.bloc).toBe("A");
+  });
+  it("alias hérités : presentation, entreprise, sources_rapides mappés", () => {
+    expect(canonicalSectionId("presentation")).toBe("recit_canonique");
+    expect(canonicalSectionId("entreprise")).toBe("univers");
+    expect(canonicalSectionId("sources_rapides")).toBe("a_lire");
+    expect(canonicalSectionId("playbook")).toBe("playbook");
+    expect(sectionPosition("presentation")).toBe(sectionPosition("recit_canonique"));
   });
   it("chaque section porte son contrat d'édition (get_section → update_section)", () => {
     for (const id of FICHE_SECTION_IDS) {
