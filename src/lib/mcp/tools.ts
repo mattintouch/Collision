@@ -28,7 +28,7 @@ import {
   type FicheRow,
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
-import { FICHE_GROUPES, FICHE_JOB_PREFIX } from "../fiche/generation";
+import { FICHE_GROUPES, FICHE_JOB_PREFIX, enqueueFicheGeneration } from "../fiche/generation";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
@@ -1145,6 +1145,21 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       }
       await sb.from("episodes").update(patch).eq("id", episodeId);
 
+      // Déclenchement AUTOMATIQUE de la génération de fiche (brief §10, tranché
+      // par l'usage : plus personne ne lance à la main). Best-effort, jamais
+      // bloquant pour la validation.
+      let ficheAuto: string | undefined;
+      try {
+        const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: start.toISOString() });
+        if (fiche.statut !== "verrouillee") {
+          const n = await enqueueFicheGeneration(sb, target.id);
+          kickQueue();
+          ficheAuto = `fiche ${fichePageUrl(fiche.slug)} — génération lancée (${n} recherche(s) en file)`;
+        }
+      } catch (e) {
+        ficheAuto = `génération non lancée : ${e instanceof Error ? e.message : String(e)}`;
+      }
+
       return text({
         ok: true,
         cible: target.nom,
@@ -1153,6 +1168,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         event_link: ev.htmlLink,
         participants: invites,
         fiche_url: ficheLink,
+        fiche_generation: ficheAuto,
         avertissement,
       });
     }
@@ -1203,7 +1219,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "generate_fiche",
-    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) qui remplissent les 21 sections en tâche de fond. Chiffres sourcés et datés, notes internes basculées en zone grise. Suivre l'avancement via get_fiche. Relançable : régénère les groupes demandés (les sections réécrites sont versionnées).",
+    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v2 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) qui remplissent les sections en tâche de fond. Récit canonique, mécanique du succès, univers, personnel sourcé, chiffres jamais vides, URLs vérifiées. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes. Suivre via get_fiche.",
     {
       show: z.string(),
       cible: z.string(),
@@ -1225,16 +1241,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
       // Un job par groupe de recherche ; pas de doublon si un job du groupe est déjà en file.
       const groupes = a.groupes?.length ? Array.from(new Set(a.groupes)) : [...FICHE_GROUPES];
-      const { data: encours } = await sb
-        .from("enrichment_jobs")
-        .select("objectif")
-        .eq("cible_id", target.id)
-        .in("statut", ["pending", "running"]);
-      const deja = new Set(((encours ?? []) as { objectif: string }[]).map((j) => j.objectif));
-      const nouveaux = groupes.map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
-      if (nouveaux.length) {
-        const { error } = await sb.from("enrichment_jobs").insert(nouveaux.map((objectif) => ({ cible_id: target.id, objectif, apply: false })));
-        if (error) return text({ error: error.message });
+      let enFile = 0;
+      try {
+        enFile = await enqueueFicheGeneration(sb, target.id, groupes);
+      } catch (e) {
+        return text({ error: e instanceof Error ? e.message : String(e) });
       }
       kickQueue();
 
@@ -1251,8 +1262,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         cible: target.nom,
         fiche: fiche.slug,
         url,
-        en_file: nouveaux.length,
-        deja_en_cours: groupes.length - nouveaux.length,
+        en_file: enFile,
+        deja_en_cours: groupes.length - enFile,
         event_maj,
         detail: "Génération en tâche de fond (4 recherches : portrait, chiffres, angles, déroulé). La fiche se remplit progressivement, suivre via get_fiche.",
       });

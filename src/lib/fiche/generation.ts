@@ -394,6 +394,27 @@ export async function processFicheGroupe(
   return { sections: written, sources: sourcesCount };
 }
 
+/** Met en file les jobs de génération d'une cible (sans doublon sur les jobs
+ *  déjà en attente ou en cours). Renvoie le nombre de jobs ajoutés. */
+export async function enqueueFicheGeneration(
+  sb: SB,
+  cibleId: string,
+  groupes: readonly FicheGroupe[] = FICHE_GROUPES
+): Promise<number> {
+  const { data: encours } = await sb
+    .from("enrichment_jobs")
+    .select("objectif")
+    .eq("cible_id", cibleId)
+    .in("statut", ["pending", "running"]);
+  const deja = new Set(((encours ?? []) as { objectif: string }[]).map((j) => j.objectif));
+  const nouveaux = Array.from(new Set(groupes)).map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
+  if (nouveaux.length) {
+    const { error } = await sb.from("enrichment_jobs").insert(nouveaux.map((objectif) => ({ cible_id: cibleId, objectif, apply: false })));
+    if (error) throw new Error(error.message);
+  }
+  return nouveaux.length;
+}
+
 /** Pilules logistiques par défaut depuis la date (Europe/Paris) + studio GDIY. */
 export function buildPilules(dateEnr: string | null): string[] {
   const pilules: string[] = [];
