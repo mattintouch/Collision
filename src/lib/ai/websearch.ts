@@ -35,7 +35,8 @@ export async function runWebSearchJSON<T>(
   system: string,
   prompt: string,
   maxUses = 5,
-  model: string = ANTHROPIC_MODEL
+  model: string = ANTHROPIC_MODEL,
+  maxTokens = 4000
 ): Promise<T | null> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
@@ -48,7 +49,10 @@ export async function runWebSearchJSON<T>(
   for (let i = 0; i < 4; i++) {
     const res = await client.messages.create({
       model,
-      max_tokens: 4000,
+      // Plafond paramétrable : les gros JSON (génération de fiche, groupes
+      // angles/déroulé) débordent 4000 tokens ; tronqués, ils deviennent
+      // illisibles et la recherche paraît « sans résultat exploitable ».
+      max_tokens: maxTokens,
       system,
       tools,
       messages,

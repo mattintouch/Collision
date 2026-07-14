@@ -162,7 +162,7 @@ export async function processFicheGroupe(
     const raw = await runWebSearchJSON<PortraitJson>(
       systemFor("Mission : le PORTRAIT. Qui est l'invité, d'où il vient, ce qu'il a construit, sa réputation, son style en interview (média-rodé ou pas)."),
       `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si trouvés),\n  "presentation": ["paragraphe 1", "paragraphe 2", ...] (portrait exhaustif, 3 à 6 paragraphes),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}],\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final"}] (8 à 12 lignes chronologiques),\n  "sources_rapides": [3 liens LES PLUS utiles : {"date", "titre", "apport", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model
+      maxSearches, model, 8192
     );
     if (!raw) throw new Error("Recherche portrait sans résultat exploitable.");
     const presentation = (raw.presentation ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
@@ -198,7 +198,7 @@ export async function processFicheGroupe(
     const raw = await runWebSearchJSON<ChiffresJson>(
       systemFor("Mission : les CHIFFRES et la SOCIÉTÉ. KPI vérifiés et DATÉS (invité, société, marché), présentation simplifiée de l'activité, visuels adaptatifs. Pour un entrepreneur : CA, levées, effectifs, valorisation, concurrence. Pour un artiste : œuvres, ventes, salles. Pour un sportif : palmarès, records."),
       `${intro}\n\nRenvoie un objet JSON (n'inclus une clé QUE si les données sont vérifiées et sourcées) : {\n  "kpis": [4 à 6 cartes : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "iliad, mars 2025"}],\n  "entreprise_texte": ["1 à 3 paragraphes simples : le modèle, ce que fait la société, où elle en est"],\n  "barres": {"titre": "CA sur 10 ans, Md€", "note": "...", "source": "...", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true (année en cours)}]},\n  "comparaison": {"titre": "Croissance comparée", "source": "...", "valeurs": [{"nom": "...", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]},\n  "rentabilite": {"titre": "...", "note": "la question à en tirer", "source": "...", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]},\n  "timeline": {"titre": "Les bascules", "jalons": [{"annee": "12", "titre": "...", "texte": "...", "cle": true (bascule majeure)}]},\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model
+      maxSearches, model, 8192
     );
     if (!raw) throw new Error("Recherche chiffres sans résultat exploitable.");
     const kpis = asArray(raw.kpis, (x) => {
@@ -226,7 +226,7 @@ export async function processFicheGroupe(
     const raw = await runWebSearchJSON<AnglesJson>(
       systemFor("Mission : les ANGLES éditoriaux. Le playbook (méthodes à faire expliciter), l'entourage (qui a fait de lui la moyenne qu'il est devenu), les anecdotes (surtout les bien cachées, jamais racontées en interview), les tensions (deux faits vérifiés qui se cognent), les questions qu'il a déjà eues partout. Cartographie ce qu'il a DÉJÀ raconté pour aller un cran plus loin."),
       `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 : {"titre": "méthode", "connu": "ce que disent les sources", "manque": "ce qui n'a jamais été détaillé", "question": "la question qui l'extrait, tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue (interview confidentielle, passage oublié)}],\n  "tensions": [2 à 4 : {"a": "Discours : ...", "b": "Fait : ...", "angle": "comment l'aborder sans agressivité"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model
+      maxSearches, model, 8192
     );
     if (!raw) throw new Error("Recherche angles sans résultat exploitable.");
     const playbook = asArray(raw.playbook, (x) => {
@@ -271,7 +271,7 @@ export async function processFicheGroupe(
     const raw = await runWebSearchJSON<DerouleJson>(
       systemFor("Mission : le DÉROULÉ de l'épisode. L'enjeu (5 lignes max : pourquoi lui, pourquoi maintenant, promesse auditeur, clip social visé, risque principal), le séquençage (6 à 8 blocs sur 150 minutes, alterner récit et extraction, monter en intimité, garder une tension pour la dernière heure), les 10 questions (majorité en comment, chacune rattachée à son bloc), la zone grise."),
       `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | TENSION · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | TENSION N (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10 : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À EXIGER : ... · TERRAIN GLISSANT : ..."}],\n  "zone_grise": [{"texte": "à faire dire par l'invité", "origine": "note Matthieu / rumeur écosystème"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model
+      maxSearches, model, 8192
     );
     if (!raw) throw new Error("Recherche déroulé sans résultat exploitable.");
     const blocs = asArray(raw.sequencage, (x) => {
