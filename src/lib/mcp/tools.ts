@@ -12,6 +12,7 @@ import { resolveContact, normName, type ResolvedContact } from "../contacts/reso
 import { hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
+import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cout";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
@@ -191,7 +192,7 @@ async function autoAttachAppuiContacts(
 }
 
 /** Outils destructifs : exigent le scope admin (décision #6). */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode"]);
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -2028,6 +2029,52 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (error) return text({ error: error.message });
       if (!data) return text({ error: `Item introuvable : ${a.id}.` });
       return text({ ok: true, id: a.id, statut: a.statut });
+    }
+  );
+
+  RT(
+    "budget_api",
+    "État du budget API Anthropic du mois : dépense estimée, plafond, ratio, override, ventilation par objectif (fiche:portrait, fiche:chiffres, profil...). Coût estimé depuis les tokens enregistrés par job (télémétrie chantier 3). Intentions : où en est le budget, combien coûte une fiche, quel groupe consomme le plus.",
+    {},
+    { readOnlyHint: true },
+    async () => {
+      const sb = createServiceClient();
+      const etat = await etatBudgetLecture(sb);
+      const ventilation = await ventilationMois(sb);
+      if (etat.depense_eur === null) {
+        return text({
+          telemetrie: "absente",
+          action: "Appliquer la migration 0039_telemetrie_cout.sql ; les tokens seront comptés sur les jobs suivants.",
+          plafond_eur: etat.plafond_eur,
+        });
+      }
+      return text({
+        mois: new Date().toISOString().slice(0, 7),
+        depense_estimee_eur: Number(etat.depense_eur.toFixed(2)),
+        plafond_eur: etat.plafond_eur,
+        ratio: Number(((etat.ratio ?? 0) * 100).toFixed(1)) + " %",
+        override: etat.override,
+        generations_bloquees: etat.bloque,
+        ventilation: ventilation.map((v) => ({ ...v, cout_eur: Number(v.cout_eur.toFixed(2)) })),
+        note: "Coût estimé sur les tokens (grille par famille de modèle). La recherche web est facturée en sus par requête : le plafond se recalibre sur la facture réelle.",
+      });
+    }
+  );
+
+  W(
+    "budget_override",
+    "Lève ou repose le plafond budget API pour le mois en cours (décision §1.3 : override manuel réservé à l'admin). actif=true : les générations reprennent malgré un plafond atteint, jusqu'à la fin du mois. actif=false : le plafond s'applique de nouveau. Intentions : débloquer les générations après l'alerte 100 pour cent, en connaissance de cause.",
+    { actif: z.boolean().describe("true = ignorer le plafond ce mois-ci, false = réappliquer") },
+    { destructiveHint: true, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      try {
+        await setBudgetOverride(sb, a.actif);
+      } catch {
+        return text({ error: "Table system_state absente : appliquer la migration 0038, puis réessayer.", cause: "migration_0038_manquante" });
+      }
+      const etat = await etatBudgetLecture(sb);
+      return text({ ok: true, override: a.actif, mois: new Date().toISOString().slice(0, 7), depense_estimee_eur: etat.depense_eur === null ? null : Number(etat.depense_eur.toFixed(2)), plafond_eur: etat.plafond_eur });
     }
   );
 }

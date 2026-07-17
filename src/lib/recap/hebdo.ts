@@ -8,6 +8,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
+import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { StaffMember } from "../types";
@@ -20,6 +21,8 @@ export interface RecapData {
   generations: { done: number; failed: number; erreurs: { objectif: string; error: string }[] };
   backlog: { id: string; auteur: string | null; contenu: string; contexte: Record<string, unknown> }[];
   notes: { invite: string; note: number; commentaire: string | null }[];
+  /** Synthèse coût API (chantier 3). null tant que la télémétrie (0039) est absente. */
+  cout: { semaine_eur: number; mois_eur: number; plafond_eur: number } | null;
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -82,7 +85,15 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     notes = [];
   }
 
-  return { depuis, ecritures, generations, backlog, notes };
+  // Synthèse coût API (chantier 3 §4.2) : semaine glissante + mois en cours.
+  let cout: RecapData["cout"] = null;
+  const semaine = await depenseDepuisEur(sb, depuis);
+  const mois = await depenseMoisEur(sb);
+  if (semaine !== null && mois !== null) {
+    cout = { semaine_eur: semaine, mois_eur: mois, plafond_eur: plafondEur() };
+  }
+
+  return { depuis, ecritures, generations, backlog, notes, cout };
 }
 
 /** Triage proposé par item (un appel modèle léger, sans outils). Repli :
@@ -139,6 +150,9 @@ export function buildRecapEmail(data: RecapData, triages: TriageProposal[]): { s
   }
   for (const n of data.notes ?? []) {
     bouge.push(li(`Note de plateau ${esc(n.invite)} : <b>${n.note}/5</b>${n.commentaire ? `. ${esc(n.commentaire)}` : ""}`));
+  }
+  if (data.cout) {
+    bouge.push(li(`Coût API estimé : <b>${data.cout.semaine_eur.toFixed(2)} €</b> cette semaine, ${data.cout.mois_eur.toFixed(2)} € sur le mois (plafond ${data.cout.plafond_eur} €)`));
   }
 
   const parId = new Map(triages.map((t) => [t.id, t]));

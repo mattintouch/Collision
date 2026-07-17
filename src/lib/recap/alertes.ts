@@ -46,6 +46,25 @@ export async function alerteEchecGeneration(
   await envoyer(sb, subject, html);
 }
 
+/** Franchissement d'un seuil du budget API mensuel (chantier 3, §1.3) :
+ *  une alerte par seuil et par mois, marquée dans system_state par verifierBudget. */
+export async function alerteBudget(
+  sb: SB,
+  info: { seuil: "80" | "100"; depense_eur: number; plafond_eur: number }
+): Promise<void> {
+  const d = info.depense_eur.toFixed(2);
+  const subject = info.seuil === "100"
+    ? "Magellan, budget API atteint : générations en pause"
+    : "Magellan, budget API : 80 pour cent du plafond consommés";
+  const html = shell([
+    info.seuil === "100"
+      ? `<p>La dépense API estimée du mois atteint <b>${esc(d)} €</b> sur un plafond de ${esc(info.plafond_eur)} €. Les générations non urgentes sont en pause jusqu'à la fin du mois (les jobs restent en file).</p>`
+      : `<p>La dépense API estimée du mois atteint <b>${esc(d)} €</b>, soit plus de 80 pour cent du plafond de ${esc(info.plafond_eur)} €. À 100 pour cent, les générations non urgentes seront mises en pause.</p>`,
+    `<p>Pour continuer malgré le plafond : dans Claude, « pose l'override budget » (outil budget_override, réservé à l'admin). Pour suivre la dépense : outil budget_api.</p>`,
+  ].join(""));
+  await envoyer(sb, subject, html);
+}
+
 /** Ouverture du disjoncteur API : une seule alerte au moment de l'ouverture. */
 export async function alerteDisjoncteur(sb: SB, info: { cause: string; jusqu_a: string }): Promise<void> {
   const heure = new Date(info.jusqu_a).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" });

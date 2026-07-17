@@ -12,7 +12,9 @@ import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
 import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
-import { alerteEchecGeneration, alerteDisjoncteur } from "../recap/alertes";
+import { verifierBudget } from "../ai/cout";
+import type { WebSearchUsage } from "../ai/websearch";
+import { alerteEchecGeneration, alerteDisjoncteur, alerteBudget } from "../recap/alertes";
 import type { FicheRow } from "../fiche/store";
 import type { CibleEnrichie } from "../types";
 
@@ -58,6 +60,20 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     return { traites: 0, details: [{ disjoncteur: `ouvert jusqu'à ${circuit.jusqu_a}`, cause: circuit.cause }] };
   }
 
+  // Plafond budget (chantier 3 §4.3, décision §1.3) : alerte à 80 pour cent
+  // (une par mois), coupure des générations non urgentes à 100 pour cent sauf
+  // override admin. Les jobs restent en file.
+  const budget = await verifierBudget(sb);
+  for (const seuil of budget.alertes_dues) {
+    await alerteBudget(sb, { seuil, depense_eur: budget.depense_eur ?? 0, plafond_eur: budget.plafond_eur });
+  }
+  if (budget.bloque) {
+    return {
+      traites: 0,
+      details: [{ budget: `plafond mensuel atteint (${(budget.depense_eur ?? 0).toFixed(2)} € sur ${budget.plafond_eur} €)`, override: "outil budget_override (admin)" }],
+    };
+  }
+
   // 2) Traiter les jobs en attente un par un, dans la limite `max` et le budget mural.
   while (traites < max && Date.now() - startedAt < budgetMs) {
     const { data: pending } = await sb
@@ -74,6 +90,18 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     let cibleNom: string | null = null;
     let ficheSlug: string | null = null;
     let circuitVientDOuvrir = false;
+    // Télémétrie de coût (chantier 3) : tokens accumulés sur toutes les
+    // tentatives du job, écrits à part (best-effort tant que 0039 n'est pas
+    // appliquée, pour ne jamais casser l'écriture du statut).
+    const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0 };
+    const ecrireTelemetrie = async () => {
+      if (usage.tokens_in === 0 && usage.tokens_out === 0) return;
+      try {
+        await sb.from("enrichment_jobs").update({ tokens_in: usage.tokens_in, tokens_out: usage.tokens_out, model }).eq("id", job.id);
+      } catch {
+        /* colonnes absentes : migration 0039 non appliquée */
+      }
+    };
     try {
       const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", job.cible_id).single();
       if (!row) throw new Error("Cible introuvable");
@@ -95,7 +123,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         let lastErr: unknown;
         for (let tentative = 1; tentative <= 2 && !r; tentative++) {
           try {
-            r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches });
+            r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches, usageOut: usage });
           } catch (e) {
             lastErr = e;
             const msg = e instanceof Error ? e.message : String(e);
@@ -109,12 +137,13 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
           .from("enrichment_jobs")
           .update({ statut: "done", resultat: { groupe, sections: r.sections }, error: null, updated_at: nowIso() })
           .eq("id", job.id);
+        await ecrireTelemetrie();
         details.push({ id: job.id, ok: true, groupe, sections: r.sections });
         traites += 1;
         continue;
       }
 
-      const proposal = await enrichCibleProfile(row as CibleEnrichie, { maxSearches, model });
+      const proposal = await enrichCibleProfile(row as CibleEnrichie, { maxSearches, model, usageOut: usage });
       if (!proposal) throw new Error("Recherche web sans résultat exploitable");
       await breakerSucces(sb);
       let applied: string[] | undefined;
@@ -123,6 +152,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         .from("enrichment_jobs")
         .update({ statut: "done", resultat: proposal, sources: proposal.sources ?? [], applied: applied ?? null, error: null, updated_at: nowIso() })
         .eq("id", job.id);
+      await ecrireTelemetrie();
       details.push({ id: job.id, ok: true, applied });
     } catch (e) {
       const brut = e instanceof Error ? e.message : String(e);
@@ -133,6 +163,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         .from("enrichment_jobs")
         .update({ statut: "failed", error: msg, updated_at: nowIso() })
         .eq("id", job.id);
+      await ecrireTelemetrie(); // les tokens d'un échec ont été consommés aussi
       details.push({ id: job.id, ok: false, error: msg });
 
       // Santé API : un échec transitoire ou de crédit alimente le disjoncteur ;

@@ -7,6 +7,7 @@ const data: RecapData = {
   generations: { done: 8, failed: 2, erreurs: [{ objectif: "fiche:angles", error: "timeout" }] },
   backlog: [{ id: "b1", auteur: "vadim", contenu: "Ajouter un filtre par ville", contexte: {} }],
   notes: [{ invite: "Raphaël Chiche", note: 4, commentaire: "Playbook décisif, chiffres à durcir" }],
+  cout: { semaine_eur: 12.4, mois_eur: 57.8, plafond_eur: 200 },
 };
 
 describe("récap hebdo (chantier 1)", () => {
@@ -33,6 +34,14 @@ describe("récap hebdo (chantier 1)", () => {
     const vide: RecapData = { ...data, backlog: [] };
     const { html } = buildRecapEmail(vide, []);
     expect(html).toContain("Aucune demande nouvelle");
+  });
+  it("porte la ligne de coût API quand la télémétrie existe (chantier 3)", () => {
+    const { html } = buildRecapEmail(data, []);
+    expect(html).toContain("Coût API estimé");
+    expect(html).toContain("12.40 €");
+    expect(html).toContain("plafond 200 €");
+    const sansTelemetrie: RecapData = { ...data, cout: null };
+    expect(buildRecapEmail(sansTelemetrie, []).html).not.toContain("Coût API estimé");
   });
   it("porte les notes de plateau de la semaine (chantier 2)", () => {
     const { html } = buildRecapEmail(data, []);

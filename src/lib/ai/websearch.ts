@@ -4,6 +4,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_MODEL } from "../copilot/config";
 
+/** Tokens consommés par un appel (télémétrie de coût, chantier 3). */
+export interface WebSearchUsage {
+  tokens_in: number;
+  tokens_out: number;
+}
+
+function addUsage(u: WebSearchUsage, res: Anthropic.Message): void {
+  u.tokens_in += res.usage?.input_tokens ?? 0;
+  u.tokens_out += res.usage?.output_tokens ?? 0;
+}
+
 /** Extrait le premier bloc JSON ([...] ou {...}) d'un texte (gère les ```json). */
 export function extractJson<T>(text: string): T | null {
   if (!text) return null;
@@ -36,7 +47,10 @@ export async function runWebSearchJSON<T>(
   prompt: string,
   maxUses = 5,
   model: string = ANTHROPIC_MODEL,
-  maxTokens = 4000
+  maxTokens = 4000,
+  // Accumulateur MUTÉ au fil des tours : les tokens sont comptés même si le
+  // JSON final est illisible (ils ont été consommés quand même).
+  usageOut?: WebSearchUsage
 ): Promise<T | null> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
@@ -57,6 +71,7 @@ export async function runWebSearchJSON<T>(
       tools,
       messages,
     });
+    if (usageOut) addUsage(usageOut, res);
 
     if (res.stop_reason === "pause_turn") {
       // Outil serveur en cours : on relance pour laisser Claude continuer.
@@ -84,15 +99,17 @@ export async function runWebSearchJSONVerbose<T>(
   maxUses = 5,
   model: string = ANTHROPIC_MODEL,
   maxTokens = 4000
-): Promise<{ json: T | null; text: string; stop: string | null }> {
+): Promise<{ json: T | null; text: string; stop: string | null; usage: WebSearchUsage }> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
   const tools = [
     { type: "web_search_20260209", name: "web_search", max_uses: maxUses, allowed_callers: ["direct"] },
   ] as Anthropic.MessageCreateParams["tools"];
+  const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0 };
 
   for (let i = 0; i < 6; i++) {
     const res = await client.messages.create({ model, max_tokens: maxTokens, system, tools, messages });
+    addUsage(usage, res);
     if (res.stop_reason === "pause_turn") {
       messages.push({ role: "assistant", content: res.content });
       continue;
@@ -102,18 +119,19 @@ export async function runWebSearchJSONVerbose<T>(
       .map((b) => b.text)
       .join("\n");
     const json = extractJson<T>(text);
-    if (json !== null) return { json, text, stop: res.stop_reason ?? null };
+    if (json !== null) return { json, text, stop: res.stop_reason ?? null, usage };
     // Tour terminé SANS JSON (le modèle narre ses recherches puis s'arrête).
     // Finisher : une relance unique, sans outils, pour exiger le JSON : toute
     // la matière de recherche est déjà dans le contexte de la conversation.
     messages.push({ role: "assistant", content: res.content });
     messages.push({ role: "user", content: "Réponds maintenant UNIQUEMENT avec l'objet JSON demandé, complet, sans aucun texte autour." });
     const fin = await client.messages.create({ model, max_tokens: maxTokens, system, messages });
+    addUsage(usage, fin);
     const finText = fin.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    return { json: extractJson<T>(finText), text: finText || text, stop: fin.stop_reason ?? res.stop_reason ?? null };
+    return { json: extractJson<T>(finText), text: finText || text, stop: fin.stop_reason ?? res.stop_reason ?? null, usage };
   }
-  return { json: null, text: "", stop: "pause_turn_epuise" };
+  return { json: null, text: "", stop: "pause_turn_epuise", usage };
 }
