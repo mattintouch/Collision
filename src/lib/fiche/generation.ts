@@ -15,7 +15,7 @@
 // sourcé et daté (sinon zone grise) ; aucune URL reconstruite, vérification HTTP
 // à la génération.
 
-import { runWebSearchJSONVerbose } from "../ai/websearch";
+import { runWebSearchJSONVerbose, type WebSearchUsage } from "../ai/websearch";
 import { hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
@@ -198,7 +198,9 @@ async function pendingNotes(sb: SB, ficheId: string): Promise<{ id: string; text
   return (data ?? []) as { id: string; text: string; source: string | null }[];
 }
 
-export interface FicheJobOpts { model?: string; maxSearches?: number }
+// usageOut (chantier 3) : accumulateur de tokens MUTÉ au fil des appels, y
+// compris quand le groupe échoue ensuite (les tokens ont été consommés).
+export interface FicheJobOpts { model?: string; maxSearches?: number; usageOut?: WebSearchUsage }
 
 /**
  * Traite UN groupe de génération pour une fiche : recherche web, écrit les
@@ -217,6 +219,11 @@ export async function processFicheGroupe(
   const intro = guestIntro(cible, fiche.date_enregistrement);
   const written: string[] = [];
   let sourcesCount = 0;
+  const compte = (u: WebSearchUsage) => {
+    if (!opts.usageOut) return;
+    opts.usageOut.tokens_in += u.tokens_in;
+    opts.usageOut.tokens_out += u.tokens_out;
+  };
   const put = async (id: string, content: Content, hasMatter: boolean) => {
     if (!hasMatter) return;
     await writeSection(sb, fiche.id, id, content, GENERATION_AUTHOR);
@@ -229,6 +236,7 @@ export async function processFicheGroupe(
       `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si réellement trouvés),\n  "recit": ["paragraphe 1", ...] (5 à 8 paragraphes de récit maîtrisé, AUCUNE donnée d'annuaire),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}],\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final, sans donnée d'annuaire"}] (8 à 12 lignes),\n  "a_lire": [5 à 8 : {"niveau": "indispensable|utile|optionnel", "titre", "date", "temps_lecture": "12 min", "apport": "en une phrase", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
+    compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche portrait sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const recit = (raw.recit ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
@@ -268,6 +276,7 @@ export async function processFicheGroupe(
       `${intro}\n\nRenvoie un objet JSON : {\n  "mecanique": {\n    "definition": "en quoi il est le meilleur, métrique explicite (taux, palmarès, part de marché, influence mesurable)",\n    "pairs": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité"}],\n    "divergences": [3 à 5 : {"date": "2012", "decision": "la décision structurante", "effet": "ce qu'elle a produit"}],\n    "contrefactuel": "ce qui serait arrivé sans ces décisions (raisonnement, pas un fait)"\n  },\n  "univers_intro": ["1 à 3 paragraphes : le marché ou l'écosystème, taille, économie, acteurs, tendances (chiffres sourcés dans le texte)"],\n  "distinctions": ["0 à 3 : distinction sectorielle à tenir, ex. la biopharma n'est pas la MedTech : dispositifs vs molécules, cycle court vs dix ans"],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (si données chiffrées multi-années disponibles),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (si comparaison vérifiable),\n  "rentabilite": {"titre", "note", "source", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]} (si pertinent),\n  "timeline": {"titre": "Les bascules", "jalons": [{"annee": "12", "titre", "texte", "cle": true}]},\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée"}] (mélange invité + univers, source OBLIGATOIRE),\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
+    compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche mécanique/chiffres sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const mecanique: Content = {};
@@ -320,6 +329,7 @@ export async function processFicheGroupe(
       `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 systèmes couvrant action, réflexion ET innovation : {"titre": "le système", "connu": "ce que les sources établissent", "manque": "ce qui reste opaque", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
+    compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche angles sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const playbook = asArray(raw.playbook, (x) => {
@@ -371,6 +381,7 @@ export async function processFicheGroupe(
       `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
+    compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche déroulé sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
     const blocs = asArray(raw.sequencage, (x) => {

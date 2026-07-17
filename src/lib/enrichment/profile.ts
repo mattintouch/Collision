@@ -6,7 +6,7 @@
 // main, et on FUSIONNE les sujets/tags existants (on n'en ajoute que de
 // nouveaux). Indispensable pour industrialiser sans perdre la saisie manuelle.
 
-import { runWebSearchJSON } from "../ai/websearch";
+import { runWebSearchJSON, type WebSearchUsage } from "../ai/websearch";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import { mapKindConstraintError } from "../mcp/kind";
 import { createServiceClient } from "../supabase/service";
@@ -46,7 +46,9 @@ type CibleForApply = Pick<
 
 export async function enrichCibleProfile(
   c: CibleEnrichie,
-  opts: { maxSearches?: number; model?: string } = {}
+  // usageOut (chantier 3) : accumulateur de tokens mutés par l'appel, comptés
+  // même quand la proposition finale est inexploitable.
+  opts: { maxSearches?: number; model?: string; usageOut?: WebSearchUsage } = {}
 ): Promise<ProfileProposal | null> {
   if (!hasAnthropicKey()) return null;
   const qui =
@@ -57,7 +59,7 @@ export async function enrichCibleProfile(
   // Défaut : 2 recherches + modèle rapide (contexte MCP synchrone, plafond ~60 s
   // du client). Le job asynchrone (cron, budget 300 s) passe plus de recherches
   // et un modèle plus profond via `opts`.
-  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, opts.maxSearches ?? 2, opts.model ?? ENRICH_MODEL);
+  return runWebSearchJSON<ProfileProposal>(SYSTEM, prompt, opts.maxSearches ?? 2, opts.model ?? ENRICH_MODEL, 4000, opts.usageOut);
 }
 
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
