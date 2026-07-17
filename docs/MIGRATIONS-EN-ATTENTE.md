@@ -17,14 +17,17 @@
 - `0038_gate_alertes_note.sql` : table system_state (disjoncteur API) + colonnes
   note_plateau / note_commentaire / note_at sur fiches (chantier 2).
   Appliquée par Matt le 17/07.
+- `0039_telemetrie_cout.sql` : colonnes tokens_in / tokens_out / model sur
+  enrichment_jobs + vue couts_generation (chantier 3).
+  Appliquée par Matt le 17/07.
 
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
-- `0039_telemetrie_cout.sql` : colonnes tokens_in / tokens_out / model sur
-  enrichment_jobs + vue couts_generation (chantier 3). Défensif : sans la
-  migration, l'écriture de télémétrie est ignorée, la dépense est inconnue et
-  aucun plafond ne bloque. À appliquer au merge de la PR du chantier 3.
+- `0040_besoins_editoriaux.sql` : table besoins_editoriaux (chantier 4).
+  Défensif : sans la migration, add_besoin renvoie un message actionnable et
+  la couverture est vide (aucune alerte). À appliquer au merge de la PR du
+  chantier 4.
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base

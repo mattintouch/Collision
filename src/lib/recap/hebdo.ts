@@ -9,6 +9,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
+import { estivalActif } from "../domain";
+import { evaluerCouverture } from "../editorial";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { StaffMember } from "../types";
@@ -23,6 +25,9 @@ export interface RecapData {
   notes: { invite: string; note: number; commentaire: string | null }[];
   /** Synthèse coût API (chantier 3). null tant que la télémétrie (0039) est absente. */
   cout: { semaine_eur: number; mois_eur: number; plafond_eur: number } | null;
+  /** Besoins éditoriaux en alerte (chantier 4) : ouverts et couverts par moins
+   *  de deux cibles actionnables. candidates null = critères non automatisables. */
+  besoins: { show: string; contrainte: string; periode: string | null; candidates: number | null }[];
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -93,7 +98,23 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     cout = { semaine_eur: semaine, mois_eur: mois, plafond_eur: plafondEur() };
   }
 
-  return { depuis, ecritures, generations, backlog, notes, cout };
+  // Besoins éditoriaux en alerte (chantier 4 §5.3), tous shows. Défensif :
+  // sans la migration 0040, evaluerCouverture renvoie une liste vide.
+  const besoins: RecapData["besoins"] = [];
+  try {
+    const { data: shows } = await sb.from("shows").select("id, slug");
+    const estival = estivalActif();
+    for (const s of ((shows ?? []) as { id: string; slug: string }[])) {
+      const couverture = await evaluerCouverture(sb, s.id, estival);
+      for (const b of couverture.filter((x) => x.alerte)) {
+        besoins.push({ show: s.slug, contrainte: b.besoin.contrainte, periode: b.besoin.periode, candidates: b.candidates?.length ?? null });
+      }
+    }
+  } catch {
+    /* rien : le récap part quand même */
+  }
+
+  return { depuis, ecritures, generations, backlog, notes, cout, besoins };
 }
 
 /** Triage proposé par item (un appel modèle léger, sans outils). Repli :
@@ -153,6 +174,10 @@ export function buildRecapEmail(data: RecapData, triages: TriageProposal[]): { s
   }
   if (data.cout) {
     bouge.push(li(`Coût API estimé : <b>${data.cout.semaine_eur.toFixed(2)} €</b> cette semaine, ${data.cout.mois_eur.toFixed(2)} € sur le mois (plafond ${data.cout.plafond_eur} €)`));
+  }
+  for (const b of data.besoins ?? []) {
+    const etat = b.candidates === null ? "critères à évaluer à la main" : `${b.candidates} cible(s) actionnable(s), il en faut 2`;
+    bouge.push(li(`Besoin non couvert (${esc(b.show.toUpperCase())}) : « ${esc(b.contrainte)} »${b.periode ? ` (${esc(b.periode)})` : ""} : ${etat}`));
   }
 
   const parId = new Map(triages.map((t) => [t.id, t]));

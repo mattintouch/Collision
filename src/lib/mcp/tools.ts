@@ -13,6 +13,7 @@ import { hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
 import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cout";
+import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
@@ -392,6 +393,9 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         snoozed = new Set(((sn ?? []) as { cible_id: string }[]).map((r) => r.cible_id));
       } catch { /* table absente → aucun report */ }
       const tests = await testCibleIds(sb, sid); // A6 : hors cibles de test
+      // Slug du show pour les critères d'éligibilité écrits (chantier 4 §5.1).
+      const { data: showRow } = await sb.from("shows").select("slug").eq("id", sid).maybeSingle();
+      const showSlug = (showRow as { slug?: string } | null)?.slug ?? String(a.show);
       const scored = rows
         .map((r) => ({ r, s: computeCibleScore(r as unknown as ScoreInput, estival) }))
         .filter((x) => !x.s.placeholder && !(x.r.stage_key && WON.has(x.r.stage_key)) && !snoozed.has(x.r.id) && !tests.has(x.r.id))
@@ -399,11 +403,16 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         .slice(0, Math.min(a.limit ?? 5, 10));
       const cibles = scored.map(({ r, s }) => {
         const res = computeResurgence(r);
+        // Indicateur d'éligibilité DISTINCT du score (cas Belkaid §5) : il
+        // signale, il n'exclut pas ; la décision éditoriale reste humaine.
+        const elig = computeEligibilite(showSlug, r);
         return {
           id: r.id,
           nom: r.nom,
           score: s.score,
-          badges: s.badges,
+          badges: elig.indicateur === "eligible" ? s.badges : [...s.badges, elig.indicateur === "hors_ligne" ? "hors ligne éditoriale" : "éligibilité à vérifier"],
+          eligibilite: elig.indicateur,
+          eligibilite_raisons: elig.indicateur === "eligible" ? undefined : elig.raisons,
           role: r.role,
           organisation: r.organisation,
           voie: r.voie,
@@ -415,8 +424,19 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
           via_qui: r.via_qui,
         };
       });
+      // Besoins éditoriaux ouverts (§5.3) : un besoin couvert par moins de deux
+      // cibles actionnables remonte en alerte dans la réponse du daily five.
+      const couverture = await evaluerCouverture(sb, sid, estival);
+      const besoins_en_alerte = couverture
+        .filter((b) => b.alerte)
+        .map((b) => ({
+          id: b.besoin.id,
+          contrainte: b.besoin.contrainte,
+          periode: b.besoin.periode,
+          candidates: b.candidates === null ? "critères non automatisables : évaluer à la main" : b.candidates,
+        }));
       kickQueue(); // draine la file d'enrichissement en tâche de fond (plan Hobby)
-      return text({ ok: true, show: a.show, cibles });
+      return text({ ok: true, show: a.show, cibles, ...(besoins_en_alerte.length ? { besoins_en_alerte } : {}) });
     }
   );
 
@@ -2075,6 +2095,98 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       }
       const etat = await etatBudgetLecture(sb);
       return text({ ok: true, override: a.actif, mois: new Date().toISOString().slice(0, 7), depense_estimee_eur: etat.depense_eur === null ? null : Number(etat.depense_eur.toFixed(2)), plafond_eur: etat.plafond_eur });
+    }
+  );
+
+  W(
+    "add_besoin",
+    "Pose un besoin éditorial sur un show (chantier 4) : la contrainte de programmation en clair (exemple : « 1 femme, épisode estival, closing sous 15 jours »), avec critères structurés optionnels pour le matching automatique. Le daily five et le récap hebdo alertent tant que le besoin n'est pas couvert par au moins deux cibles actionnables. Intentions : réserver une case du planning, tracer une contrainte de casting.",
+    {
+      show: z.string(),
+      contrainte: z.string().describe("la demande en clair"),
+      periode: z.string().optional().describe("ex. été 2026, rentrée"),
+      sujets: z.array(z.string()).optional().describe("sujets à matcher dans le pipe"),
+      archetype: z.enum(["big_fish", "quick_win", "pepite"]).optional(),
+      genre: z.string().optional().describe("porté au besoin, non matchable automatiquement (pas dans le modèle de données)"),
+      echeance: z.string().optional().describe("date limite AAAA-MM-JJ"),
+    },
+    { destructiveHint: false, idempotentHint: false },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const criteres: Record<string, unknown> = {};
+      if (a.sujets?.length) criteres.sujets = a.sujets;
+      if (a.archetype) criteres.archetype = a.archetype;
+      if (a.genre) criteres.genre = a.genre;
+      if (a.echeance) criteres.echeance = a.echeance;
+      const { data, error } = await sb
+        .from("besoins_editoriaux")
+        .insert({ show_id: sid, contrainte: a.contrainte, periode: a.periode ?? null, criteres: Object.keys(criteres).length ? criteres : null })
+        .select("id")
+        .single();
+      if (error) {
+        if (/besoins_editoriaux/.test(error.message)) {
+          return text({ error: "Table besoins_editoriaux absente : appliquer la migration 0040, puis réessayer.", cause: "migration_0040_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      return text({ ok: true, besoin_id: (data as { id: string }).id, statut: "ouvert" });
+    }
+  );
+
+  RT(
+    "list_besoins",
+    "Liste les besoins éditoriaux d'un show avec leur couverture par le pipe : pour chaque besoin ouvert, les cibles actionnables qui matchent les critères structurés, et une alerte si moins de deux. Intentions : qui a-t-on pour la case X, où en est le casting contre le planning.",
+    { show: z.string(), statut: z.enum(["ouvert", "couvert", "expire"]).optional().describe("défaut : ouvert") },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      if (a.statut && a.statut !== "ouvert") {
+        const { data, error } = await sb
+          .from("besoins_editoriaux")
+          .select("id, periode, contrainte, criteres, statut, couvert_par, updated_at")
+          .eq("show_id", sid)
+          .eq("statut", a.statut)
+          .order("updated_at", { ascending: false })
+          .limit(50);
+        if (error) return text({ error: error.message });
+        return text({ statut: a.statut, besoins: data ?? [] });
+      }
+      const couverture = await evaluerCouverture(sb, sid, estivalActif());
+      return text({
+        statut: "ouvert",
+        besoins: couverture.map((b) => ({
+          id: b.besoin.id,
+          periode: b.besoin.periode,
+          contrainte: b.besoin.contrainte,
+          criteres: b.besoin.criteres,
+          alerte: b.alerte,
+          candidates: b.candidates === null ? "critères non automatisables : évaluer à la main" : b.candidates,
+        })),
+      });
+    }
+  );
+
+  W(
+    "update_besoin",
+    "Fait vivre un besoin éditorial : couvert (avec la cible qui le couvre), expiré, ou rouvert. Intentions : la case est prise, la fenêtre est passée, la contrainte revient.",
+    {
+      id: z.string().describe("id du besoin (voir list_besoins)"),
+      statut: z.enum(["ouvert", "couvert", "expire"]),
+      couvert_par: z.string().optional().describe("id de la cible qui couvre le besoin (avec statut=couvert)"),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const patch: Record<string, unknown> = { statut: a.statut, updated_at: new Date().toISOString() };
+      patch.couvert_par = a.statut === "couvert" ? (a.couvert_par ?? null) : null;
+      const { data, error } = await sb.from("besoins_editoriaux").update(patch).eq("id", a.id).select("id, statut").maybeSingle();
+      if (error) return text({ error: error.message });
+      if (!data) return text({ error: `Besoin introuvable : ${a.id}.` });
+      return text({ ok: true, id: a.id, statut: a.statut, couvert_par: patch.couvert_par ?? null });
     }
   );
 }

@@ -8,6 +8,7 @@ const data: RecapData = {
   backlog: [{ id: "b1", auteur: "vadim", contenu: "Ajouter un filtre par ville", contexte: {} }],
   notes: [{ invite: "Raphaël Chiche", note: 4, commentaire: "Playbook décisif, chiffres à durcir" }],
   cout: { semaine_eur: 12.4, mois_eur: 57.8, plafond_eur: 200 },
+  besoins: [{ show: "gdiy", contrainte: "1 femme, épisode estival, closing sous 15 jours", periode: "été 2026", candidates: 1 }],
 };
 
 describe("récap hebdo (chantier 1)", () => {
@@ -34,6 +35,12 @@ describe("récap hebdo (chantier 1)", () => {
     const vide: RecapData = { ...data, backlog: [] };
     const { html } = buildRecapEmail(vide, []);
     expect(html).toContain("Aucune demande nouvelle");
+  });
+  it("porte les besoins éditoriaux non couverts (chantier 4)", () => {
+    const { html } = buildRecapEmail(data, []);
+    expect(html).toContain("Besoin non couvert (GDIY)");
+    expect(html).toContain("1 cible(s) actionnable(s), il en faut 2");
+    expect((html.match(/<h2/g) ?? []).length).toBe(2); // toujours deux sections
   });
   it("porte la ligne de coût API quand la télémétrie existe (chantier 3)", () => {
     const { html } = buildRecapEmail(data, []);

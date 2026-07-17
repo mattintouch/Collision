@@ -122,4 +122,14 @@ describe("estivalActif", () => {
     expect(estivalActif("ete")).toBe(true);
     expect(estivalActif("off")).toBe(false);
   });
+  it("raisonne en date de PUBLICATION projetée, pas en mois courant (chantier 4 §5.5)", () => {
+    // Décalage par défaut 45 jours : sourcing du 1er juin → publication mi-juillet, hors fenêtre.
+    expect(estivalActif("auto", Date.parse("2026-06-01T12:00:00Z"))).toBe(false);
+    // Sourcing du 10 juillet → publication fin août, fenêtre estivale.
+    expect(estivalActif("auto", Date.parse("2026-07-10T12:00:00Z"))).toBe(true);
+    // Sourcing du 1er août (l'ancienne règle coupait au 31 juillet) → publication mi-septembre, encore dans la fenêtre.
+    expect(estivalActif("auto", Date.parse("2026-08-01T12:00:00Z"))).toBe(true);
+    // Sourcing du 15 septembre → publication fin octobre, hors fenêtre.
+    expect(estivalActif("auto", Date.parse("2026-09-15T12:00:00Z"))).toBe(false);
+  });
 });

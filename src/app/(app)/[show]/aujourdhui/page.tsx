@@ -7,6 +7,8 @@ import {
   type ScoreInput,
 } from "@/lib/domain";
 import type { Playbook } from "@/lib/types";
+import { computeEligibilite, evaluerCouverture } from "@/lib/editorial";
+import { createServiceClient } from "@/lib/supabase/service";
 import { DailyActionCard, type DailyAction } from "@/components/DailyActionCard";
 import { kickQueue } from "@/lib/enrichment/jobs";
 
@@ -37,7 +39,20 @@ export default async function AujourdhuiPage({
     .sort((a, b) => b.s.score - a.s.score)
     .slice(0, 5);
 
-  const actions: DailyAction[] = scored.map(({ c, s }) => ({
+  // Besoins éditoriaux ouverts non couverts (chantier 4 §5.3) : alerte sur la
+  // page existante, aucun nouvel écran (§5.4).
+  const couverture = await evaluerCouverture(createServiceClient(), show.id, estival);
+  const besoinsEnAlerte = couverture.filter((b) => b.alerte);
+
+  const actions: DailyAction[] = scored.map(({ c, s }) => {
+    // Indicateur d'éligibilité éditoriale (§5.1), distinct du score : badge
+    // seulement, la cible reste dans la liste, la décision reste humaine.
+    const elig = computeEligibilite(show.slug, c);
+    const badges =
+      elig.indicateur === "eligible"
+        ? s.badges
+        : [...s.badges, elig.indicateur === "hors_ligne" ? "hors ligne éditoriale" : "éligibilité à vérifier"];
+    return {
     id: c.id,
     nom: c.nom,
     sous_titre:
@@ -45,12 +60,13 @@ export default async function AujourdhuiPage({
         ? c.raison_de_selection ?? ""
         : [c.role, c.organisation].filter(Boolean).join(" · "),
     score: s.score,
-    badges: s.badges,
+    badges,
     pourquoi: computeResurgence(c).raison,
     playbook: ((c as { playbook?: Playbook | null }).playbook ?? null) as Playbook | null,
     canal_reel: c.canal_reel,
     via_qui: c.via_qui,
-  }));
+    };
+  });
 
   return (
     <div>
@@ -63,6 +79,25 @@ export default async function AujourdhuiPage({
         porte son pourquoi maintenant, son playbook et un brouillon — logge la
         touche en un geste, la cible sort de la liste.
       </p>
+
+      {besoinsEnAlerte.length > 0 && (
+        <div className="card mt-6 p-4" style={{ borderLeft: "3px solid #FFD200" }}>
+          <p className="label" style={{ color: "#FFD200" }}>Besoins éditoriaux non couverts</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {besoinsEnAlerte.map((b) => (
+              <li key={b.besoin.id}>
+                {b.besoin.contrainte}
+                {b.besoin.periode ? ` (${b.besoin.periode})` : ""} ·{" "}
+                <span className="text-blanc-muted">
+                  {b.candidates === null
+                    ? "critères à évaluer à la main"
+                    : `${b.candidates.length} cible(s) actionnable(s), il en faut 2`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {actions.length === 0 ? (
         <div className="card mt-6 p-6 text-center text-sm text-blanc-muted">
