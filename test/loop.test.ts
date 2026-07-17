@@ -8,9 +8,9 @@ describe("LOOP_TOOLS (endpoint Vadim)", () => {
   for (const t of forbidden) {
     it(`n'expose pas ${t}`, () => expect(LOOP_TOOLS).not.toContain(t));
   }
-  it("expose exactement les 8 outils de la boucle", () => {
+  it("expose exactement les 9 outils de la boucle (dont feedback, chantier 1)", () => {
     expect([...LOOP_TOOLS].sort()).toEqual(
-      ["add_appui", "daily_five", "find_cible", "get_dossier", "list_cibles", "list_shows", "log_touche", "update_cible"].sort()
+      ["add_appui", "daily_five", "feedback", "find_cible", "get_dossier", "list_cibles", "list_shows", "log_touche", "update_cible"].sort()
     );
   });
 });

@@ -12,8 +12,10 @@
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 - `0035_jobs_objectif_fiche.sql` : élargit la contrainte enrichment_jobs.objectif
-  au préfixe fiche: (génération des fiches). BLOQUANT pour generate_fiche
-  (erreur « violates check constraint enrichment_jobs_objectif_check » sinon).
+  au préfixe fiche: (génération des fiches). Appliquée par Matt le 14/07.
+- `0037_product_backlog.sql` : table product_backlog (chantier 1, brief
+  arbitrages). BLOQUANT pour l'outil feedback, list_backlog, triage_backlog
+  et le cron du récap hebdo.
 
 > Dès que la chaîne CI est allumée (P1/P2 + baseline), les futures migrations
 > s'appliquent automatiquement au merge sur main, avant le déploiement.
