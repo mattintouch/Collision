@@ -18,6 +18,10 @@
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
+- `0038_gate_alertes_note.sql` : table system_state (disjoncteur API) + colonnes
+  note_plateau / note_commentaire / note_at sur fiches (chantier 2). Défensif :
+  sans la migration, le disjoncteur est inactif (fail-open) et note_fiche renvoie
+  un message actionnable. À appliquer au merge de la PR du chantier 2.
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base

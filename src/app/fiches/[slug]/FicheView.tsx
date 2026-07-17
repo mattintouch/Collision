@@ -40,6 +40,7 @@ export interface FicheViewData {
   version: number;
   ordre: string[]; // ordre des sections par fiche (réordonnable)
   generation: { groupe: string; statut: string; error?: string; quand?: string }[];
+  incompletes: string[]; // sections obligatoires vides (gate anti fiche vide)
   entete: {
     numero?: string;
     titre_lignes: string[];
@@ -97,6 +98,7 @@ const monoSrc: React.CSSProperties = { fontFamily: MONO, fontSize: 11, color: "#
 const proseStyle: React.CSSProperties = { fontSize: 17, lineHeight: 1.65, maxWidth: 680 };
 
 const BLOC_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.bloc]));
+const TITRE_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.titre]));
 const NIVEAUX: Record<string, string> = { indispensable: "INDISPENSABLE", utile: "UTILE", optionnel: "OPTIONNEL" };
 
 interface Persisted {
@@ -749,6 +751,23 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       )}
 
       <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px" }}>
+        {/* Gate anti fiche vide (chantier 2 §3.1) : une section obligatoire vide
+            rend la fiche non présentable, l'état est dit franchement, avec la cause. */}
+        {data.incompletes.length > 0 && (
+          <div style={{ marginTop: 16, background: "#E63946", color: "#FFF", padding: "18px 20px" }}>
+            <div style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 38, lineHeight: 0.95, textTransform: "uppercase" }}>Fiche incomplète · non présentable</div>
+            <p style={{ fontSize: 15, lineHeight: 1.5, margin: "10px 0 0 0" }}>
+              Section(s) obligatoire(s) vide(s) : <b>{data.incompletes.map((id) => TITRE_OF.get(id) ?? id).join(", ")}</b>.
+            </p>
+            <p style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.5, margin: "8px 0 0 0", opacity: 0.9 }}>
+              {enCours.length > 0
+                ? `Cause : génération en cours (${enCours.map((g) => g.groupe).join(", ")}). Recharger la page fait avancer.`
+                : echecs.length > 0
+                  ? `Cause : génération en échec (${echecs.map((g) => g.groupe).join(", ")})${echecs[0].error ? ` : ${echecs[0].error}` : ""}.`
+                  : "Cause : génération non lancée ou incomplète. Dans Claude : « regénère la fiche »."}
+            </p>
+          </div>
+        )}
         {/* Alerte génération (contrat §3.6) : un groupe en échec reste visible. */}
         {echecs.length > 0 && (
           <div style={{ marginTop: 16, borderLeft: "3px solid #F4C435", padding: "10px 14px", background: "#F6F4EF" }}>

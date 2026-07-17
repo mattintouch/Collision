@@ -11,10 +11,14 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
 import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
+import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
+import { alerteEchecGeneration, alerteDisjoncteur } from "../recap/alertes";
 import type { FicheRow } from "../fiche/store";
 import type { CibleEnrichie } from "../types";
 
 const STALE_MINUTES = 10;
+// Pause avant la seconde tentative d'un groupe de fiche (erreur transitoire).
+const RETRY_PAUSE_MS = 3_000;
 // Modèle profond quand on a le budget (cron 300 s) ; modèle rapide sinon.
 const DEEP_MODEL = process.env.ENRICH_MODEL_DEEP ?? "claude-sonnet-4-6";
 const FAST_MODEL = process.env.ENRICH_MODEL ?? "claude-haiku-4-5-20251001";
@@ -47,6 +51,13 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
   const details: unknown[] = [];
   let traites = 0;
 
+  // Disjoncteur (chantier 2 §3.3) : API durablement indisponible → les jobs
+  // restent en file, aucun token n'est consommé, on ressort immédiatement.
+  const circuit = await breakerOuvert(sb);
+  if (circuit.ouvert) {
+    return { traites: 0, details: [{ disjoncteur: `ouvert jusqu'à ${circuit.jusqu_a}`, cause: circuit.cause }] };
+  }
+
   // 2) Traiter les jobs en attente un par un, dans la limite `max` et le budget mural.
   while (traites < max && Date.now() - startedAt < budgetMs) {
     const { data: pending } = await sb
@@ -59,9 +70,14 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     if (!job) break;
 
     await sb.from("enrichment_jobs").update({ statut: "running", updated_at: nowIso() }).eq("id", job.id);
+    // Contexte pour l'alerte d'échec (rempli au fil du try, lu dans le catch).
+    let cibleNom: string | null = null;
+    let ficheSlug: string | null = null;
+    let circuitVientDOuvrir = false;
     try {
       const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", job.cible_id).single();
       if (!row) throw new Error("Cible introuvable");
+      cibleNom = (row as CibleEnrichie).nom ?? null;
 
       // Jobs de GÉNÉRATION DE FICHE (objectif "fiche:<groupe>") : une recherche
       // web = quelques sections écrites sur la fiche structurée de la cible.
@@ -70,7 +86,11 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         if (!FICHE_GROUPES.includes(groupe)) throw new Error(`Groupe de génération inconnu : ${groupe}`);
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
         if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
-        // Contrat v2 §3.6 : retry automatique (2 tentatives) sur erreur API/JSON.
+        ficheSlug = (fiche as FicheRow).slug ?? null;
+        // Retry SÉLECTIF (brief §3.3) : seule une erreur transitoire (surcharge,
+        // 5xx, réseau) mérite une seconde tentative, après une courte pause. Un
+        // JSON illisible est déjà couvert par le finisher ; un crédit épuisé ne
+        // se réessaie pas, il alimente le disjoncteur.
         let r: { sections: string[] } | null = null;
         let lastErr: unknown;
         for (let tentative = 1; tentative <= 2 && !r; tentative++) {
@@ -78,9 +98,13 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
             r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches });
           } catch (e) {
             lastErr = e;
+            const msg = e instanceof Error ? e.message : String(e);
+            if (tentative >= 2 || classifyApiError(msg) !== "transitoire") break;
+            await new Promise((res) => setTimeout(res, RETRY_PAUSE_MS));
           }
         }
         if (!r) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+        await breakerSucces(sb);
         await sb
           .from("enrichment_jobs")
           .update({ statut: "done", resultat: { groupe, sections: r.sections }, error: null, updated_at: nowIso() })
@@ -92,6 +116,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 
       const proposal = await enrichCibleProfile(row as CibleEnrichie, { maxSearches, model });
       if (!proposal) throw new Error("Recherche web sans résultat exploitable");
+      await breakerSucces(sb);
       let applied: string[] | undefined;
       if (job.apply) applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
       await sb
@@ -100,13 +125,39 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         .eq("id", job.id);
       details.push({ id: job.id, ok: true, applied });
     } catch (e) {
+      const brut = e instanceof Error ? e.message : String(e);
+      // Aucun secret dans les journaux visibles (garde-fou §8.2) : le message
+      // stocké dans enrichment_jobs.error est affiché sur la fiche.
+      const msg = sanitizeError(brut);
       await sb
         .from("enrichment_jobs")
-        .update({ statut: "failed", error: e instanceof Error ? e.message : String(e), updated_at: nowIso() })
+        .update({ statut: "failed", error: msg, updated_at: nowIso() })
         .eq("id", job.id);
-      details.push({ id: job.id, ok: false, error: e instanceof Error ? e.message : String(e) });
+      details.push({ id: job.id, ok: false, error: msg });
+
+      // Santé API : un échec transitoire ou de crédit alimente le disjoncteur ;
+      // l'ouverture du circuit déclenche UNE alerte, au moment de l'ouverture.
+      const classe = classifyApiError(brut);
+      if (classe !== "autre") {
+        circuitVientDOuvrir = await breakerEchec(sb, brut, classe);
+        if (circuitVientDOuvrir) {
+          const apres = await breakerOuvert(sb);
+          await alerteDisjoncteur(sb, { cause: msg, jusqu_a: apres.jusqu_a ?? nowIso() });
+        }
+      }
+      // Échec DÉFINITIF d'un groupe de fiche (après retry) : alerte immédiate.
+      if (job.objectif.startsWith(FICHE_JOB_PREFIX)) {
+        await alerteEchecGeneration(sb, {
+          fiche_slug: ficheSlug,
+          cible_nom: cibleNom,
+          groupe: job.objectif.slice(FICHE_JOB_PREFIX.length),
+          erreur: msg,
+        });
+      }
     }
     traites += 1;
+    // Circuit ouvert pendant ce lot : inutile de consommer la suite de la file.
+    if (circuitVientDOuvrir) break;
   }
   return { traites, details };
 }

@@ -6,6 +6,7 @@ const data: RecapData = {
   ecritures: [{ outil: "log_touche", acteur: "matt@stefani.fr", total: 12, echecs: 1 }],
   generations: { done: 8, failed: 2, erreurs: [{ objectif: "fiche:angles", error: "timeout" }] },
   backlog: [{ id: "b1", auteur: "vadim", contenu: "Ajouter un filtre par ville", contexte: {} }],
+  notes: [{ invite: "Raphaël Chiche", note: 4, commentaire: "Playbook décisif, chiffres à durcir" }],
 };
 
 describe("récap hebdo (chantier 1)", () => {
@@ -32,5 +33,12 @@ describe("récap hebdo (chantier 1)", () => {
     const vide: RecapData = { ...data, backlog: [] };
     const { html } = buildRecapEmail(vide, []);
     expect(html).toContain("Aucune demande nouvelle");
+  });
+  it("porte les notes de plateau de la semaine (chantier 2)", () => {
+    const { html } = buildRecapEmail(data, []);
+    expect(html).toContain("Note de plateau Raphaël Chiche");
+    expect(html).toContain("4/5");
+    expect(html).toContain("Playbook décisif");
+    expect((html.match(/<h2/g) ?? []).length).toBe(2); // toujours deux sections
   });
 });

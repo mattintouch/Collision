@@ -3,6 +3,8 @@
 
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase/service";
+import { isEmptyContent } from "@/lib/fiche/schema";
+import { SECTIONS_OBLIGATOIRES } from "@/lib/fiche/sections";
 import type { FicheRow } from "@/lib/fiche/store";
 
 export const runtime = "nodejs";
@@ -31,6 +33,26 @@ export default async function FichesIndexPage() {
   const { data } = await sb.from("fiches").select("*").order("date_enregistrement", { ascending: true, nullsFirst: false });
   const fiches = (data ?? []) as FicheRow[];
 
+  // Gate anti fiche vide (chantier 2 §3.1) : badge INCOMPLÈTE si une section
+  // obligatoire (mécanique, univers, chiffres) est vide.
+  const incompletes = new Set<string>();
+  if (fiches.length) {
+    const { data: secs } = await sb
+      .from("fiche_sections")
+      .select("fiche_id, section_id, content")
+      .in("section_id", [...SECTIONS_OBLIGATOIRES])
+      .in("fiche_id", fiches.map((f) => f.id));
+    const remplies = new Map<string, Set<string>>();
+    for (const s of ((secs ?? []) as { fiche_id: string; section_id: string; content: unknown }[])) {
+      if (isEmptyContent(s.content)) continue;
+      if (!remplies.has(s.fiche_id)) remplies.set(s.fiche_id, new Set());
+      remplies.get(s.fiche_id)!.add(s.section_id);
+    }
+    for (const f of fiches) {
+      if ((remplies.get(f.id)?.size ?? 0) < SECTIONS_OBLIGATOIRES.length) incompletes.add(f.id);
+    }
+  }
+
   return (
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px 96px 20px", minHeight: "100vh" }}>
       <header style={{ paddingTop: 40 }}>
@@ -48,6 +70,11 @@ export default async function FichesIndexPage() {
           <Link key={f.id} href={`/fiches/${f.slug}`} style={{ display: "flex", alignItems: "baseline", gap: 16, padding: "16px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" }}>
             <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0, width: 110 }}>{dateLabel(f.date_enregistrement)}</span>
             <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 30, lineHeight: 1, textTransform: "uppercase", flex: 1, minWidth: 200 }}>{f.invite_nom}</span>
+            {incompletes.has(f.id) && (
+              <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em", padding: "5px 10px", flexShrink: 0, background: "#E63946", color: "#FFF" }}>
+                INCOMPLÈTE
+              </span>
+            )}
             <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em", padding: "5px 10px", flexShrink: 0, ...(f.statut === "verrouillee" || f.statut === "finale" ? { background: "#000", color: "#FFF" } : { border: "1px solid #000" }) }}>
               {STATUT_LABEL[f.statut] ?? f.statut.toUpperCase()}
             </span>

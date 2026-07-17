@@ -17,7 +17,7 @@ import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
-import { FICHE_SECTIONS, canonicalSectionId } from "../fiche/sections";
+import { FICHE_SECTIONS, SECTIONS_OBLIGATOIRES, canonicalSectionId } from "../fiche/sections";
 import { SECTION_CONTRACTS, isEmptyContent } from "../fiche/schema";
 import {
   FICHE_STATUTS,
@@ -1828,7 +1828,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // Gate du contrat v2 (§3.5) : passage en_challenge refusé si la mécanique
       // du succès (A3), l'univers (A4) ou les chiffres (B2) sont vides.
       if (a.statut === "en_challenge") {
-        const requises = ["mecanique_succes", "univers", "chiffres"];
+        const requises = [...SECTIONS_OBLIGATOIRES];
         const { data: secs } = await sb.from("fiche_sections").select("section_id, content").eq("fiche_id", f.id).in("section_id", requises);
         const parId = new Map(((secs ?? []) as { section_id: string; content: unknown }[]).map((s) => [s.section_id, s.content]));
         const vides = requises.filter((id) => isEmptyContent(parId.get(id)));
@@ -1870,6 +1870,35 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         .single();
       if (error) return text({ error: error.message });
       return text({ ok: true, fiche: f.slug, note_id: (data as { id: string }).id });
+    }
+  );
+
+  W(
+    "note_fiche",
+    "Note la fiche APRÈS l'enregistrement : la fiche a-t-elle servi sur le plateau ? Note de 1 (inutile) à 5 (décisive), commentaire libre optionnel (ce qui a manqué, ce qui a marché). Alimente la boucle éditoriale et le récap hebdomadaire ; c'est la matière qui fait évoluer la doctrine des fiches. Intentions : débrief post-tournage, retour de Matt ou de Clémence sur la qualité de la préparation.",
+    {
+      fiche: z.string(),
+      note: z.number().int().min(1).max(5).describe("1 = fiche inutile, 5 = fiche décisive"),
+      commentaire: z.string().optional().describe("ce qui a manqué ou marché (alimente la boucle éditoriale)"),
+      show: z.string().optional(),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const { error } = await sb
+        .from("fiches")
+        .update({ note_plateau: a.note, note_commentaire: a.commentaire ?? null, note_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", f.id);
+      if (error) {
+        if (/note_plateau|note_commentaire|note_at/.test(error.message)) {
+          return text({ error: "Colonnes de note absentes : appliquer la migration 0038_gate_alertes_note.sql, puis réessayer.", cause: "migration_0038_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      return text({ ok: true, fiche: f.slug, note: a.note, commentaire: a.commentaire ?? null });
     }
   );
 
