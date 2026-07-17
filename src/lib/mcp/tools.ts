@@ -14,7 +14,7 @@ import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
-import { kindAwarePatch } from "./kind";
+import { kindAwarePatch, mapKindConstraintError } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS, canonicalSectionId } from "../fiche/sections";
@@ -992,7 +992,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
       if (Object.keys(patch).length > 0) {
         const { error } = await sb.from("cibles").update(patch).eq("id", target.id);
-        if (error) return text({ error: error.message });
+        if (error) return text({ error: mapKindConstraintError(error.message) ?? error.message });
       }
       const modifie = Object.keys(patch);
       if (a.watchlist !== undefined) {

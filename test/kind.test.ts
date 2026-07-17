@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { kindAwarePatch } from "../src/lib/mcp/kind";
+import { kindAwarePatch, mapKindConstraintError } from "../src/lib/mcp/kind";
 
 describe("kindAwarePatch", () => {
   it("accepte les champs descriptifs sur une personne (secteur/pays/raison, cf. 0020/0021)", () => {
@@ -20,5 +20,19 @@ describe("kindAwarePatch", () => {
     const { patch } = kindAwarePatch("personne", { nom: "X", champ_bidon: 1 } as Record<string, unknown>);
     expect(patch).toHaveProperty("nom");
     expect(patch).not.toHaveProperty("champ_bidon");
+  });
+});
+
+describe("mapKindConstraintError (régressions 17/07)", () => {
+  it("traduit la contrainte personne héritée de 0001 vers la migration 0036", () => {
+    const msg = mapKindConstraintError('new row for relation "cibles" violates check constraint "cible_personne_fields"');
+    expect(msg).toContain("0036");
+  });
+  it("explique la contrainte entreprise (role/archetype)", () => {
+    const msg = mapKindConstraintError('violates check constraint "cible_entreprise_fields"');
+    expect(msg).toContain("archetype");
+  });
+  it("laisse passer les autres erreurs (null)", () => {
+    expect(mapKindConstraintError("duplicate key value")).toBeNull();
   });
 });
