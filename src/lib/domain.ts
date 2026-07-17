@@ -187,12 +187,22 @@ const ESTIVAL_HARD_SUJETS = new Set([
 ]);
 const ESTIVAL_HARD_TAGS = new Set(["cac40", "sbf120"]);
 
-/** Le modificateur estival est-il actif ? (auto = juin–juillet) */
-export function estivalActif(saison?: "auto" | "ete" | "off"): boolean {
+// Fenêtre de DIFFUSION estivale : publication du 1er août au 15 septembre.
+// Correction chantier 4 (§5.5) : l'ancienne règle « mois courant = juin ou
+// juillet » conflatait date d'enregistrement et date de publication. La bonne
+// question est : un épisode sourcé AUJOURD'HUI serait-il PUBLIÉ dans la fenêtre
+// estivale ? On projette la publication avec le délai moyen closing +
+// enregistrement + production (recalibrable par l'env ESTIVAL_DECALAGE_JOURS).
+const ESTIVAL_DECALAGE_JOURS = Number(process.env.ESTIVAL_DECALAGE_JOURS ?? 45);
+
+/** Le modificateur estival est-il actif ? (auto = publication projetée dans la
+ *  fenêtre 1er août – 15 septembre, `now` injectable pour les tests) */
+export function estivalActif(saison?: "auto" | "ete" | "off", now: number = Date.now()): boolean {
   if (saison === "ete") return true;
   if (saison === "off") return false;
-  const m = new Date().getMonth() + 1; // 1–12
-  return m === 6 || m === 7;
+  const pub = new Date(now + ESTIVAL_DECALAGE_JOURS * 86_400_000);
+  const m = pub.getUTCMonth() + 1; // 1–12
+  return m === 8 || (m === 9 && pub.getUTCDate() <= 15);
 }
 
 export interface CibleScore {
