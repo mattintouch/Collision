@@ -18,6 +18,9 @@ import FicheView, { type FicheViewData, type FicheBloc, type FicheQuestion, type
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// La page draine la file (kickQueue/waitUntil) : la fonction doit vivre au-delà
+// de la réponse pour finir les jobs. Plafond Hobby avec Fluid compute.
+export const maxDuration = 300;
 
 type Content = Record<string, unknown>;
 const pad2 = (n: number) => String(n).padStart(2, "0");

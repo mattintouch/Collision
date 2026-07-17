@@ -8,7 +8,8 @@ import { verifyToken } from "@/lib/mcp/oauth";
 import { registerMagellanTools, LOOP_TOOLS } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 300 : la fonction survit à la réponse pour drainer la file (Fluid compute).
+export const maxDuration = 300;
 
 const handler = createMcpHandler(
   (server) => {

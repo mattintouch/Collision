@@ -10,6 +10,10 @@ import type { Playbook } from "@/lib/types";
 import { DailyActionCard, type DailyAction } from "@/components/DailyActionCard";
 import { kickQueue } from "@/lib/enrichment/jobs";
 
+// La page draine la file (kickQueue/waitUntil) : la fonction doit vivre au-delà
+// de la réponse pour finir les jobs. Plafond Hobby avec Fluid compute.
+export const maxDuration = 300;
+
 // Les cibles déjà « gagnées » (côté production) sortent de la session du jour.
 const WON = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
 

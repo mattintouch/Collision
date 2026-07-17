@@ -3,10 +3,12 @@ import { verifyToken, scopesForRole } from "@/lib/mcp/oauth";
 import { registerMagellanTools } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
-// Le client MCP coupe un appel d'outil à ~60 s : inutile de monter au-delà.
-// Les outils lents (enrich) doivent tenir sous 60 s end-to-end ; leur timeout
-// interne renvoie une erreur propre avant la coupure client.
-export const maxDuration = 60;
+// Le client MCP coupe un appel d'outil à ~60 s, mais la FONCTION doit vivre
+// plus longtemps : le drainage de la file (kickQueue, waitUntil) continue
+// APRÈS la réponse, et les jobs de génération de fiche durent 1 à 3 minutes.
+// maxDuration 300 : plafond Hobby avec Fluid compute. C'est ce plafond qui
+// tuait le groupe « angles » à 60 s (jobs requalifiés timeout > 10 min).
+export const maxDuration = 300;
 
 const handler = createMcpHandler(
   (server) => {

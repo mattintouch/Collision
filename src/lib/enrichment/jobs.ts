@@ -113,12 +113,14 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 
 /**
  * Draine la file en tâche de fond APRÈS la réponse (plan Hobby, sans cron).
- * Rapide et borné pour tenir dans le budget ~60 s de la fonction Vercel.
+ * Borné par le budget de la fonction Vercel (maxDuration 300, Fluid compute).
  * No-op silencieux hors Vercel (waitUntil absent) : on lance quand même la
  * promesse pour l'environnement de dev.
  */
 export function kickQueue(): void {
-  const work = processEnrichmentJobs({ max: 3, model: FAST_MODEL, maxSearches: 3, budgetMs: 50_000 }).catch(() => {});
+  // Budget 240 s : les fonctions qui appellent kickQueue déclarent
+  // maxDuration 300 (Fluid compute). Un kick draine une fiche entière.
+  const work = processEnrichmentJobs({ max: 6, model: FAST_MODEL, maxSearches: 3, budgetMs: 240_000 }).catch(() => {});
   try {
     waitUntil(work);
   } catch {
