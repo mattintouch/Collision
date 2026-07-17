@@ -8,6 +8,7 @@
 
 import { runWebSearchJSON } from "../ai/websearch";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
+import { mapKindConstraintError } from "../mcp/kind";
 import { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 
@@ -131,7 +132,7 @@ export async function applyProfileProposal(
   const applied = Object.keys(patch);
   if (applied.length) {
     const { error } = await sb.from("cibles").update(patch).eq("id", cible.id);
-    if (error) throw new Error(`MAJ cible (${applied.join(", ")}) : ${error.message}`);
+    if (error) throw new Error(`MAJ cible (${applied.join(", ")}) : ${mapKindConstraintError(error.message) ?? error.message}`);
   }
 
   // Réseaux → contacts, dédoublonnés contre les coordonnées déjà présentes.
