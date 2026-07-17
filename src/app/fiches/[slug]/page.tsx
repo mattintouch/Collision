@@ -10,10 +10,11 @@ import { kickQueue } from "@/lib/enrichment/jobs";
 import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections } from "@/lib/fiche/store";
 import {
-  asArray, asNumber, asString, asStringArray, safeUrl,
+  asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
   DEFAULT_CHECKLIST, DEFAULT_FOOTER, DEFAULT_PERSONNEL_BANDEAU,
   type LienDate,
 } from "@/lib/fiche/schema";
+import { SECTIONS_OBLIGATOIRES } from "@/lib/fiche/sections";
 import FicheView, { type FicheViewData, type FicheBloc, type FicheQuestion, type ALireLien } from "./FicheView";
 
 export const runtime = "nodejs";
@@ -44,6 +45,10 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const get = (id: string): Content => c.get(id) ?? {};
   // Ordre par fiche (réordonnable, contrat §4) : l'ordre de ficheSections.
   const ordre = sections.map((s) => s.section_id);
+
+  // Gate anti fiche vide (chantier 2 §3.1) : une fiche dont une section
+  // obligatoire est vide n'est jamais servie comme présentable.
+  const incompletes = SECTIONS_OBLIGATOIRES.filter((id) => isEmptyContent(c.get(id)));
 
   // Journal de génération (contrat §3.6) : dernier état par groupe.
   let generation: { groupe: string; statut: string; error?: string; quand?: string }[] = [];
@@ -101,6 +106,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
     version: fiche.version,
     ordre,
     generation,
+    incompletes: [...incompletes],
     entete: {
       numero: asString(entete.numero),
       titre_lignes: titreLignes.length ? titreLignes : fiche.invite_nom.split(/\s+/),

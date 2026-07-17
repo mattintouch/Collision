@@ -50,6 +50,10 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
 
 export const FICHE_SECTION_IDS = FICHE_SECTIONS.map((s) => s.id);
 
+/** Sections OBLIGATOIRES du contrat v2 : une fiche dont l'une d'elles est vide
+ *  n'est pas présentable (gate au rendu, badge à l'index, refus en_challenge). */
+export const SECTIONS_OBLIGATOIRES = ["mecanique_succes", "univers", "chiffres"] as const;
+
 /** Renommages du contrat v2 (§5) : les fiches existantes conservent leur
  *  contenu, mappé sur les nouvelles clés (lecture ET écriture). */
 export const LEGACY_SECTION_ALIASES: Record<string, string> = {

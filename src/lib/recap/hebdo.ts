@@ -19,6 +19,7 @@ export interface RecapData {
   ecritures: { outil: string; acteur: string; total: number; echecs: number }[];
   generations: { done: number; failed: number; erreurs: { objectif: string; error: string }[] };
   backlog: { id: string; auteur: string | null; contenu: string; contexte: Record<string, unknown> }[];
+  notes: { invite: string; note: number; commentaire: string | null }[];
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -65,7 +66,23 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     .limit(50);
   const backlog = ((items ?? []) as RecapData["backlog"]);
 
-  return { depuis, ecritures, generations, backlog };
+  // Notes de plateau de la semaine (chantier 2, boucle éditoriale). Défensif :
+  // colonnes absentes tant que 0038 n'est pas appliquée → liste vide.
+  let notes: RecapData["notes"] = [];
+  try {
+    const { data: notees } = await sb
+      .from("fiches")
+      .select("invite_nom, note_plateau, note_commentaire")
+      .gte("note_at", depuis)
+      .not("note_plateau", "is", null)
+      .limit(20);
+    notes = ((notees ?? []) as { invite_nom: string; note_plateau: number; note_commentaire: string | null }[])
+      .map((f) => ({ invite: f.invite_nom, note: f.note_plateau, commentaire: f.note_commentaire }));
+  } catch {
+    notes = [];
+  }
+
+  return { depuis, ecritures, generations, backlog, notes };
 }
 
 /** Triage proposé par item (un appel modèle léger, sans outils). Repli :
@@ -119,6 +136,9 @@ export function buildRecapEmail(data: RecapData, triages: TriageProposal[]): { s
   bouge.push(li(`Générations et enrichissements : <b>${data.generations.done} réussi(s)</b>, ${data.generations.failed} échoué(s)`));
   for (const err of data.generations.erreurs) {
     bouge.push(li(`Échec ${esc(err.objectif)} : ${esc(err.error)}`));
+  }
+  for (const n of data.notes ?? []) {
+    bouge.push(li(`Note de plateau ${esc(n.invite)} : <b>${n.note}/5</b>${n.commentaire ? `. ${esc(n.commentaire)}` : ""}`));
   }
 
   const parId = new Map(triages.map((t) => [t.id, t]));
