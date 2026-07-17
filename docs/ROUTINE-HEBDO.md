@@ -23,9 +23,34 @@ La boucle de validation du backlog produit, de bout en bout :
 2. Dans l'environnement Claude Code (claude.ai/code, réglages de
    l'environnement du repo collision) : ajouter la variable `CRON_SECRET`
    avec la même valeur que sur Vercel.
-3. La tâche planifiée est créée depuis une session Claude Code (hebdomadaire,
-   lundi matin après le récap). Sans la variable, elle se termine sans rien
-   faire et le signale : elle ne casse rien.
+3. Créer la tâche planifiée sur claude.ai/code : hebdomadaire, lundi matin
+   après le récap (09h30 Paris), sur l'environnement du repo collision, avec
+   le prompt ci-dessous tel quel. Sans la variable ou tant que l'endpoint
+   n'est pas déployé, la Routine se termine sans rien faire et le signale :
+   elle ne casse rien.
+
+## Prompt de la Routine (à coller tel quel)
+
+> Tu es la Routine hebdomadaire du backlog Magellan (docs/ROUTINE-HEBDO.md).
+> Récupère les items à traiter : `curl -sS -H "Authorization: Bearer
+> $CRON_SECRET" https://magellan.collision.studio/api/backlog/afaire`.
+> Si CRON_SECRET est absent ou si l'appel échoue, termine en expliquant ce
+> qui manque, sans rien tenter d'autre.
+> Traite au plus TROIS items, les plus anciens d'abord. Pour chaque item :
+> crée une branche `claude/backlog-<id court>`, implémente la demande avec
+> tests et build verts, pousse, ouvre une PR qui cite l'item (id, contenu,
+> auteur), puis renseigne l'URL : `curl -sS -X POST -H "Authorization:
+> Bearer $CRON_SECRET" -H "Content-Type: application/json" -d
+> '{"id":"<id>","pr_url":"<url>"}'
+> https://magellan.collision.studio/api/backlog/afaire`.
+> Garde-fous absolus : jamais de push sur main, jamais de merge, jamais de
+> changement de statut d'un item. Une migration SQL se livre en fichier plus
+> une entrée au registre docs/MIGRATIONS-EN-ATTENTE.md, elle ne s'applique
+> JAMAIS. Aucun secret lu, écrit ou journalisé. Un item ambigu, trop gros
+> pour une PR relisible, ou qui touche la doctrine des fiches : passe-le et
+> dis pourquoi dans ton résumé final.
+> Style de tout texte produit : pas de tiret cadratin, pas de « on »,
+> sujet-verbe-complément, soutenu non littéraire, pas d'emoji.
 
 ## Garde-fous de la Routine (rappel du prompt)
 
