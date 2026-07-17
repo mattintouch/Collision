@@ -228,6 +228,9 @@ async function auditWrite(tool: string, actor: string, payload: unknown, ok: boo
 export const LOOP_TOOLS = [
   "list_shows", "list_cibles", "find_cible", "get_dossier", "daily_five",
   "log_touche", "update_cible", "add_appui",
+  // Chantier 1 : Vadim et l'équipe peuvent poser une demande produit.
+  // Aucun autre droit d'écriture ajouté (garde-fou du brief §2.6).
+  "feedback",
 ] as const;
 
 export function registerMagellanTools(server: McpServer, opts: { allow?: readonly string[] } = {}) {
@@ -1917,6 +1920,85 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         ecrit = true;
       }
       return text({ ok: true, fiche: f.slug, invite: f.invite_nom, demo, ecrit, count: questions.length, questions, ...(demo ? { note: "Mode démo (pas de clé Anthropic ou recherche vide) : questions génériques par ressort." } : {}) });
+    }
+  );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Chantier 1 (brief arbitrages 17/07) : backlog produit. Le MCP écrit dans le
+  // backlog, jamais dans le code. La décision de triage reste humaine.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  W(
+    "feedback",
+    "Pose une demande d'évolution ou un constat produit dans le backlog Magellan (une ligne suffit). Le contexte est capté automatiquement : acteur du jeton, dernier outil appelé, cible concernée si fournie. Compilé chaque lundi dans le récap hebdo avec un triage proposé. Intentions : signaler un manque, proposer une amélioration, noter un irritant à chaud.",
+    {
+      texte: z.string().describe("la demande ou le constat, en clair"),
+      cible: z.string().optional().describe("nom ou id de la cible concernée, le cas échéant"),
+    },
+    { destructiveHint: false, idempotentHint: false },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const acteur = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? "inconnu";
+      // Contexte auto : dernier outil appelé par cet acteur (fenêtre 30 min).
+      const contexte: Record<string, unknown> = {};
+      try {
+        const depuis = new Date(Date.now() - 30 * 60_000).toISOString();
+        const { data: dernier } = await sb
+          .from("mcp_audit")
+          .select("tool")
+          .eq("actor", acteur)
+          .gte("created_at", depuis)
+          .neq("tool", "feedback")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (dernier) contexte.dernier_outil = (dernier as { tool: string }).tool;
+      } catch { /* contexte best-effort */ }
+      if (a.cible) contexte.cible = a.cible;
+      const { data, error } = await sb
+        .from("product_backlog")
+        .insert({ auteur: acteur, source: "mcp_feedback", contenu: a.texte, contexte, statut: "nouveau" })
+        .select("id")
+        .single();
+      if (error) return text({ error: error.message });
+      return text({ ok: true, backlog_id: (data as { id: string }).id, detail: "Noté au backlog. Compilé dans le récap du lundi." });
+    }
+  );
+
+  RT(
+    "list_backlog",
+    "Liste les items du backlog produit (demandes d'évolution posées via feedback, email ou session), avec statut, triage proposé et PR liée. Filtrable par statut : nouveau, a_faire, a_preciser, rejete, livre.",
+    { statut: z.enum(["nouveau", "a_faire", "a_preciser", "rejete", "livre"]).optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      let q = sb.from("product_backlog").select("*").order("created_at", { ascending: false }).limit(100);
+      if (a.statut) q = q.eq("statut", a.statut);
+      const { data, error } = await q;
+      if (error) return text({ error: error.message });
+      return text({ total: (data ?? []).length, items: data ?? [] });
+    }
+  );
+
+  W(
+    "triage_backlog",
+    "Tranche un item du backlog (boucle de validation du récap hebdo) : a_faire (une Routine ouvrira la PR), a_preciser, rejete, ou livre (avec pr_url). Intentions : valider ou rejeter une demande produit du récap.",
+    {
+      id: z.string().describe("id de l'item (voir list_backlog ou le récap)"),
+      statut: z.enum(["a_faire", "a_preciser", "rejete", "livre"]),
+      commentaire: z.string().optional().describe("justification du triage"),
+      pr_url: z.string().optional().describe("URL de la PR qui livre l'item"),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const patch: Record<string, unknown> = { statut: a.statut };
+      if (a.commentaire !== undefined) patch.commentaire_triage = a.commentaire;
+      if (a.pr_url !== undefined) patch.pr_url = a.pr_url;
+      const { data, error } = await sb.from("product_backlog").update(patch).eq("id", a.id).select("id, statut").maybeSingle();
+      if (error) return text({ error: error.message });
+      if (!data) return text({ error: `Item introuvable : ${a.id}.` });
+      return text({ ok: true, id: a.id, statut: a.statut });
     }
   );
 }
