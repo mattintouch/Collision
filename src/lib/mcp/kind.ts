@@ -26,3 +26,19 @@ export function kindAwarePatch(
   for (const f of allowed) if (a[f] !== undefined) patch[f] = a[f];
   return { patch, rejected, allowed: [...allowed] };
 }
+
+/**
+ * Traduit une violation de contrainte kind (Postgres brute) en message
+ * actionnable. Cas connu (17/07) : cible_personne_fields de 0001 encore active
+ * en base malgré 0021 (dérive base/registre), corrigée par la migration 0036.
+ * Renvoie null si l'erreur n'est pas une contrainte kind.
+ */
+export function mapKindConstraintError(message: string): string | null {
+  if (message.includes("cible_personne_fields")) {
+    return "La base refuse secteur/pays/envergure/raison_de_selection/etat_recherche sur une personne : la contrainte d'origine (0001) est encore active. Appliquer la migration 0036_cibles_contraintes_kind.sql, puis réessayer.";
+  }
+  if (message.includes("cible_entreprise_fields")) {
+    return "Une entreprise ne peut pas porter role ou archetype (contrainte cible_entreprise_fields). Retirer ces champs, ou corriger le kind de la cible d'abord (update_cible kind=personne).";
+  }
+  return null;
+}
