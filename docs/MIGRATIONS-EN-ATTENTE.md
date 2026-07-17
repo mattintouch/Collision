@@ -21,13 +21,13 @@
   enrichment_jobs + vue couts_generation (chantier 3).
   Appliquée par Matt le 17/07.
 
+- `0040_besoins_editoriaux.sql` : table besoins_editoriaux (chantier 4).
+  Appliquée par Matt le 17/07 (avant merge de la PR : sans risque, le code est
+  défensif dans les deux sens).
+
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
-- `0040_besoins_editoriaux.sql` : table besoins_editoriaux (chantier 4).
-  Défensif : sans la migration, add_besoin renvoie un message actionnable et
-  la couverture est vide (aucune alerte). À appliquer au merge de la PR du
-  chantier 4.
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base
