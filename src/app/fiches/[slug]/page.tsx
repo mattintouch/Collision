@@ -6,7 +6,9 @@
 
 import { notFound } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/service";
+import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { kickQueue } from "@/lib/enrichment/jobs";
+import type { ConsoleEvent, RecSession } from "@/lib/fiche/console";
 import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections } from "@/lib/fiche/store";
 import {
@@ -39,6 +41,31 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const fiche = await resolveFiche(sb, params.slug);
   if (!fiche) notFound();
   kickQueue(); // lecture chaude : recharger la fiche draine la génération en cours
+
+  // Console partagée (lot A, migration 0041) : événements + sessions REC.
+  // Défensif : tables absentes → console vide, la fiche se rend quand même.
+  let consoleEvents: ConsoleEvent[] = [];
+  let recSessions: RecSession[] = [];
+  try {
+    const { data: evs } = await sb
+      .from("fiche_console_events")
+      .select("id, session_id, created_at, author_email, kind, timecode, payload")
+      .eq("fiche_id", fiche.id)
+      .order("created_at")
+      .limit(2000);
+    consoleEvents = (evs ?? []) as ConsoleEvent[];
+    const { data: ss } = await sb
+      .from("fiche_rec_sessions")
+      .select("id, started_at, ended_at, started_by, ended_by, email_envoye_at")
+      .eq("fiche_id", fiche.id)
+      .order("started_at");
+    recSessions = (ss ?? []) as RecSession[];
+  } catch {
+    /* migration 0041 non appliquée */
+  }
+  // Identité du lecteur : résolue côté serveur depuis la session (A1.1).
+  const { data: auth } = await createAuthClient().auth.getUser();
+  const viewerEmail = auth.user?.email ?? "";
 
   const sections = await ficheSections(sb, fiche.id);
   const c = new Map<string, Content>(sections.map((s) => [s.section_id, (s.content ?? {}) as Content]));
@@ -101,6 +128,10 @@ export default async function FichePage({ params }: { params: { slug: string } }
 
   const data: FicheViewData = {
     slug: fiche.slug,
+    fiche_id: fiche.id,
+    viewer_email: viewerEmail,
+    console_events: consoleEvents,
+    rec_sessions: recSessions,
     invite_nom: fiche.invite_nom,
     statut: fiche.statut,
     version: fiche.version,

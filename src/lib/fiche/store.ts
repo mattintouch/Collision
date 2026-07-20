@@ -35,6 +35,46 @@ export interface FicheSectionRow {
   updated_by: string | null;
 }
 
+/** Ligne de la vue d'ensemble des fiches : la MÊME requête sert l'outil MCP
+ *  list_fiches et la page /fiches (A3.2 : pas de logique parallèle). */
+export interface FicheOverview {
+  fiche: FicheRow;
+  show_slug: string | null;
+  commentaires_ouverts: number;
+  carnet_disponible: boolean; // au moins une session d'enregistrement close (B2)
+}
+
+export async function fichesOverview(sb: SB, opts: { show_id?: string | null; statut?: FicheStatut } = {}): Promise<FicheOverview[]> {
+  let q = sb.from("fiches").select("*").order("updated_at", { ascending: false });
+  if (opts.show_id) q = q.eq("show_id", opts.show_id);
+  if (opts.statut) q = q.eq("statut", opts.statut);
+  const { data } = await q;
+  const fiches = (data ?? []) as FicheRow[];
+  const ids = fiches.map((f) => f.id);
+
+  const openByFiche = new Map<string, number>();
+  const carnets = new Set<string>();
+  if (ids.length) {
+    const { data: cs } = await sb.from("fiche_comments").select("fiche_id").eq("resolved", false).in("fiche_id", ids);
+    for (const r of ((cs ?? []) as { fiche_id: string }[])) openByFiche.set(r.fiche_id, (openByFiche.get(r.fiche_id) ?? 0) + 1);
+    // Sessions closes (table 0041) : défensif tant que la migration n'est pas appliquée.
+    try {
+      const { data: ss } = await sb.from("fiche_rec_sessions").select("fiche_id").not("ended_at", "is", null).in("fiche_id", ids);
+      for (const r of ((ss ?? []) as { fiche_id: string }[])) carnets.add(r.fiche_id);
+    } catch { /* migration 0041 absente */ }
+  }
+
+  const { data: shows } = await sb.from("shows").select("id, slug");
+  const slugOf = new Map(((shows ?? []) as { id: string; slug: string }[]).map((s) => [s.id, s.slug]));
+
+  return fiches.map((f) => ({
+    fiche: f,
+    show_slug: f.show_id ? slugOf.get(f.show_id) ?? null : null,
+    commentaires_ouverts: openByFiche.get(f.id) ?? 0,
+    carnet_disponible: carnets.has(f.id),
+  }));
+}
+
 /** Slug stable : prenom-nom sans accents ni ponctuation. */
 export function slugify(nom: string): string {
   return String(nom ?? "")

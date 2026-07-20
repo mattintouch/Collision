@@ -32,18 +32,25 @@ function scoreColor(s: number): string {
   return "#565B66";
 }
 
+// A3.3 : stades « programmé ou au delà » — la carte affiche le lien direct vers
+// la fiche de préparation si elle existe (sinon rien, jamais de bouton mort).
+const STAGES_AVEC_FICHE = new Set(["programme", "enregistre", "produit", "publie"]);
+
 export function TargetCard({
   cible,
   show,
   score,
   badges,
+  ficheSlug,
 }: {
   cible: CibleEnrichie;
   show: Show;
   score?: number | null;
   badges?: string[];
+  ficheSlug?: string;
 }) {
   const r = computeResurgence(cible);
+  const lienFiche = ficheSlug && cible.stage_key && STAGES_AVEC_FICHE.has(cible.stage_key) ? `/fiches/${ficheSlug}` : null;
   const isEntreprise = cible.kind === "entreprise";
   const subtitle = isEntreprise
     ? [cible.secteur, cible.pays].filter(Boolean).join(" · ")
@@ -100,6 +107,22 @@ export function TargetCard({
             <span style={{ color: "#FFD200" }}>★ P{cible.note_priorite}</span>
           )}
           {cible.stage_label && <span>{cible.stage_label}</span>}
+          {lienFiche && (
+            // La carte entière est déjà un lien : navigation programmée pour
+            // éviter une ancre imbriquée.
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.location.assign(lienFiche);
+              }}
+              className="chip mono cursor-pointer"
+              style={{ color: "#1FB46A", borderColor: "rgba(31,180,106,.35)", background: "rgba(31,180,106,.1)", fontSize: "9.5px", fontWeight: 700, letterSpacing: ".08em" }}
+              title="Fiche de préparation"
+            >
+              FICHE »
+            </button>
+          )}
           <span className="inline-flex items-center gap-1">
             <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: PRIO_DOT[cible.priorite] }} />
             {cible.priorite}

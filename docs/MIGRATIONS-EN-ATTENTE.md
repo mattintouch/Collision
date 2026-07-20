@@ -28,6 +28,10 @@
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
+- `0041_console_partagee.sql` : tables fiche_rec_sessions + fiche_console_events
+  (console partagée, identité par défauts de colonne, Realtime). Défensif :
+  sans la migration, la console se rend vide et les saisies échouent sans
+  casser la fiche. À appliquer au merge de la PR du lot A.
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base
