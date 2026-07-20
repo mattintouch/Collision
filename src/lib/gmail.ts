@@ -72,6 +72,8 @@ export interface MailAttachment {
 
 export interface SendMailInput {
   to: string[];
+  /** Destinataires en copie (en-tête Cc, livrés par Gmail comme les To). */
+  cc?: string[];
   subject: string;
   html: string;
   attachments?: MailAttachment[];
@@ -120,6 +122,8 @@ export function encodeFrom(from: string): string {
 export function buildMime(from: string, i: SendMailInput): string {
   const subject = `=?UTF-8?B?${b64(i.subject)}?=`;
   const rootHeaders = [`From: ${encodeFrom(from)}`, `To: ${i.to.join(", ")}`, `Subject: ${subject}`, "MIME-Version: 1.0"];
+  const cc = (i.cc ?? []).map((e) => e.trim()).filter((e) => e.includes("@"));
+  if (cc.length) rootHeaders.splice(2, 0, `Cc: ${cc.join(", ")}`);
 
   // Sans pièce jointe : message text/html simple.
   if (!i.attachments?.length) {

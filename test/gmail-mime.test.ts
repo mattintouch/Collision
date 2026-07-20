@@ -76,3 +76,15 @@ describe("buildMime — message simple sans pièce jointe", () => {
     expect(raw).toContain(Buffer.from(HTML).toString("base64"));
   });
 });
+
+describe("buildMime — copie (Cc, lot B1)", () => {
+  it("porte l'en-tête Cc dans les en-têtes racine", () => {
+    const raw = buildMime("x@y.z", { to: ["a@b.c"], cc: ["copie@b.c", "  "], subject: "S", html: HTML });
+    const rootHeaders = raw.split("\r\n\r\n")[0];
+    expect(rootHeaders).toContain("Cc: copie@b.c");
+  });
+  it("sans copie : aucun en-tête Cc", () => {
+    const raw = buildMime("x@y.z", { to: ["a@b.c"], subject: "S", html: HTML });
+    expect(raw.split("\r\n\r\n")[0]).not.toContain("Cc:");
+  });
+});

@@ -135,6 +135,10 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const [chatDraft, setChatDraft] = useState("");
   const [stopConfirm, setStopConfirm] = useState(false);
   const [stopEnCours, setStopEnCours] = useState(false);
+  const [emailStatut, setEmailStatut] = useState<string | null>(null);
+  const [emailDetail, setEmailDetail] = useState<string | null>(null);
+  const [renvoiEnCours, setRenvoiEnCours] = useState(false);
+  const [copie, setCopie] = useState<string | null>(null);
   const [presents, setPresents] = useState<string[]>([]);
   const [syncMode, setSyncMode] = useState<"realtime" | "polling">("realtime");
   const sb = useMemo(() => createClient(), []);
@@ -303,16 +307,45 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     if (!openSession || stopEnCours) return;
     setStopEnCours(true);
     try {
-      const res = await fetch(`/api/fiches/${data.slug}/stop`, { method: "POST" });
-      const body = (await res.json()) as { ok?: boolean; session?: RecSession };
+      const res = await fetch(`/api/fiches/${data.slug}/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const body = (await res.json()) as { ok?: boolean; session?: RecSession; email?: string; email_detail?: string };
       if (body.ok && body.session) {
         const s = body.session;
         setSessions((prev) => [...prev.filter((x) => x.id !== s.id), s].sort((a, b) => a.started_at.localeCompare(b.started_at)));
       }
+      setEmailStatut(body.email ?? null);
+      setEmailDetail(body.email_detail ?? null);
     } finally {
       setStopEnCours(false);
       setStopConfirm(false);
     }
+  };
+
+  /* B1 : renvoi EXPLICITE des notes de la dernière session close. */
+  const renvoyerNotes = async () => {
+    if (renvoiEnCours) return;
+    setRenvoiEnCours(true);
+    try {
+      const res = await fetch(`/api/fiches/${data.slug}/stop`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resend: true }) });
+      const body = (await res.json()) as { ok?: boolean; session?: RecSession; email?: string; email_detail?: string };
+      if (body.ok && body.session) {
+        const s = body.session;
+        setSessions((prev) => [...prev.filter((x) => x.id !== s.id), s].sort((a, b) => a.started_at.localeCompare(b.started_at)));
+      }
+      setEmailStatut(body.email ?? null);
+      setEmailDetail(body.email_detail ?? null);
+    } finally {
+      setRenvoiEnCours(false);
+    }
+  };
+
+  /* B2 : timecode + libellé copiables, pour transmission au montage. */
+  const copier = async (cle: string, texte: string) => {
+    try {
+      await navigator.clipboard.writeText(texte);
+      setCopie(cle);
+      setTimeout(() => setCopie(null), 1500);
+    } catch { /* clipboard indisponible : la sélection manuelle reste possible */ }
   };
 
   const numero = data.entete.numero ? `GDIY #${data.entete.numero}` : "GDIY";
@@ -991,19 +1024,62 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {/* ── BLOC B : console ── */}
         {ordreB.map(renderSection)}
 
-        {/* Fin d'épisode : livraison des moments forts (clips en tête), régie en appendice. */}
-        {carnet.length > 0 && (
-          <section style={sectionStyle}>
+        {/* Carnet (B2) : où vivent moments clés, clips, notes et régie après la
+            session. Clips en tête, timecode + libellé copiables pour le montage.
+            L'email B1 et cette vue sont les deux seuls canaux, pas d'export. */}
+        {(carnet.length > 0 || chat.length > 0 || derniereClose) && (
+          <section id="carnet" style={sectionStyle}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <h2 style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 34, lineHeight: 0.95, textTransform: "uppercase", margin: 0 }}>Fin d&apos;épisode : moments forts</h2>
+              <h2 style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 34, lineHeight: 0.95, textTransform: "uppercase", margin: 0 }}>Carnet</h2>
               <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", letterSpacing: "0.1em" }}>{carnet.filter((x) => x.tag === "CLIP").length} CLIP(S) · {carnet.filter((x) => x.tag === "NOTE").length} NOTE(S)</span>
             </div>
+            {/* État du flux de fin (B1) : envoi, non configuré, échec + renvoyer. */}
+            {derniereClose && (
+              <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontFamily: MONO, fontSize: 11, letterSpacing: "0.08em", color: "#464641" }}>
+                <span>
+                  {derniereClose.email_envoye_at
+                    ? `NOTES ENVOYÉES ${new Date(derniereClose.email_envoye_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })}`
+                    : emailStatut === "non_configure"
+                      ? "EMAIL NON ENVOYÉ : DESTINATAIRES NON CONFIGURÉS (NOTES_EPISODE_EMAILS)"
+                      : emailStatut === "echec"
+                        ? `EMAIL EN ÉCHEC${emailDetail ? ` : ${emailDetail}` : ""}`
+                        : "NOTES NON ENVOYÉES"}
+                </span>
+                <button
+                  onClick={renvoyerNotes}
+                  disabled={renvoiEnCours}
+                  style={{ border: "1px solid #000", background: "none", cursor: "pointer", font: "inherit", padding: "4px 10px" }}
+                >
+                  {renvoiEnCours ? "ENVOI…" : derniereClose.email_envoye_at ? "RENVOYER" : "ENVOYER"}
+                </button>
+                {carnet.some((x) => x.tag === "CLIP") && (
+                  <button
+                    onClick={() => copier("tous-clips", carnet.filter((x) => x.tag === "CLIP").map((x) => `${x.time} · ${x.text}`).join("\n"))}
+                    style={{ border: "1px solid #000", background: "none", cursor: "pointer", font: "inherit", padding: "4px 10px" }}
+                  >
+                    {copie === "tous-clips" ? "COPIÉ" : "COPIER TOUS LES CLIPS"}
+                  </button>
+                )}
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+              {carnet.length === 0 && (
+                <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0" }}>Aucune saisie pendant cette session.</p>
+              )}
               {[...carnet].sort((a, b) => (a.tag === b.tag ? 0 : a.tag === "CLIP" ? -1 : 1)).map((item, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #D9D9D4" }}>
                   <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: item.tag === "CLIP" ? "#E63946" : "#000", flexShrink: 0 }}>{item.tag} {item.time}</span>
-                  <span style={{ fontSize: 15, lineHeight: 1.5, flex: 1 }}>{item.text}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.5, flex: 1, userSelect: "text" }}>{item.text}</span>
                   <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", flexShrink: 0 }}>{item.who}</span>
+                  {item.tag === "CLIP" && (
+                    <button
+                      onClick={() => copier(`clip-${i}`, `${item.time} · ${item.text}`)}
+                      style={{ border: "1px solid #D9D9D4", background: "none", cursor: "pointer", fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", padding: "3px 8px", flexShrink: 0 }}
+                      title="Copier timecode et libellé pour le montage"
+                    >
+                      {copie === `clip-${i}` ? "COPIÉ" : "COPIER"}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
