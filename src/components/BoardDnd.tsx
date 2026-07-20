@@ -43,11 +43,14 @@ export function BoardDnd({
   stages,
   cibles,
   watchlists = [],
+  ficheSlugs = {},
 }: {
   show: Show;
   stages: Stage[];
   cibles: CibleEnrichie[];
   watchlists?: { key: string; label: string }[];
+  /** A3.3 : slug de la fiche de préparation par cible (si elle existe). */
+  ficheSlugs?: Record<string, string>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -481,7 +484,7 @@ export function BoardDnd({
                         selected.has(c.id) && "rounded-card ring-2 ring-jaune"
                       )}
                     >
-                      <TargetCard cible={c} show={show} score={scores.get(c.id)?.score} badges={scores.get(c.id)?.badges} />
+                      <TargetCard cible={c} show={show} score={scores.get(c.id)?.score} badges={scores.get(c.id)?.badges} ficheSlug={ficheSlugs[c.id]} />
                       <button
                         onClick={(e) => {
                           e.preventDefault();

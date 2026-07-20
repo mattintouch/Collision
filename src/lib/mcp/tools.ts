@@ -26,6 +26,7 @@ import {
   resolveFiche,
   ensureFiche,
   ficheSections,
+  fichesOverview,
   writeSection,
   type FicheRow,
 } from "../fiche/store";
@@ -1666,21 +1667,16 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         sid = await showId(sb, a.show);
         if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       }
-      let q = sb.from("fiches").select("*").order("updated_at", { ascending: false });
-      if (sid) q = q.eq("show_id", sid);
-      if (a.statut) q = q.eq("statut", a.statut);
-      const { data } = await q;
-      const fiches = (data ?? []) as FicheRow[];
-      // Commentaires ouverts par fiche (une requête groupée).
-      const ids = fiches.map((f) => f.id);
-      const openByFiche = new Map<string, number>();
-      if (ids.length) {
-        const { data: cs } = await sb.from("fiche_comments").select("fiche_id").eq("resolved", false).in("fiche_id", ids);
-        for (const r of ((cs ?? []) as { fiche_id: string }[])) openByFiche.set(r.fiche_id, (openByFiche.get(r.fiche_id) ?? 0) + 1);
-      }
+      // Même requête que la page /fiches (fichesOverview, A3.2) : une seule logique.
+      const rows = await fichesOverview(sb, { show_id: sid, statut: a.statut });
       return text({
-        total: fiches.length,
-        fiches: fiches.map((f) => ({ ...ficheSummary(f), commentaires_ouverts: openByFiche.get(f.id) ?? 0 })),
+        total: rows.length,
+        fiches: rows.map((r) => ({
+          ...ficheSummary(r.fiche),
+          show: r.show_slug,
+          commentaires_ouverts: r.commentaires_ouverts,
+          carnet_disponible: r.carnet_disponible,
+        })),
       });
     }
   );

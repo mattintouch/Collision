@@ -7,11 +7,23 @@
 // se rendent dans l'ordre stocké par fiche (défaut au catalogue) via un
 // registre : chaque section_id a son rendu, une section vide est absente.
 // REC verrouillé tant que la checklist n'est pas complète (règle Matt).
-// État persisté par appareil (localStorage, clé gdiy-fiche-{slug}).
+//
+// Lot A (session Yaël Braun-Pivet, 20/07) : la console est PARTAGÉE. Chaque
+// saisie est une ligne fiche_console_events écrite sous l'identité du compte
+// connecté (résolue côté serveur, migration 0041), l'état se réduit du flux
+// d'événements, la synchro passe par Supabase Realtime avec repli en polling
+// court (2 s) documenté. Le REC est une session en base : il survit au
+// rechargement et se partage. Aucun libellé d'auteur en dur.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FICHE_SECTIONS } from "@/lib/fiche/sections";
 import type { KpiCard, LienDate } from "@/lib/fiche/schema";
+import { createClient } from "@/lib/supabase/client";
+import {
+  labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
+  timecodeAt, timeLabel, mergeEvent,
+  type ConsoleEvent, type RecSession,
+} from "@/lib/fiche/console";
 
 export interface FicheBloc {
   debut_min: number;
@@ -35,9 +47,13 @@ export interface ALireLien {
 
 export interface FicheViewData {
   slug: string;
+  fiche_id: string;
   invite_nom: string;
   statut: string;
   version: number;
+  viewer_email: string; // compte connecté (résolu côté serveur)
+  console_events: ConsoleEvent[];
+  rec_sessions: RecSession[];
   ordre: string[]; // ordre des sections par fiche (réordonnable)
   generation: { groupe: string; statut: string; error?: string; quand?: string }[];
   incompletes: string[]; // sections obligatoires vides (gate anti fiche vide)
@@ -101,15 +117,6 @@ const BLOC_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.bloc]));
 const TITRE_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.titre]));
 const NIVEAUX: Record<string, string> = { indispensable: "INDISPENSABLE", utile: "UTILE", optionnel: "OPTIONNEL" };
 
-interface Persisted {
-  checked?: Record<number, boolean>;
-  asked?: Record<string, boolean>;
-  askedAt?: Record<string, string>;
-  recStart?: number | null;
-  carnet?: { tag: "CLIP" | "NOTE"; time: string; text: string }[];
-  chat?: { who: string; time: string; text: string }[];
-}
-
 function fmt(sec: number): string {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
   const p = (n: number) => String(n).padStart(2, "0");
@@ -119,45 +126,127 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
 const rangeLabel = (b: FicheBloc) => `${pad2(Math.floor(b.debut_min / 60))}:${pad2(b.debut_min % 60)} – ${pad2(Math.floor(b.fin_min / 60))}:${pad2(b.fin_min % 60)}`;
 
 export default function FicheView({ data }: { data: FicheViewData }) {
-  const LS = `gdiy-fiche-${data.slug}`;
-  const [checked, setChecked] = useState<Record<number, boolean>>({});
-  const [asked, setAsked] = useState<Record<string, boolean>>({});
-  const [askedAt, setAskedAt] = useState<Record<string, string>>({});
-  const [recStart, setRecStart] = useState<number | null>(null);
+  const [events, setEvents] = useState<ConsoleEvent[]>(data.console_events);
+  const [sessions, setSessions] = useState<RecSession[]>(data.rec_sessions);
   const [now, setNow] = useState(() => Date.now());
-  const [carnet, setCarnet] = useState<{ tag: "CLIP" | "NOTE"; time: string; text: string }[]>([]);
-  const [chat, setChat] = useState<{ who: string; time: string; text: string }[]>([]);
   const [carnetOpen, setCarnetOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [chatDraft, setChatDraft] = useState("");
-  const loaded = useRef(false);
+  const [stopConfirm, setStopConfirm] = useState(false);
+  const [stopEnCours, setStopEnCours] = useState(false);
+  const [presents, setPresents] = useState<string[]>([]);
+  const [syncMode, setSyncMode] = useState<"realtime" | "polling">("realtime");
+  const sb = useMemo(() => createClient(), []);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(LS) ?? "{}") as Persisted;
-      setChecked(saved.checked ?? {});
-      setAsked(saved.asked ?? {});
-      setAskedAt(saved.askedAt ?? {});
-      setRecStart(saved.recStart ?? null);
-      setCarnet(saved.carnet ?? []);
-      setChat(saved.chat ?? []);
-    } catch { /* état neuf */ }
-    loaded.current = true;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [LS]);
+  }, []);
 
+  /* Synchro : canal Realtime (événements + sessions + présence). Repli
+     documenté : si le canal n'aboutit pas, polling toutes les 2 s. */
   useEffect(() => {
-    if (!loaded.current) return;
-    try {
-      localStorage.setItem(LS, JSON.stringify({ checked, asked, askedAt, recStart, carnet, chat } satisfies Persisted));
-    } catch { /* stockage plein ou privé */ }
-  }, [LS, checked, asked, askedAt, recStart, carnet, chat]);
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const demarrerPolling = () => {
+      if (poll) return;
+      setSyncMode("polling");
+      poll = setInterval(async () => {
+        const { data: evs } = await sb
+          .from("fiche_console_events")
+          .select("id, session_id, created_at, author_email, kind, timecode, payload")
+          .eq("fiche_id", data.fiche_id)
+          .order("created_at")
+          .limit(2000);
+        if (evs) setEvents((prev) => (evs as ConsoleEvent[]).reduce((acc, e) => mergeEvent(acc, e), prev));
+        const { data: ss } = await sb
+          .from("fiche_rec_sessions")
+          .select("id, started_at, ended_at, started_by, ended_by, email_envoye_at")
+          .eq("fiche_id", data.fiche_id)
+          .order("started_at");
+        if (ss) setSessions(ss as RecSession[]);
+      }, 2000);
+    };
+    const channel = sb
+      .channel(`console-${data.fiche_id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "fiche_console_events", filter: `fiche_id=eq.${data.fiche_id}` }, (p) => {
+        setEvents((prev) => mergeEvent(prev, p.new as ConsoleEvent));
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "fiche_rec_sessions", filter: `fiche_id=eq.${data.fiche_id}` }, (p) => {
+        const s = p.new as RecSession;
+        setSessions((prev) => [...prev.filter((x) => x.id !== s.id), s].sort((a, b) => a.started_at.localeCompare(b.started_at)));
+      })
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState<{ email: string }>();
+        const emails = Object.values(state).flat().map((m) => m.email).filter(Boolean);
+        setPresents(Array.from(new Set(emails.map(labelFromEmail))));
+      })
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setSyncMode("realtime");
+          void channel.track({ email: data.viewer_email });
+        }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") demarrerPolling();
+      });
+    return () => {
+      if (poll) clearInterval(poll);
+      void sb.removeChannel(channel);
+    };
+  }, [sb, data.fiche_id, data.viewer_email]);
 
-  const elapsed = recStart ? Math.max(0, Math.floor((now - recStart) / 1000)) : 0;
-  const recStarted = !!recStart;
+  /* Session d'enregistrement ouverte : source de vérité du REC (survit au
+     rechargement, partagée entre opérateurs). */
+  const openSession = sessions.find((s) => !s.ended_at) ?? null;
+  const derniereClose = [...sessions].reverse().find((s) => s.ended_at) ?? null;
+  const recStarted = !!openSession;
+  const elapsed = openSession ? Math.max(0, Math.floor((now - new Date(openSession.started_at).getTime()) / 1000)) : 0;
   const elapsedMin = elapsed / 60;
+
+  /* Écriture d'un événement : identité résolue côté serveur (défauts 0041),
+     ajout optimiste avec id client, dédoublonné à l'écho realtime. */
+  const sendEvent = useCallback((kind: ConsoleEvent["kind"], payload: Record<string, unknown>) => {
+    const open = sessionsRef.current.find((s) => !s.ended_at) ?? null;
+    const e: ConsoleEvent = {
+      id: crypto.randomUUID(),
+      session_id: open?.id ?? null,
+      created_at: new Date().toISOString(),
+      author_email: data.viewer_email,
+      kind,
+      timecode: open ? timecodeAt(open, Date.now()) : null,
+      payload,
+    };
+    setEvents((prev) => mergeEvent(prev, e));
+    void sb
+      .from("fiche_console_events")
+      .insert({ id: e.id, fiche_id: data.fiche_id, session_id: e.session_id, kind, timecode: e.timecode, payload })
+      .then(({ error }) => {
+        if (error) setEvents((prev) => prev.filter((x) => x.id !== e.id));
+      });
+  }, [sb, data.fiche_id, data.viewer_email]);
+
+  /* État réduit du flux d'événements (dernier événement gagne). */
+  const checked = useMemo(() => reduceChecked(events), [events]);
+  const { asked, askedAt } = useMemo(() => reduceAsked(events), [events]);
+  const carnet = useMemo(
+    () => carnetOf(events).map((e) => ({
+      tag: (e.kind === "clip" ? "CLIP" : "NOTE") as "CLIP" | "NOTE",
+      time: timeLabel(e, sessions),
+      text: textOf(e) || (e.kind === "clip" ? "Moment fort marqué" : ""),
+      who: labelFromEmail(e.author_email),
+    })),
+    [events, sessions]
+  );
+  const chat = useMemo(
+    () => chatOf(events).map((e) => ({
+      who: labelFromEmail(e.author_email),
+      me: e.author_email === data.viewer_email,
+      time: timeLabel(e, sessions),
+      text: textOf(e),
+    })),
+    [events, sessions, data.viewer_email]
+  );
 
   const doneCount = data.checklist.filter((_, i) => checked[i]).length;
   const checklistComplete = doneCount === data.checklist.length;
@@ -172,17 +261,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     data.questions.filter((q) => (blocs[q.bloc] ? q.bloc : blocs.length - 1) === i);
   const askedTotal = data.questions.filter((q) => asked[q.num]).length;
 
-  const nowTime = () => {
-    const d = new Date();
-    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  };
-  const stamp = () => (recStarted ? fmt(elapsed) : nowTime());
-
-  const toggleQuestion = (num: string) => {
-    const next = !asked[num];
-    setAsked((a) => ({ ...a, [num]: next }));
-    setAskedAt((a) => ({ ...a, [num]: next ? fmt(elapsed) : "" }));
-  };
+  const toggleQuestion = (num: string) => sendEvent("question", { num, asked: !asked[num] });
+  const toggleCheck = (index: number) => sendEvent("check", { index, checked: !checked[index] });
   const goBloc = useCallback((i: number) => {
     const el = document.getElementById(`bloc-${i}`);
     if (el) {
@@ -193,19 +273,46 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const addNote = () => {
     const t = noteDraft.trim();
     if (!t) return;
-    setCarnet((c) => [...c, { tag: "NOTE", time: stamp(), text: t }]);
+    sendEvent("note", { text: t });
     setNoteDraft("");
   };
   const sendChat = () => {
     const t = chatDraft.trim();
     if (!t) return;
-    setChat((c) => [...c, { who: "me", time: nowTime(), text: t }]);
+    sendEvent("chat", { text: t });
     setChatDraft("");
   };
   const markClip = () => {
-    setCarnet((c) => [...c, { tag: "CLIP", time: stamp(), text: "Moment fort marqué" }]);
+    sendEvent("clip", { text: "Moment fort marqué" });
     setCarnetOpen(true);
     setChatOpen(false);
+  };
+
+  /* REC : ouvre une session en base. STOP (A2) : confirmation explicite puis
+     clôture par la route serveur (horodatage de fin, flux de fin d'épisode). */
+  const startRec = async () => {
+    if (!checklistComplete || openSession) return;
+    const { data: row, error } = await sb
+      .from("fiche_rec_sessions")
+      .insert({ fiche_id: data.fiche_id, started_by: data.viewer_email })
+      .select("id, started_at, ended_at, started_by, ended_by, email_envoye_at")
+      .single();
+    if (!error && row) setSessions((prev) => [...prev, row as RecSession]);
+  };
+  const stopRec = async () => {
+    if (!openSession || stopEnCours) return;
+    setStopEnCours(true);
+    try {
+      const res = await fetch(`/api/fiches/${data.slug}/stop`, { method: "POST" });
+      const body = (await res.json()) as { ok?: boolean; session?: RecSession };
+      if (body.ok && body.session) {
+        const s = body.session;
+        setSessions((prev) => [...prev.filter((x) => x.id !== s.id), s].sort((a, b) => a.started_at.localeCompare(b.started_at)));
+      }
+    } finally {
+      setStopEnCours(false);
+      setStopConfirm(false);
+    }
   };
 
   const numero = data.entete.numero ? `GDIY #${data.entete.numero}` : "GDIY";
@@ -706,7 +813,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   // Ordre par fiche : le bloc d'appartenance vient du catalogue, l'ordre interne
   // de la fiche (colonne position). Défaut au catalogue.
   const ordreA = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "A");
-  const ordreB = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "B");
+  let ordreB = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "B");
+  // B3 (session 20/07) : les questions réseaux remontent juste après le pitch
+  // (30 secondes) et les chiffres, avant le plan de vol. AFFICHAGE uniquement :
+  // aucune donnée, aucun section_id, aucun contrat modifié.
+  if (ordreB.includes("questions_reseaux")) {
+    const sans = ordreB.filter((idSec) => idSec !== "questions_reseaux");
+    const apres = Math.max(sans.indexOf("chiffres"), sans.indexOf("trente_secondes"));
+    ordreB = [...sans.slice(0, apres + 1), "questions_reseaux", ...sans.slice(apres + 1)];
+  }
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 120, background: "#FFF" }}>
@@ -720,17 +835,47 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         </div>
         <a href="#console" style={{ display: "flex", alignItems: "center", padding: "0 14px", borderLeft: "1px solid #2B2B27", fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#8F8F88", textDecoration: "none" }}>CONSOLE »</a>
         {recStarted ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 16px", borderLeft: "1px solid #2B2B27" }}>
-            <span style={{ width: 8, height: 8, background: "#E63946", borderRadius: 999, animation: "gdiy-recpulse 1.6s ease-in-out infinite" }} />
-            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: "0.04em" }}>{fmt(elapsed)}</span>
+          <div style={{ display: "flex", alignItems: "stretch", borderLeft: "1px solid #2B2B27" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px" }}>
+              <span style={{ width: 8, height: 8, background: "#E63946", borderRadius: 999, animation: "gdiy-recpulse 1.6s ease-in-out infinite" }} />
+              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: "0.04em" }}>{fmt(elapsed)}</span>
+            </div>
+            {/* STOP (A2) : toujours visible pendant le REC, confirmation en deux
+                temps (un clic accidentel à 3 h d'enregistrement est inacceptable). */}
+            {stopConfirm ? (
+              <>
+                <button
+                  onClick={stopRec}
+                  disabled={stopEnCours}
+                  style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#E63946", color: "#FFF", padding: "0 14px", fontFamily: T_COND, fontWeight: 700, fontSize: 20, letterSpacing: "0.04em" }}
+                >
+                  {stopEnCours ? "CLÔTURE…" : `CONFIRMER STOP · ${fmt(elapsed)}`}
+                </button>
+                <button
+                  onClick={() => setStopConfirm(false)}
+                  disabled={stopEnCours}
+                  style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#171715", color: "#FFF", padding: "0 12px", fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em" }}
+                >
+                  ANNULER
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setStopConfirm(true)}
+                style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#171715", color: "#FFF", padding: "0 16px", display: "flex", alignItems: "center", gap: 8, fontFamily: T_COND, fontWeight: 700, fontSize: 20, letterSpacing: "0.04em" }}
+              >
+                <span style={{ width: 10, height: 10, background: "#FFF", display: "inline-block" }} />
+                STOP
+              </button>
+            )}
           </div>
         ) : (
           <button
-            onClick={() => { if (checklistComplete) setRecStart(Date.now()); }}
+            onClick={startRec}
             disabled={!checklistComplete}
             style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: checklistComplete ? "pointer" : "not-allowed", background: checklistComplete ? "#E63946" : "#171715", color: checklistComplete ? "#FFF" : "#6B6B65", padding: "0 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: T_COND, fontWeight: 700, fontSize: 22, letterSpacing: "0.04em" }}
           >
-            {checklistComplete ? "REC »" : `REC · ${doneCount}/${data.checklist.length}`}
+            {checklistComplete ? (derniereClose ? "REC (NOUVELLE SESSION) »" : "REC »") : `REC · ${doneCount}/${data.checklist.length}`}
           </button>
         )}
       </header>
@@ -783,6 +928,14 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {/* Entête */}
         <section style={{ paddingTop: 36 }}>
+          {/* Fil d'Ariane (A3.4) : board, fiches, fiche courante. */}
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.12em", color: "#8F8F88", marginBottom: 10 }}>
+            <a href="/" style={{ color: "#8F8F88", textDecoration: "none" }}>BOARD</a>
+            {" / "}
+            <a href="/fiches" style={{ color: "#8F8F88", textDecoration: "none" }}>FICHES</a>
+            {" / "}
+            <span style={{ color: "#464641" }}>{data.invite_nom.toUpperCase()}</span>
+          </div>
           <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", color: "#6B6B65", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <span>FICHE DE PRÉPARATION · {numero}</span>
             <span>STATUT : {data.statut.toUpperCase()} · V{data.version}</span>
@@ -818,7 +971,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               const done = !!checked[i];
               return (
                 <label key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", borderBottom: "1px solid #D9D9D4", cursor: "pointer", minHeight: 44, boxSizing: "border-box" }}>
-                  <input type="checkbox" checked={done} onChange={() => setChecked((cc) => ({ ...cc, [i]: !done }))} style={{ width: 20, height: 20, margin: 0, flexShrink: 0 }} />
+                  <input type="checkbox" checked={done} onChange={() => toggleCheck(i)} style={{ width: 20, height: 20, margin: 0, flexShrink: 0 }} />
                   <span style={{ fontSize: 15, textDecoration: done ? "line-through" : "none", color: done ? "#8F8F88" : "#0A0A0A" }}>{label}</span>
                 </label>
               );
@@ -849,7 +1002,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               {[...carnet].sort((a, b) => (a.tag === b.tag ? 0 : a.tag === "CLIP" ? -1 : 1)).map((item, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #D9D9D4" }}>
                   <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: item.tag === "CLIP" ? "#E63946" : "#000", flexShrink: 0 }}>{item.tag} {item.time}</span>
-                  <span style={{ fontSize: 15, lineHeight: 1.5 }}>{item.text}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.5, flex: 1 }}>{item.text}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", flexShrink: 0 }}>{item.who}</span>
                 </div>
               ))}
             </div>
@@ -859,7 +1013,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 <div style={{ display: "flex", flexDirection: "column", marginTop: 8 }}>
                   {chat.map((m, i) => (
                     <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #ECECE8" }}>
-                      <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", flexShrink: 0 }}>{(m.who === "me" ? "MATTHIEU" : m.who.toUpperCase())} · {m.time}</span>
+                      <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", flexShrink: 0 }}>{m.who} · {m.time}</span>
                       <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{m.text}</span>
                     </div>
                   ))}
@@ -896,7 +1050,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               {carnet.map((item, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", borderBottom: "1px solid #ECECE8", paddingBottom: 8 }}>
                   <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: item.tag === "CLIP" ? "#E63946" : "#000", flexShrink: 0 }}>{item.tag} {item.time}</span>
-                  <span style={{ fontSize: 14, lineHeight: 1.5 }}>{item.text}</span>
+                  <span style={{ fontSize: 14, lineHeight: 1.5, flex: 1 }}>{item.text}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", flexShrink: 0 }}>{item.who}</span>
                 </div>
               ))}
             </div>
@@ -916,17 +1071,18 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>RÉGIE</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 11, color: "#464641" }}>
-                  <span style={{ width: 7, height: 7, background: "#8F8F88", borderRadius: 999 }} />NOTES LOCALES, TEMPS RÉEL À VENIR
+                  <span style={{ width: 7, height: 7, background: syncMode === "realtime" ? "#1FB46A" : "#F4C435", borderRadius: 999 }} />
+                  {presents.length > 1 ? `EN LIGNE : ${presents.join(" · ")}` : syncMode === "realtime" ? "PARTAGÉ · TEMPS RÉEL" : "PARTAGÉ · SYNCHRO 2 S"}
                 </span>
               </div>
               <button onClick={() => setChatOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", fontFamily: MONO, fontSize: 12, letterSpacing: "0.1em", padding: 10 }}>FERMER ×</button>
             </div>
             <div style={{ overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
               {chat.map((m, i) => {
-                const me = m.who === "me";
+                const me = m.me;
                 return (
                   <div key={i} style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: me ? "flex-end" : "flex-start" }}>
-                    <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: "#8F8F88" }}>{me ? "MATTHIEU" : m.who.toUpperCase()} · {m.time}</span>
+                    <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: "#8F8F88" }}>{m.who} · {m.time}</span>
                     <span style={{ fontSize: 14, lineHeight: 1.5, background: me ? "#000" : "#ECECE8", color: me ? "#FFF" : "#0A0A0A", padding: "8px 12px", maxWidth: "85%" }}>{m.text}</span>
                   </div>
                 );

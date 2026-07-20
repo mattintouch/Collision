@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getShow, getShows } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
 import { ShowSwitcher } from "@/components/ShowSwitcher";
 import { NavTabs } from "@/components/NavTabs";
+import { CompteBadge } from "@/components/CompteBadge";
 
 export default async function ShowLayout({
   children,
@@ -11,8 +13,9 @@ export default async function ShowLayout({
   children: React.ReactNode;
   params: { show: string };
 }) {
-  const [shows, show] = await Promise.all([getShows(), getShow(params.show)]);
+  const [shows, show, auth] = await Promise.all([getShows(), getShow(params.show), createClient().auth.getUser()]);
   if (!show) notFound();
+  const email = auth.data.user?.email ?? "";
 
   const accent = show.couleur ?? "#FFD200";
 
@@ -39,6 +42,13 @@ export default async function ShowLayout({
               {show.type_pipe === "invites" ? "Invités" : "Thématique"}
             </span>
             <Link
+              href="/fiches"
+              className="text-sm text-blanc-muted hover:text-blanc"
+              title="Fiches de préparation"
+            >
+              Fiches
+            </Link>
+            <Link
               href="/settings"
               className="text-sm text-blanc-muted hover:text-blanc"
               aria-label="Réglages"
@@ -46,6 +56,7 @@ export default async function ShowLayout({
             >
               Réglages
             </Link>
+            {email && <CompteBadge email={email} />}
           </div>
         </div>
       </header>

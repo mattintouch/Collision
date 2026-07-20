@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getCibles, getShow, getStages, getWatchlists } from "@/lib/data";
 import Link from "next/link";
+import { createServiceClient } from "@/lib/supabase/service";
 import { BoardDnd } from "@/components/BoardDnd";
 import { NewTargetButton } from "@/components/NewTargetButton";
 
@@ -17,6 +18,16 @@ export default async function BoardPage({
     getCibles(show.id),
     getWatchlists(),
   ]);
+
+  // A3.3 : slug de fiche par cible, pour le lien direct depuis les cartes
+  // « programmé ou au delà ». Pas de fiche : pas de bouton (jamais de lien mort).
+  const { data: fiches } = await createServiceClient()
+    .from("fiches")
+    .select("cible_id, slug")
+    .eq("show_id", show.id)
+    .not("cible_id", "is", null);
+  const ficheSlugs: Record<string, string> = {};
+  for (const f of ((fiches ?? []) as { cible_id: string; slug: string }[])) ficheSlugs[f.cible_id] = f.slug;
 
   return (
     <div>
@@ -40,7 +51,7 @@ export default async function BoardPage({
         </div>
       </div>
 
-      <BoardDnd show={show} stages={stages} cibles={cibles} watchlists={watchlists} />
+      <BoardDnd show={show} stages={stages} cibles={cibles} watchlists={watchlists} ficheSlugs={ficheSlugs} />
     </div>
   );
 }
