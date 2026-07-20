@@ -4,7 +4,7 @@ import { buildRecapEmail, type RecapData } from "../src/lib/recap/hebdo";
 const data: RecapData = {
   depuis: "2026-07-10T00:00:00Z",
   ecritures: [{ outil: "log_touche", acteur: "matt@stefani.fr", total: 12, echecs: 1 }],
-  generations: { done: 8, failed: 2, erreurs: [{ objectif: "fiche:angles", error: "timeout" }] },
+  generations: { done: 8, failed: 26, erreurs: [{ error: "Your credit balance is too low to access the Anthropic API", jobs: 24, objectifs: "portrait, chiffres, angles, deroule" }, { error: "timeout", jobs: 2, objectifs: "angles" }] },
   backlog: [{ id: "b1", auteur: "vadim", contenu: "Ajouter un filtre par ville", contexte: {} }],
   notes: [{ invite: "Raphaël Chiche", note: 4, commentaire: "Playbook décisif, chiffres à durcir" }],
   cout: { semaine_eur: 12.4, mois_eur: 57.8, plafond_eur: 200 },
@@ -35,6 +35,13 @@ describe("récap hebdo (chantier 1)", () => {
     const vide: RecapData = { ...data, backlog: [] };
     const { html } = buildRecapEmail(vide, []);
     expect(html).toContain("Aucune demande nouvelle");
+  });
+  it("regroupe les échecs par cause : une panne = une ligne (retour du 20/07)", () => {
+    const { html } = buildRecapEmail(data, []);
+    expect(html).toContain("Échec sur 24 job(s)");
+    expect(html).toContain("portrait, chiffres, angles, deroule");
+    // la cause n'apparaît qu'une fois, pas une ligne par job
+    expect((html.match(/credit balance is too low/g) ?? []).length).toBe(1);
   });
   it("porte les besoins éditoriaux non couverts (chantier 4)", () => {
     const { html } = buildRecapEmail(data, []);
