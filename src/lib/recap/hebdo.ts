@@ -20,7 +20,8 @@ type SB = ReturnType<typeof createServiceClient>;
 export interface RecapData {
   depuis: string;
   ecritures: { outil: string; acteur: string; total: number; echecs: number }[];
-  generations: { done: number; failed: number; erreurs: { objectif: string; error: string }[] };
+  /** Échecs regroupés PAR CAUSE (une panne = une ligne, pas une ligne par job). */
+  generations: { done: number; failed: number; erreurs: { error: string; jobs: number; objectifs: string }[] };
   backlog: { id: string; auteur: string | null; contenu: string; contexte: Record<string, unknown> }[];
   notes: { invite: string; note: number; commentaire: string | null }[];
   /** Synthèse coût API (chantier 3). null tant que la télémétrie (0039) est absente. */
@@ -57,13 +58,25 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     .gte("updated_at", depuis)
     .limit(1000);
   const rows = (jobs ?? []) as { objectif: string; statut: string; error: string | null }[];
+  // Regroupement des échecs par cause : une panne de crédit qui fait tomber
+  // 24 jobs est UN événement, pas 24 lignes (retour Matthieu, récap du 20/07).
+  // Clé de regroupement : le début du message d'erreur.
+  const parCause = new Map<string, { error: string; jobs: number; objectifs: Set<string> }>();
+  for (const j of rows) {
+    if (j.statut !== "failed" || !j.error) continue;
+    const cle = j.error.slice(0, 80);
+    const cur = parCause.get(cle) ?? { error: j.error.slice(0, 160), jobs: 0, objectifs: new Set<string>() };
+    cur.jobs += 1;
+    cur.objectifs.add(j.objectif.startsWith("fiche:") ? j.objectif.slice("fiche:".length) : j.objectif);
+    parCause.set(cle, cur);
+  }
   const generations = {
     done: rows.filter((j) => j.statut === "done").length,
     failed: rows.filter((j) => j.statut === "failed").length,
-    erreurs: rows
-      .filter((j) => j.statut === "failed" && j.error)
-      .slice(0, 10)
-      .map((j) => ({ objectif: j.objectif, error: (j.error ?? "").slice(0, 160) })),
+    erreurs: Array.from(parCause.values())
+      .sort((a, b) => b.jobs - a.jobs)
+      .slice(0, 5)
+      .map((e) => ({ error: e.error, jobs: e.jobs, objectifs: Array.from(e.objectifs).join(", ") })),
   };
 
   const { data: items } = await sb
@@ -167,7 +180,7 @@ export function buildRecapEmail(data: RecapData, triages: TriageProposal[]): { s
   }
   bouge.push(li(`Générations et enrichissements : <b>${data.generations.done} réussi(s)</b>, ${data.generations.failed} échoué(s)`));
   for (const err of data.generations.erreurs) {
-    bouge.push(li(`Échec ${esc(err.objectif)} : ${esc(err.error)}`));
+    bouge.push(li(`Échec sur ${err.jobs} job(s) (${esc(err.objectifs)}) : ${esc(err.error)}`));
   }
   for (const n of data.notes ?? []) {
     bouge.push(li(`Note de plateau ${esc(n.invite)} : <b>${n.note}/5</b>${n.commentaire ? `. ${esc(n.commentaire)}` : ""}`));
