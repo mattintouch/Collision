@@ -6,13 +6,14 @@
 // CRON_SECRET est posé. maxDuration 300 : plafond Hobby avec Fluid compute.
 import { processEnrichmentJobs } from "@/lib/enrichment/jobs";
 import { refreshFolkMirror } from "@/lib/folk/mirror";
+import { cronAutorise } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 async function run(req: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  // Scheduler (Bearer CRON_SECRET) ou membre de l'équipe connecté (test navigateur).
+  if (!(await cronAutorise(req))) {
     return new Response("unauthorized", { status: 401 });
   }
   try {
