@@ -6,13 +6,14 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { compileRecap, proposeTriage, buildRecapEmail, recapRecipients } from "@/lib/recap/hebdo";
 import { sendGmail, hasGmailSend } from "@/lib/gmail";
+import { cronAutorise } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
 async function run(req: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
+  // Scheduler (Bearer CRON_SECRET) ou membre de l'équipe connecté (test navigateur).
+  if (!(await cronAutorise(req))) {
     return new Response("unauthorized", { status: 401 });
   }
   try {
