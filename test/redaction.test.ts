@@ -56,6 +56,41 @@ describe("contrat v3 — passe de rédaction (règle 4)", () => {
   });
 });
 
+describe("v3.1 item 3 — champs de titre et noms propres", () => {
+  it("l'entête n'est corrigeable QUE sur sous_titre et societe, le reste est préservé", () => {
+    const actuel = {
+      entete: {
+        numero: "612",
+        titre_lignes: ["Cyril", "Benzaquen"],
+        sous_titre: "Septuple champion du monde",
+        pilules: ["MAR 22 SEPT"],
+        liens: [{ label: "LinkedIn", url: "https://l" }],
+      },
+    };
+    const admis = appliquerRedaction(actuel, {
+      entete: {
+        sous_titre: "Octuple champion du monde",
+        numero: "999",
+        titre_lignes: ["PIRATE"],
+        pilules: ["PIRATE"],
+        liens: [],
+      },
+    });
+    expect(admis.entete.sous_titre).toBe("Octuple champion du monde");
+    expect(admis.entete.numero).toBe("612");
+    expect(admis.entete.titre_lignes).toEqual(["Cyril", "Benzaquen"]);
+    expect(admis.entete.pilules).toEqual(["MAR 22 SEPT"]);
+    expect((admis.entete.liens as unknown[]).length).toBe(1);
+  });
+
+  it("bandeau : seule la societe est corrigeable, et rien ne s'écrit sans changement réel", () => {
+    const actuel = { sticky_header: { societe: "Fightclub" } };
+    expect(appliquerRedaction(actuel, { sticky_header: { societe: "Fightclub" } })).toEqual({});
+    const admis = appliquerRedaction(actuel, { sticky_header: { societe: "Fight Club Paris" } });
+    expect(admis.sticky_header.societe).toBe("Fight Club Paris");
+  });
+});
+
 describe("contrat v3 — contrôle du format scannable (règle 3)", () => {
   it("signale les items du Bloc B au delà de 3 lignes, ignore le Bloc A", () => {
     const pave = "x".repeat(BUDGETS_V3.bloc_b_item_chars + 50);

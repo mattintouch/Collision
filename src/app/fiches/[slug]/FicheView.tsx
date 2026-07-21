@@ -576,7 +576,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                       );
                       const style: React.CSSProperties = { display: "flex", alignItems: "baseline", gap: 14, padding: "14px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" };
                       return s.url ? (
-                        <a key={i} href={s.url} target="_blank" rel="noreferrer" style={style}>{inner}</a>
+                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
                       ) : (
                         <div key={i} style={style}>{inner}</div>
                       );
@@ -827,13 +827,22 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           <section key={id} style={sectionStyle}>
             <h2 style={h2Style}>Sources</h2>
             <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
-              {data.sources.map((s, i) => (
-                <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #ECECE8", textDecoration: "none", flexWrap: "wrap" }}>
-                  {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
-                  <span style={{ fontSize: 14, textDecoration: "underline", textUnderlineOffset: 3 }}>{s.titre}</span>
-                  {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
-                </a>
-              ))}
+              {data.sources.map((s, i) => {
+                const inner = (
+                  <>
+                    {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
+                    <span style={{ fontSize: 14, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
+                    {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
+                  </>
+                );
+                const style: React.CSSProperties = { display: "flex", gap: 14, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #ECECE8", textDecoration: "none", flexWrap: "wrap" };
+                // v3.1 item 2 : titre cliquable si url, texte simple sinon (pas de lien mort).
+                return s.url ? (
+                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
+                ) : (
+                  <div key={i} style={style}>{inner}</div>
+                );
+              })}
             </div>
           </section>
         ) : null;
@@ -847,9 +856,10 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   // de la fiche (colonne position). Défaut au catalogue.
   const ordreA = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "A");
   let ordreB = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "B");
-  // B3 (session 20/07) : les questions réseaux remontent juste après le pitch
-  // (30 secondes) et les chiffres, avant le plan de vol. AFFICHAGE uniquement :
-  // aucune donnée, aucun section_id, aucun contrat modifié.
+  // v3.1 item 1 : les questions clips vivent juste après les chiffres, en tête
+  // du Bloc B. Le catalogue porte désormais cet ordre (fiches neuves) ; ce
+  // déplacement d'AFFICHAGE couvre les fiches existantes dont les positions
+  // stockées datent de l'ancien ordre. Aucun section_id modifié.
   if (ordreB.includes("questions_reseaux")) {
     const sans = ordreB.filter((idSec) => idSec !== "questions_reseaux");
     const apres = Math.max(sans.indexOf("chiffres"), sans.indexOf("trente_secondes"));
