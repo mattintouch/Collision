@@ -141,6 +141,19 @@ export const DEFAULT_FOOTER =
  * Renvoyé par get_section (champ `contrat`) pour que le challenge via MCP
  * (Matthieu, Clémence, Claude) écrive la bonne forme sans documentation externe.
  */
+/** Budgets durs du contrat v3 (règle 2) : appliqués au parsing de la
+ *  génération (clamp de comptes), rappelés dans les prompts et imposés par la
+ *  passe de rédaction. Une ligne ≈ 80 caractères. */
+export const BUDGETS_V3 = {
+  recit_ouverture: 1,   // 1 paragraphe d'ouverture (5 lignes max)
+  recit_temps: 7,       // + 7 temps d'une ligne maximum
+  parcours_lignes: 12,
+  playbook_items: 6,
+  univers_points: 4,    // points de marché hors graphiques
+  a_lire_sources: 3,
+  bloc_b_item_chars: 240, // 3 lignes × ~80 caractères : au delà, échec de génération
+} as const;
+
 export const SECTION_CONTRACTS: Record<string, unknown> = {
   sticky_header: { societe: "iliad" },
   entete: {
@@ -156,30 +169,35 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     texte: "La promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif). 5 lignes max.",
     lecon: "La leçon transférable à un auditeur étranger au domaine, explicite, une à deux phrases.",
   },
-  recit_canonique: { paragraphes: ["L'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés.", "Origines, bascules, ascension, statut actuel. Pas de données d'annuaire."] },
+  recit_canonique: {
+    paragraphes: [
+      "OUVERTURE (contrat v3) : un seul paragraphe de 5 lignes max pour la lecture de préparation.",
+      "Puis le récit en 7 temps MAXIMUM, chaque temps en UNE ligne. Aucune prose longue.",
+      "La chronologie datée appartient à la section parcours : ne pas la réécrire ici.",
+    ],
+  },
   mecanique_succes: {
     definition: "En quoi il est le meilleur de son univers, avec la métrique explicite (taux, palmarès, part de marché).",
     pairs: [{ nom: "Pair ou concurrent", position: "positionnement relatif de l'invité" }],
-    divergences: [{ date: "2012", decision: "la décision structurante", effet: "ce qu'elle a produit" }],
+    divergences: [{ date: "2012", decision: "DÉCISION structurante, formulée comme décision, jamais comme récit biographique (contrat v3)", effet: "ce qu'elle a produit" }],
     contrefactuel: "Ce qui serait arrivé sans ces décisions (raisonnement, pas un fait).",
   },
   univers: {
-    intro: ["Le marché ou l'écosystème de l'invité : taille, économie, acteurs, tendances multi-années. Tout sourcé et daté. Couche B : subordonnée à la mécanique personnelle."],
+    intro: ["Marché, fédérations, économie UNIQUEMENT : 4 points maximum, hors graphiques (contrat v3). La chronologie biographique appartient à parcours, elle n'a pas sa place ici."],
     distinctions: ["Distinction sectorielle à tenir au micro, ex. la biopharma n'est pas la MedTech : molécules vs dispositifs, dix ans vs cycle court."],
     barres: { titre: "CA sur 10 ans, Md€", note: "explication courte", source: "documents annuels", valeurs: [{ label: "24", affiche: "9,9", valeur: 9.9, plein: true }] },
     comparaison: { titre: "Croissance comparée", source: "rapports annuels", valeurs: [{ nom: "iliad", affiche: "+125 %", pct: 125, hero: true }] },
     rentabilite: { titre: "Rentabilité", note: "la question à en tirer", source: "résultats annuels", valeurs: [{ label: "2024", affiche: "37 %", pct: 37 }] },
-    timeline: { titre: "Les bascules", jalons: [{ annee: "12", titre: "Free Mobile", texte: "Le forfait à 2 euros.", cle: true }] },
   },
   personnel: {
     bandeau: DEFAULT_PERSONNEL_BANDEAU,
     items: [{ texte: "Élément personnel PUBLIC (famille, épreuve, passion).", source: "source publique datée, OBLIGATOIRE" }],
   },
-  a_lire: { liens: [{ niveau: "indispensable", titre: "Titre de la source", date: "mars 2025", temps_lecture: "12 min", apport: "ce que la source apporte en une phrase", url: "https://... (vérifiée, jamais reconstruite)" }] },
+  a_lire: { liens: [{ niveau: "indispensable", titre: "3 sources MAXIMUM (contrat v3), les meilleures seulement", date: "mars 2025", temps_lecture: "12 min", apport: "ce que la source apporte en une phrase", url: "https://... (vérifiée, jamais reconstruite)" }] },
   trente_secondes: { items: [{ label: "Qui", texte: "..." }, { label: "Fait d'armes", texte: "..." }, { label: "Pourquoi maintenant", texte: "..." }, { label: "État d'esprit", texte: "..." }] },
   chiffres: { kpis: [{ valeur: "9,9 Md€", libelle: "CA groupe 2024", source: "iliad, mars 2025" }] },
-  parcours: { lignes: [{ annee: "1999", texte: "Lance Free, accès internet sans abonnement" }] },
-  playbook: { intro: "Cinq systèmes identifiés dans les sources.", items: [{ titre: "Le pricing comme arme", connu: "ce qu'on sait", manque: "ce qui manque", question: "la question qui l'extrait" }] },
+  parcours: { lignes: [{ annee: "1999", texte: "PROPRIÉTAIRE de la chronologie datée (contrat v3) : 12 lignes maximum, aucune autre section ne re-frise la biographie" }] },
+  playbook: { intro: "Six leviers maximum (contrat v3).", items: [{ titre: "Le pricing comme arme", connu: "ce qu'on sait, 2 lignes max", manque: "ce qui manque, 2 lignes max", question: "la question qui l'extrait, 2 lignes max" }] },
   entourage: { personnes: [{ nom: "Cyril Poidatz", role: "cofondateur iliad", texte: "pourquoi il compte" }] },
   anecdotes: { items: [{ texte: "Anecdote sourcée sur l'invité.", source: "livre 2023, ch. 4", cachee: false }, { texte: "Anecdote bien cachée, jamais racontée en interview.", source: "podcast confidentiel 2019", cachee: true }] },
   tensions: { cartes: [{ a: "Discours : ...", b: "Fait : ...", angle: "comment l'aborder sans agressivité" }] },
@@ -187,7 +205,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui ?", ressort: "argent", clip: "le chiffre lâché fait l'extrait" }] },
   sequencage: { blocs: [{ debut_min: 0, fin_min: 20, court: "Origines", titre: "Créteil, Minitel, la débrouille", intention: "Récit. Le mettre à l'aise.", mode: "RÉCIT · ÉMOTION", rappel_label: "ZONE GRISE", rappel: "texte du rappel contextuel" }] },
   dix_questions: { questions: [{ num: "01", bloc: 0, texte: "Question courte, tutoiement, sans point final", note: "RELANCE : ... · TERRAIN GLISSANT : ..." }] },
-  zone_grise: { items: [{ texte: "Information non vérifiée, à faire dire par l'invité.", origine: "note Matthieu" }] },
+  zone_grise: { items: [{ texte: "Information non vérifiée, à faire dire par l'invité. Les chiffres contradictoires non tranchés par la rédaction atterrissent ici : ne pas citer une valeur unique à l'antenne.", origine: "note Matthieu / rédaction (chiffre non tranché)" }] },
   sources: { liens: [{ date: "2023", titre: "Titre", apport: "ce que la source apporte", url: "https://..." }] },
   footer: { texte: DEFAULT_FOOTER },
 };

@@ -20,14 +20,29 @@ import { hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 import { writeSection, type FicheRow } from "./store";
-import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU } from "./schema";
+import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU, BUDGETS_V3 } from "./schema";
 
 type SB = ReturnType<typeof createServiceClient>;
 type Content = Record<string, unknown>;
 
 export const FICHE_JOB_PREFIX = "fiche:";
-export const FICHE_GROUPES = ["portrait", "chiffres", "angles", "deroule"] as const;
+// Contrat v3 : la cinquième passe « redaction » (rédacteur en chef) s'exécute
+// APRÈS les quatre groupes de recherche et consolide la fiche entière
+// (déduplication, réconciliation des chiffres, budgets, format scannable).
+export const FICHE_GROUPES = ["portrait", "chiffres", "angles", "deroule", "redaction"] as const;
+export const FICHE_GROUPES_RECHERCHE = ["portrait", "chiffres", "angles", "deroule"] as const;
 export type FicheGroupe = (typeof FICHE_GROUPES)[number];
+
+/** Règle 1 du contrat v3 : propriété unique des faits, injectée dans chaque
+ *  prompt de recherche. */
+const PROPRIETE_FAITS = [
+  "PROPRIÉTÉ UNIQUE DES FAITS (contrat v3, règle 1) : chaque type de fait a UNE section propriétaire ; les autres y renvoient en une phrase courte, elles ne le réécrivent JAMAIS en entier.",
+  "- Chronologie datée : propriété EXCLUSIVE de la section parcours. Interdiction de reconstruire une frise ou une liste de jalons datés ailleurs (ni dans le récit, ni dans l'univers, ni ailleurs).",
+  "- Récit canonique : un paragraphe d'ouverture (5 lignes max) puis un récit en 7 temps maximum, chaque temps en UNE ligne. Aucune prose longue.",
+  "- Univers : marché, fédérations, économie, distinctions UNIQUEMENT (4 points max hors graphiques). Aucune biographie.",
+  "- Divergences de la mécanique : des DÉCISIONS structurantes, formulées comme décisions, jamais comme récit biographique.",
+  "- Un fait cité une fois en version longue ; toute reprise est un renvoi court (« cf. parcours 2015 ») ou une omission.",
+].join("\n");
 
 const GENERATION_AUTHOR = "vadim (génération)";
 
@@ -75,10 +90,37 @@ function systemFor(mission: string): string {
     "Cadre : l'invité a accepté l'interview et sera présent à l'enregistrement. La fiche est un document interne de préparation éditoriale, fondé exclusivement sur des informations publiques le concernant dans son rôle public ou professionnel.",
     mission,
     DOCTRINE,
+    PROPRIETE_FAITS,
+    "BUDGETS DE LONGUEUR (contrat v3, règle 2, DURS) : la fiche cible est scannable en fragments pendant l'enregistrement. Tout item destiné au Bloc B (console) tient en 3 lignes maximum (environ 240 caractères) : au delà, c'est un échec de génération, découpe ou raccourcis. La concision prime sur l'exhaustivité : un fait fort et court bat trois faits délayés.",
     REGLES,
     STYLE,
     "Réponds UNIQUEMENT en JSON, sans texte autour, au format exact demandé.",
   ].join("\n\n");
+}
+
+/** Faits déjà posés par les groupes précédents (les jobs d'une fiche se
+ *  traitent dans l'ordre) : le générateur reçoit la liste et a l'interdiction
+ *  de les réécrire en entier (règle 1, implémentation attendue du brief). */
+async function faitsDejaPoses(sb: SB, ficheId: string): Promise<string> {
+  const { data } = await sb
+    .from("fiche_sections")
+    .select("section_id, content")
+    .eq("fiche_id", ficheId)
+    .in("section_id", ["parcours", "chiffres"]);
+  const par = new Map(((data ?? []) as { section_id: string; content: Content }[]).map((s) => [s.section_id, s.content ?? {}]));
+  const morceaux: string[] = [];
+  const lignes = asArray((par.get("parcours") ?? {}).lignes, (x) => {
+    const annee = asString(x.annee); const texte = asString(x.texte);
+    return annee && texte ? `${annee} ${texte}` : null;
+  });
+  if (lignes.length) morceaux.push(`Chronologie DÉJÀ POSÉE (propriété de la section parcours) :\n${lignes.map((l) => `- ${l}`).join("\n")}`);
+  const kpis = asArray((par.get("chiffres") ?? {}).kpis, (x) => {
+    const valeur = asString(x.valeur); const libelle = asString(x.libelle);
+    return valeur && libelle ? `${libelle} = ${valeur}` : null;
+  });
+  if (kpis.length) morceaux.push(`Chiffres DÉJÀ POSÉS (propriété de la section chiffres, réutilise EXACTEMENT ces valeurs, n'en introduis pas de divergentes) :\n${kpis.map((k) => `- ${k}`).join("\n")}`);
+  if (!morceaux.length) return "";
+  return `\n\nFAITS DÉJÀ ATTRIBUÉS À LEURS SECTIONS PROPRIÉTAIRES. Interdiction de les réécrire en entier ; renvoi court autorisé.\n${morceaux.join("\n")}`;
 }
 
 /* ───────────────────────── types des réponses JSON ───────────────────────── */
@@ -232,14 +274,17 @@ export async function processFicheGroupe(
 
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
-      systemFor("Mission : le RÉCIT CANONIQUE et la matière de lecture. L'histoire telle que le grand public informé la connaît, racontée en 5 à 8 paragraphes maîtrisés (origines, bascules, ascension, statut actuel) : le lecteur doit pouvoir reformuler la trajectoire de mémoire. Plus le parcours daté, les 30 secondes avant d'entrer, et la liste À LIRE (5 à 8 sources hiérarchisées, Wikipédia inclus sans complexe quand la page existe)."),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si réellement trouvés),\n  "recit": ["paragraphe 1", ...] (5 à 8 paragraphes de récit maîtrisé, AUCUNE donnée d'annuaire),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}],\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final, sans donnée d'annuaire"}] (8 à 12 lignes),\n  "a_lire": [5 à 8 : {"niveau": "indispensable|utile|optionnel", "titre", "date", "temps_lecture": "12 min", "apport": "en une phrase", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : le RÉCIT CANONIQUE et la matière de lecture, format v3. Le récit : UN paragraphe d'ouverture (5 lignes max) pour la lecture de préparation, puis le récit en 7 TEMPS maximum, chaque temps en UNE ligne : le lecteur reformule la trajectoire de mémoire à partir de ces temps, pas d'une prose longue. Le PARCOURS daté (12 lignes max) est la section PROPRIÉTAIRE de toute la chronologie : les dates vivent là et nulle part ailleurs. Plus les 30 secondes avant d'entrer, et la liste À LIRE limitée aux 3 MEILLEURES sources (pas huit)."),
+      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si réellement trouvés),\n  "recit": ["paragraphe d'ouverture, 5 lignes max", "temps 1, une ligne", "temps 2, une ligne", ...] (1 ouverture + 7 temps MAXIMUM, AUCUNE donnée d'annuaire, AUCUNE frise datée : les dates vont dans parcours),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}] (chaque texte : 3 lignes max),\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final, sans donnée d'annuaire"}] (12 lignes MAXIMUM, section propriétaire de la chronologie),\n  "a_lire": [3 MAXIMUM : {"niveau": "indispensable|utile|optionnel", "titre", "date", "temps_lecture": "12 min", "apport": "en une phrase", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche portrait sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
-    const recit = (raw.recit ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
+    // Budget v3 : 1 ouverture + 7 temps maximum (clamp dur au parsing).
+    const recit = (raw.recit ?? [])
+      .filter((p): p is string => typeof p === "string" && !!p.trim())
+      .slice(0, BUDGETS_V3.recit_ouverture + BUDGETS_V3.recit_temps);
     const trente = asArray(raw.trente_secondes, (x) => {
       const label = asString(x.label); const texte = asString(x.texte);
       return label && texte ? { label, texte } : null;
@@ -247,8 +292,8 @@ export async function processFicheGroupe(
     const parcours = asArray(raw.parcours, (x) => {
       const annee = asString(x.annee); const texte = asString(x.texte);
       return annee && texte ? { annee, texte } : null;
-    });
-    const aLire = await verifiedLinks(lienList(raw.a_lire), 8);
+    }).slice(0, BUDGETS_V3.parcours_lignes);
+    const aLire = await verifiedLinks(lienList(raw.a_lire), BUDGETS_V3.a_lire_sources);
     const liens = await verifiedLinks(
       asArray(raw.liens, (x) => {
         const label = asString(x.label); const url = safeUrl(x.url);
@@ -271,9 +316,10 @@ export async function processFicheGroupe(
   }
 
   if (groupe === "chiffres") {
+    const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<ChiffresJson>(
-      systemFor("Mission : la MÉCANIQUE DU SUCCÈS (cœur de la fiche), l'UNIVERS et les CHIFFRES. Mécanique : en quoi il est le meilleur de son univers avec une métrique explicite, ses pairs et concurrents nommés avec positionnement relatif, 3 à 5 points de divergence datés (les décisions structurantes qui ont fait décrocher sa trajectoire de celle de ses pairs), et un contrefactuel signalé comme raisonnement. Univers (couche B, SUBORDONNÉE à la mécanique personnelle : elle arme l'intervieweur, elle n'est pas un sujet en soi) : le marché ou l'écosystème adapté au profil, taille, économie, acteurs, tendances multi-années, ET les distinctions sectorielles à tenir (les termes adjacents que le grand public confond, à poser pour que l'intervieweur ne se fasse pas reprendre). Chiffres : 8 à 15 données clés sourcées et datées, mélange invité + univers, JAMAIS vide."),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "mecanique": {\n    "definition": "en quoi il est le meilleur, métrique explicite (taux, palmarès, part de marché, influence mesurable)",\n    "pairs": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité"}],\n    "divergences": [3 à 5 : {"date": "2012", "decision": "la décision structurante", "effet": "ce qu'elle a produit"}],\n    "contrefactuel": "ce qui serait arrivé sans ces décisions (raisonnement, pas un fait)"\n  },\n  "univers_intro": ["1 à 3 paragraphes : le marché ou l'écosystème, taille, économie, acteurs, tendances (chiffres sourcés dans le texte)"],\n  "distinctions": ["0 à 3 : distinction sectorielle à tenir, ex. la biopharma n'est pas la MedTech : dispositifs vs molécules, cycle court vs dix ans"],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (si données chiffrées multi-années disponibles),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (si comparaison vérifiable),\n  "rentabilite": {"titre", "note", "source", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]} (si pertinent),\n  "timeline": {"titre": "Les bascules", "jalons": [{"annee": "12", "titre", "texte", "cle": true}]},\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée"}] (mélange invité + univers, source OBLIGATOIRE),\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : la MÉCANIQUE DU SUCCÈS (cœur de la fiche), l'UNIVERS et les CHIFFRES. Mécanique : en quoi il est le meilleur de son univers avec une métrique explicite, ses pairs et concurrents nommés avec positionnement relatif, 3 à 5 points de divergence datés formulés comme DÉCISIONS (les décisions structurantes qui ont fait décrocher sa trajectoire de celle de ses pairs, jamais un récit biographique), et un contrefactuel signalé comme raisonnement. Univers (couche B, SUBORDONNÉE à la mécanique personnelle) : marché, fédérations, économie et distinctions UNIQUEMENT, en 4 POINTS MAXIMUM hors graphiques ; AUCUNE timeline biographique, la chronologie appartient au parcours. Les graphiques chiffrés (barres, comparaisons) sont la valeur de la section. Chiffres : 8 à 15 données clés sourcées et datées, mélange invité + univers, JAMAIS vide, et UNE SEULE valeur par fait : si les sources divergent, retiens la mieux sourcée et n'en cite qu'une."),
+      `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "mecanique": {\n    "definition": "en quoi il est le meilleur, métrique explicite (taux, palmarès, part de marché, influence mesurable)",\n    "pairs": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité"}],\n    "divergences": [3 à 5 : {"date": "2012", "decision": "la DÉCISION structurante, formulée comme décision", "effet": "ce qu'elle a produit"}],\n    "contrefactuel": "ce qui serait arrivé sans ces décisions (raisonnement, pas un fait)"\n  },\n  "univers_intro": ["4 points MAXIMUM, une à deux lignes chacun : marché, économie, acteurs, tendances (chiffres sourcés dans le texte). AUCUNE biographie."],\n  "distinctions": ["0 à 3 : distinction sectorielle à tenir, ex. la biopharma n'est pas la MedTech : dispositifs vs molécules, cycle court vs dix ans"],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (si données chiffrées multi-années disponibles),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (si comparaison vérifiable),\n  "rentabilite": {"titre", "note", "source", "valeurs": [{"label": "2024", "affiche": "37 %", "pct": 37}]} (si pertinent),\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée"}] (mélange invité + univers, source OBLIGATOIRE, une seule valeur par fait),\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -298,14 +344,17 @@ export async function processFicheGroupe(
     await put("mecanique_succes", mecanique, Object.keys(mecanique).length > 0);
 
     const univers: Content = {};
-    const intro2 = (raw.univers_intro ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
+    // Budget v3 : 4 points de marché maximum ; la timeline biographique est
+    // RETIRÉE de la section (la chronologie appartient au parcours, règle 1).
+    const intro2 = (raw.univers_intro ?? [])
+      .filter((p): p is string => typeof p === "string" && !!p.trim())
+      .slice(0, BUDGETS_V3.univers_points);
     if (intro2.length) univers.intro = intro2;
     const distinctions = (raw.distinctions ?? []).filter((p): p is string => typeof p === "string" && !!p.trim());
     if (distinctions.length) univers.distinctions = distinctions;
     if (raw.barres?.titre && Array.isArray(raw.barres.valeurs) && raw.barres.valeurs.length) univers.barres = raw.barres;
     if (raw.comparaison && Array.isArray(raw.comparaison.valeurs) && raw.comparaison.valeurs.length) univers.comparaison = raw.comparaison;
     if (raw.rentabilite && Array.isArray(raw.rentabilite.valeurs) && raw.rentabilite.valeurs.length) univers.rentabilite = raw.rentabilite;
-    if (raw.timeline?.titre && Array.isArray(raw.timeline.jalons) && raw.timeline.jalons.length) univers.timeline = raw.timeline;
     await put("univers", univers, Object.keys(univers).length > 0);
 
     const kpis = asArray(raw.kpis, (x) => {
@@ -324,9 +373,10 @@ export async function processFicheGroupe(
     const notesTxt = notes.length
       ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notes.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
       : "";
+    const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<AnglesJson>(
-      systemFor("Mission : la matière éditoriale de l'interview. Le PLAYBOOK est la section reine : 5 à 8 SYSTÈMES de l'invité, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur son archétype. Pour chaque système : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (elle doit exiger un critère, un seuil, un arbitrage ou un cas précis, jamais une réponse d'article). Plus l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
-      `${intro}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [5 à 8 systèmes couvrant action, réflexion ET innovation : {"titre": "le système", "connu": "ce que les sources établissent", "manque": "ce qui reste opaque", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer"}],\n  "anecdotes": [3 à 6 : {"texte", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : la matière éditoriale de l'interview, format SCANNABLE (Bloc B, lu en studio : listes courtes, jamais de pavés, aucun item de plus de 3 lignes). Le PLAYBOOK est la section reine : 6 LEVIERS MAXIMUM, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Pour chaque levier, trois puces COURTES de 2 lignes maximum chacune : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Plus l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
+      `${intro}${dejaPose}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [6 MAXIMUM, couvrant action, réflexion ET innovation : {"titre": "le levier", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer, 3 lignes max"}],\n  "anecdotes": [3 à 6 : {"texte": "3 lignes max", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -335,7 +385,7 @@ export async function processFicheGroupe(
     const playbook = asArray(raw.playbook, (x) => {
       const titre = asString(x.titre);
       return titre ? { titre, connu: asString(x.connu), manque: asString(x.manque), question: asString(x.question) } : null;
-    });
+    }).slice(0, BUDGETS_V3.playbook_items);
     const entourage = asArray(raw.entourage, (x) => {
       const nom = asString(x.nom);
       return nom ? { nom, role: asString(x.role), texte: asString(x.texte) } : null;
@@ -376,9 +426,10 @@ export async function processFicheGroupe(
     const { data: pbRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "playbook").maybeSingle();
     const pb = (((pbRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string }[] }).items ?? [];
     const pbTxt = pb.length ? `\n\nPlaybook déjà identifié (à faire vivre dans le déroulé) : ${pb.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
+    const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<DerouleJson>(
       systemFor("Mission : le DÉROULÉ de l'épisode, structuré par les trois couches. L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Le séquençage : 6 à 8 blocs sur 150 minutes, environ 60 % du temps sur la mécanique personnelle, alterner récit et extraction, placer UN bloc de pédagogie courte au milieu, ancré sur un cas concret (jamais abstrait), monter en intimité vers la fin, clore sur la leçon transférable. Les 10 questions : majorité en comment, chacune rattachée à son bloc ; AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité). La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix."),
-      `${intro}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      `${intro}${dejaPose}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);

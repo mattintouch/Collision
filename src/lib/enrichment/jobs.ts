@@ -11,6 +11,7 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
 import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
+import { processRedaction } from "../fiche/redaction";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
 import { verifierBudget } from "../ai/cout";
 import type { WebSearchUsage } from "../ai/websearch";
@@ -52,6 +53,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 
   const details: unknown[] = [];
   let traites = 0;
+  // Jobs de rédaction différés dans CE drainage (les groupes de recherche
+  // d'abord) : un job ne se re-diffère pas en boucle, il attend le kick suivant.
+  const differes = new Set<string>();
 
   // Disjoncteur (chantier 2 §3.3) : API durablement indisponible → les jobs
   // restent en file, aucun token n'est consommé, on ressort immédiatement.
@@ -112,6 +116,26 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
       if (job.objectif.startsWith(FICHE_JOB_PREFIX)) {
         const groupe = job.objectif.slice(FICHE_JOB_PREFIX.length) as FicheGroupe;
         if (!FICHE_GROUPES.includes(groupe)) throw new Error(`Groupe de génération inconnu : ${groupe}`);
+        // Passe de RÉDACTION (contrat v3) : elle consolide la fiche entière,
+        // elle passe donc APRÈS tous les groupes de recherche de la cible.
+        // Tant qu'il en reste en file, elle retourne en fin de file (une seule
+        // fois par drainage : au-delà, elle attend le prochain kick).
+        if (groupe === "redaction") {
+          const { data: autres } = await sb
+            .from("enrichment_jobs")
+            .select("id")
+            .eq("cible_id", job.cible_id)
+            .like("objectif", `${FICHE_JOB_PREFIX}%`)
+            .in("statut", ["pending", "running"])
+            .neq("id", job.id)
+            .limit(1);
+          if ((autres ?? []).length) {
+            await sb.from("enrichment_jobs").update({ statut: "pending", created_at: nowIso(), updated_at: nowIso() }).eq("id", job.id);
+            if (differes.has(job.id)) break; // déjà différé dans ce drainage : au prochain kick
+            differes.add(job.id);
+            continue; // sans consommer le quota de jobs
+          }
+        }
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
         if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
         ficheSlug = (fiche as FicheRow).slug ?? null;
@@ -119,11 +143,13 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         // 5xx, réseau) mérite une seconde tentative, après une courte pause. Un
         // JSON illisible est déjà couvert par le finisher ; un crédit épuisé ne
         // se réessaie pas, il alimente le disjoncteur.
-        let r: { sections: string[] } | null = null;
+        let r: { sections: string[]; rapport?: unknown } | null = null;
         let lastErr: unknown;
         for (let tentative = 1; tentative <= 2 && !r; tentative++) {
           try {
-            r = await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches, usageOut: usage });
+            r = groupe === "redaction"
+              ? await processRedaction(sb, row as CibleEnrichie, fiche as FicheRow, { model, usageOut: usage })
+              : await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches, usageOut: usage });
           } catch (e) {
             lastErr = e;
             const msg = e instanceof Error ? e.message : String(e);
@@ -135,7 +161,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         await breakerSucces(sb);
         await sb
           .from("enrichment_jobs")
-          .update({ statut: "done", resultat: { groupe, sections: r.sections }, error: null, updated_at: nowIso() })
+          .update({ statut: "done", resultat: { groupe, sections: r.sections, ...(r.rapport ? { rapport: r.rapport } : {}) }, error: null, updated_at: nowIso() })
           .eq("id", job.id);
         await ecrireTelemetrie();
         details.push({ id: job.id, ok: true, groupe, sections: r.sections });
