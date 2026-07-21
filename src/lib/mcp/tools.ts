@@ -1244,11 +1244,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "generate_fiche",
-    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v2 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) qui remplissent les sections en tâche de fond. Récit canonique, mécanique du succès, univers, personnel sourcé, chiffres jamais vides, URLs vérifiées. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes. Suivre via get_fiche.",
+    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v3 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) PLUS la passe de rédaction (redaction, exécutée en dernier : déduplication, réconciliation des chiffres, budgets de longueur, format scannable, avec rapport). Propriété unique des faits : la chronologie vit dans parcours, le récit en 1 ouverture + 7 temps, l'univers en 4 points hors graphiques, à lire en 3 sources. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes ou relancer la seule rédaction. Suivre via get_fiche.",
     {
       show: z.string(),
       cible: z.string(),
-      groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule"])).optional().describe("groupes à (re)générer (défaut : les 4)"),
+      groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + la rédaction)"),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {
