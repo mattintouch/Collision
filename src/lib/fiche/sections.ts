@@ -30,15 +30,18 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "a_lire", titre: "À lire", num: "A6", bloc: "A", role: "5 à 8 sources hiérarchisées (indispensable / utile / optionnel) : titre, date, temps de lecture, apport en une phrase. Wikipédia inclus sans complexe. URLs vérifiées à la génération, jamais reconstruites" },
 
   // ── Bloc B : console (pendant l'enregistrement, ancre « console ») ───────
+  // v3.1 item 1 : les questions clips remontent en tête du Bloc B, juste après
+  // les chiffres (outil de plateau, accès immédiat). Réorganisation d'ORDRE et
+  // de NUMÉRO uniquement : les section_id sont stables, les ancres tiennent.
   { id: "trente_secondes", titre: "30 secondes avant d'entrer", num: "B1", bloc: "B", role: "qui, fait d'armes, pourquoi maintenant, état d'esprit probable de l'invité" },
   { id: "chiffres", titre: "En chiffres", num: "B2", bloc: "B", role: "JAMAIS VIDE : 8 à 15 données clés sourcées et datées, mélange invité + univers" },
-  { id: "parcours", titre: "Parcours", num: "B3", bloc: "B", role: "dates en gras, sans point final, nettoyé des données d'annuaire, chaque ligne peut déclencher une question" },
-  { id: "playbook", titre: "Playbook", num: "B4", bloc: "B", role: "SECTION REINE (doctrine) : 5-8 systèmes couvrant les 3 familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Format : établi / opaque / la question qui force la mécanique (critère, seuil, arbitrage, cas précis). OBLIGATOIRE" },
-  { id: "entourage", titre: "Entourage", num: "B5", bloc: "B", role: "mentors, associés, rencontres pivots, ennemis utiles. Au moins une question dessus" },
-  { id: "anecdotes", titre: "Anecdotes sur l'invité", num: "B6", bloc: "B", role: "anecdotes sourcées, les bien cachées marquées en bonus (cachee=true) : matériau narratif exclusif" },
-  { id: "tensions", titre: "Tensions", num: "B7", bloc: "B", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },
-  { id: "questions_recurrentes", titre: "Questions récurrentes (à dépasser)", num: "B8", bloc: "B", role: "questions déjà posées 10 fois + réponse rodée en 1 ligne. À ne pas reposer telles quelles" },
-  { id: "questions_reseaux", titre: "Questions clips", num: "B9", bloc: "B", role: "questions clickbait à dégainer en tournage pour fabriquer un short viral (moment de mou, relance). Proposées par Vadim, challengées par l'équipe. Chaque item : question (tutoiement), ressort (argent, échec, contre-pied, confession), clip (réaction visée)" },
+  { id: "questions_reseaux", titre: "Questions clips", num: "B3", bloc: "B", role: "questions clickbait à dégainer en tournage pour fabriquer un short viral (moment de mou, relance). Proposées par Vadim, challengées par l'équipe. Chaque item : question (tutoiement), ressort (argent, échec, contre-pied, confession), clip (réaction visée)" },
+  { id: "parcours", titre: "Parcours", num: "B4", bloc: "B", role: "dates en gras, sans point final, nettoyé des données d'annuaire, chaque ligne peut déclencher une question" },
+  { id: "playbook", titre: "Playbook", num: "B5", bloc: "B", role: "SECTION REINE (doctrine) : 6 leviers max couvrant les 3 familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Format : établi / opaque / la question qui force la mécanique (critère, seuil, arbitrage, cas précis). OBLIGATOIRE" },
+  { id: "entourage", titre: "Entourage", num: "B6", bloc: "B", role: "mentors, associés, rencontres pivots, ennemis utiles. Au moins une question dessus" },
+  { id: "anecdotes", titre: "Anecdotes sur l'invité", num: "B7", bloc: "B", role: "anecdotes sourcées, les bien cachées marquées en bonus (cachee=true) : matériau narratif exclusif" },
+  { id: "tensions", titre: "Tensions", num: "B8", bloc: "B", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },
+  { id: "questions_recurrentes", titre: "Questions récurrentes (à dépasser)", num: "B9", bloc: "B", role: "questions déjà posées 10 fois + réponse rodée en 1 ligne. À ne pas reposer telles quelles" },
   { id: "sequencage", titre: "Séquençage", num: "B10", bloc: "B", role: "6-8 blocs sur 2h30, alterner récit et extraction, monter en intimité, timings mono" },
   { id: "dix_questions", titre: "Les 10 questions", num: "B11", bloc: "B", role: "10 questions + relances. Courtes, directes, tutoiement, sans guillemets, majorité en 'comment'" },
   { id: "zone_grise", titre: "Zone grise", num: "B12", bloc: "B", role: "bandeau alerte : notes internes non vérifiées et données non sourçables, à faire confirmer par l'invité" },

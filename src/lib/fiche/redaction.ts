@@ -34,20 +34,33 @@ const REDACTION_AUTHOR = "vadim (rédaction)";
  *  web. Recalibrable par l'env (décision Haiku/Sonnet sur données, §4.4). */
 const REDACTION_MODEL = () => process.env.REDACTION_MODEL ?? "claude-sonnet-4-6";
 
-/** Sections que la passe a le droit de réécrire. Hors périmètre : le chrome
- *  (entête, checklist, footer), les questions réseaux (challengées par
- *  l'équipe) et les sources (liste de liens vérifiés). */
+/** Sections que la passe a le droit de réécrire. Hors périmètre : la
+ *  checklist, le footer, les questions réseaux (challengées par l'équipe) et
+ *  les sources (liste de liens vérifiés). L'entête et le bandeau sont admis
+ *  depuis v3.1 mais SEULS leurs champs de titre sont modifiables (cf.
+ *  CHAMPS_TITRE) : jamais le numéro, les pilules ni les liens. */
 export const SECTIONS_REDACTIBLES = [
   "enjeu", "recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire",
   "trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes",
   "tensions", "questions_recurrentes", "sequencage", "dix_questions", "zone_grise",
+  "entete", "sticky_header",
 ] as const;
+
+/** v3.1 item 3 : sur les sections de titre, la passe ne peut corriger QUE ces
+ *  champs (cohérence titres contre corps), le reste est préservé tel quel. */
+export const CHAMPS_TITRE: Record<string, readonly string[]> = {
+  entete: ["sous_titre", "societe"],
+  sticky_header: ["societe"],
+};
 
 export interface RapportRedaction {
   dedoublonnages: string[];
   chiffres_reconcilies: { fait: string; valeur_retenue: string; source?: string; valeurs_ecartees?: string[] }[];
   sections_reduites: { section: string; avant: string; apres: string }[];
   hors_budget_residuel: string[];
+  /** v3.1 : titres alignés sur le corps et graphies de noms propres unifiées. */
+  titres_corriges: string[];
+  noms_unifies: { retenu: string; ecartes: string[] }[];
 }
 
 const SYSTEM = [
@@ -69,6 +82,10 @@ const SYSTEM = [
     "RÈGLE DES CHIFFRES : construis mentalement la liste des valeurs chiffrées de la fiche. Pour chaque fait cité avec des valeurs divergentes, impose UNE valeur avec sa source (la mieux sourcée), partout. Si tu ne peux pas trancher, retire les valeurs divergentes des sections et ajoute un item en zone_grise : « {fait} : valeurs divergentes ({valeurs}), ne pas citer un chiffre unique à l'antenne », origine « rédaction (chiffre non tranché) ».",
     "zone_grise : conserve les items existants, ajoute les tiens.",
   ].join("\n"),
+  [
+    "CONTRÔLE DES TITRES (v3.1) : vérifie les champs de titre (sticky_header.societe, entete.sous_titre, entete.societe) contre les faits consolidés du corps. Toute divergence numérique ou qualificatif contredit par le corps (exemple : « Septuple champion » dans le sous-titre quand le corps établit 8 titres) se corrige SUR LE CHAMP DE TITRE, aligné sur la valeur retenue dans le corps. Tu ne peux modifier QUE sous_titre et societe : jamais le numéro, les titre_lignes, les pilules ni les liens.",
+    "CONTRÔLE DES NOMS PROPRES (v3.1) : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
+  ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
     "Réponds UNIQUEMENT en JSON : {",
@@ -76,7 +93,9 @@ const SYSTEM = [
     '  "rapport": {',
     '    "dedoublonnages": ["fait X : gardé dans parcours, retiré de recit_canonique et univers", ...],',
     '    "chiffres_reconcilies": [{"fait": "délai défaite-reconquête", "valeur_retenue": "15 mois", "source": "...", "valeurs_ecartees": ["12 mois", "14 mois"]}, ...],',
-    '    "sections_reduites": [{"section": "playbook", "avant": "8 items, ~40 lignes", "apres": "6 items, ~18 lignes"}, ...]',
+    '    "sections_reduites": [{"section": "playbook", "avant": "8 items, ~40 lignes", "apres": "6 items, ~18 lignes"}, ...],',
+    '    "titres_corriges": ["sous_titre : Septuple champion corrigé en Octuple champion (8 titres établis par le corps)", ...],',
+    '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...]',
     "  }",
     "}",
   ].join("\n"),
@@ -136,6 +155,21 @@ export function appliquerRedaction(
   for (const [id, contenu] of Object.entries(propose ?? {})) {
     if (!redactibles.has(id)) continue;
     if (!contenu || typeof contenu !== "object" || Array.isArray(contenu)) continue;
+    // Sections de titre (v3.1) : fusion champ par champ, SEULS les champs de
+    // titre autorisés changent, tout le reste est repris de l'existant.
+    if (CHAMPS_TITRE[id]) {
+      const base: Content = { ...(actuel[id] ?? {}) };
+      let change = false;
+      for (const champ of CHAMPS_TITRE[id]) {
+        const v = (contenu as Content)[champ];
+        if (typeof v === "string" && v.trim() && v !== base[champ]) {
+          base[champ] = v;
+          change = true;
+        }
+      }
+      if (change) admis[id] = base;
+      continue;
+    }
     let c = clampContenu(id, contenu as Content);
     if (id === "univers") { const { timeline: _t, ...reste } = c; c = reste; }
     // La passe condense, elle ne vide jamais : refus si l'existant avait du contenu.
@@ -208,6 +242,8 @@ export async function processRedaction(
     chiffres_reconcilies: Array.isArray(sortie.rapport?.chiffres_reconcilies) ? (sortie.rapport!.chiffres_reconcilies as RapportRedaction["chiffres_reconcilies"]).slice(0, 20) : [],
     sections_reduites: Array.isArray(sortie.rapport?.sections_reduites) ? (sortie.rapport!.sections_reduites as RapportRedaction["sections_reduites"]).slice(0, 20) : [],
     hors_budget_residuel: itemsHorsBudget(apres).slice(0, 20),
+    titres_corriges: Array.isArray(sortie.rapport?.titres_corriges) ? (sortie.rapport!.titres_corriges as string[]).slice(0, 10) : [],
+    noms_unifies: Array.isArray(sortie.rapport?.noms_unifies) ? (sortie.rapport!.noms_unifies as RapportRedaction["noms_unifies"]).slice(0, 10) : [],
   };
   return { sections: written, sources: 0, rapport };
 }
