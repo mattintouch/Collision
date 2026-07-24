@@ -73,6 +73,34 @@ export function buildNotesEmail(
 }
 
 /**
+ * Tâche 3 (handoff 24/07) — hook de fin de tournage. Au Stop confirmé, la
+ * cible liée à la fiche avance à l'étape enregistre : plus de cible
+ * enregistrée qui traîne sur le board des invitations (cas Rafaèle). Jamais de
+ * régression : une cible déjà à enregistre ou au delà (position d'étape
+ * supérieure ou égale) ne bouge pas. Best-effort : n'empêche jamais la clôture.
+ */
+export async function avancerCibleEnregistre(
+  sb: SB,
+  fiche: Pick<FicheRow, "cible_id" | "show_id">
+): Promise<{ statut: "avancee" | "inchangee" | "indisponible"; depuis?: string }> {
+  try {
+    if (!fiche.cible_id || !fiche.show_id) return { statut: "indisponible" };
+    const { data: stages } = await sb.from("stages").select("id, key, position").eq("show_id", fiche.show_id);
+    const liste = (stages ?? []) as { id: string; key: string; position: number }[];
+    const enregistre = liste.find((s) => s.key === "enregistre");
+    if (!enregistre) return { statut: "indisponible" };
+    const { data: cible } = await sb.from("cibles").select("id, stage_id").eq("id", fiche.cible_id).maybeSingle();
+    if (!cible) return { statut: "indisponible" };
+    const courant = liste.find((s) => s.id === (cible as { stage_id: string | null }).stage_id);
+    if (courant && courant.position >= enregistre.position) return { statut: "inchangee", depuis: courant.key };
+    await sb.from("cibles").update({ stage_id: enregistre.id }).eq("id", fiche.cible_id);
+    return { statut: "avancee", depuis: courant?.key };
+  } catch {
+    return { statut: "indisponible" };
+  }
+}
+
+/**
  * Envoie les notes d'une session close et marque email_envoye_at. `resend`
  * force un renvoi explicite (l'idempotence bloque seulement les envois
  * implicites répétés). Ne lève jamais : le Stop reste acquis quoi qu'il arrive.

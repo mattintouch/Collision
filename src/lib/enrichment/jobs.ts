@@ -89,7 +89,17 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     const job = (pending ?? [])[0] as { id: string; cible_id: string; objectif: string; apply: boolean } | undefined;
     if (!job) break;
 
-    await sb.from("enrichment_jobs").update({ statut: "running", updated_at: nowIso() }).eq("id", job.id);
+    // Revendication ATOMIQUE (tâche 1) : le cron 5 min et les kickQueue
+    // coexistent ; seul le drain qui bascule pending → running traite le job,
+    // l'autre passe au suivant sans doublonner.
+    const { data: revendique } = await sb
+      .from("enrichment_jobs")
+      .update({ statut: "running", updated_at: nowIso() })
+      .eq("id", job.id)
+      .eq("statut", "pending")
+      .select("id")
+      .maybeSingle();
+    if (!revendique) continue;
     // Contexte pour l'alerte d'échec (rempli au fil du try, lu dans le catch).
     let cibleNom: string | null = null;
     let ficheSlug: string | null = null;

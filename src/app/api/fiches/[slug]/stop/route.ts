@@ -8,7 +8,7 @@
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { resolveFiche } from "@/lib/fiche/store";
-import { envoyerNotesEpisode } from "@/lib/fiche/finEpisode";
+import { envoyerNotesEpisode, avancerCibleEnregistre } from "@/lib/fiche/finEpisode";
 import type { RecSession } from "@/lib/fiche/console";
 
 export const runtime = "nodejs";
@@ -79,6 +79,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   // Flux de fin (B1) : l'échec d'envoi ne remet JAMAIS le Stop en cause, le
   // carnet reste consultable sur la fiche et l'UI propose « renvoyer ».
   const envoi = await envoyerNotesEpisode(sb, fiche, { ...session, ended_at: session.ended_at ?? new Date().toISOString() });
+  // Hook de fin de tournage (tâche 3) : la cible liée avance à enregistre.
+  const etape = await avancerCibleEnregistre(sb, fiche);
   const { data: maj } = await sb.from("fiche_rec_sessions").select(CHAMPS).eq("id", session.id).maybeSingle();
-  return Response.json({ ok: true, session: (maj as RecSession | null) ?? session, email: envoi.statut, email_detail: envoi.detail });
+  return Response.json({ ok: true, session: (maj as RecSession | null) ?? session, email: envoi.statut, email_detail: envoi.detail, etape_cible: etape });
 }
