@@ -15,6 +15,21 @@ function addUsage(u: WebSearchUsage, res: Anthropic.Message): void {
   u.tokens_out += res.usage?.output_tokens ?? 0;
 }
 
+/** Retire les balises de citation de l'API (<cite index="...">texte</cite>)
+ *  en gardant le texte : elles fuyaient dans les champs écrits (constat P0 du
+ *  24/07, raison_de_selection de Tarik Benabdallah). Appliqué récursivement
+ *  aux chaînes d'un résultat JSON. */
+export function stripCitations<T>(v: T): T {
+  if (typeof v === "string") {
+    return (v as string).replace(/<\/?cite[^>]*>/g, "").replace(/\s{2,}/g, " ").trim() as unknown as T;
+  }
+  if (Array.isArray(v)) return v.map(stripCitations) as unknown as T;
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, stripCitations(x)])) as unknown as T;
+  }
+  return v;
+}
+
 /** Extrait le premier bloc JSON ([...] ou {...}) d'un texte (gère les ```json). */
 export function extractJson<T>(text: string): T | null {
   if (!text) return null;
@@ -83,7 +98,7 @@ export async function runWebSearchJSON<T>(
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    return extractJson<T>(text);
+    return stripCitations(extractJson<T>(text));
   }
   return null;
 }
@@ -119,7 +134,7 @@ export async function runWebSearchJSONVerbose<T>(
       .map((b) => b.text)
       .join("\n");
     const json = extractJson<T>(text);
-    if (json !== null) return { json, text, stop: res.stop_reason ?? null, usage };
+    if (json !== null) return { json: stripCitations(json), text, stop: res.stop_reason ?? null, usage };
     // Tour terminé SANS JSON (le modèle narre ses recherches puis s'arrête).
     // Finisher : une relance unique, sans outils, pour exiger le JSON : toute
     // la matière de recherche est déjà dans le contexte de la conversation.
@@ -131,7 +146,7 @@ export async function runWebSearchJSONVerbose<T>(
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n");
-    return { json: extractJson<T>(finText), text: finText || text, stop: fin.stop_reason ?? res.stop_reason ?? null, usage };
+    return { json: stripCitations(extractJson<T>(finText)), text: finText || text, stop: fin.stop_reason ?? res.stop_reason ?? null, usage };
   }
   return { json: null, text: "", stop: "pause_turn_epuise", usage };
 }
