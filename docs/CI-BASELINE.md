@@ -1,5 +1,10 @@
 # Allumer la chaîne CI (P1/P2) — baseline + secrets
 
+> OBSOLÈTE (décision actée du 24/07, handoff Fable) : les migrations restent
+> MANUELLES, la CI n'applique aucun SQL. L'étape migrations de deploy.yml a
+> été retirée ; la baseline ci-dessous ne sert plus qu'en cas de revirement
+> futur. La CI des PR (ci.yml), elle, tourne depuis le début.
+
 But : que chaque merge sur `main` applique les migrations puis déploie, sans
 jamais recoller de SQL à la main. Deux gestes : baseline (une fois) + secrets.
 

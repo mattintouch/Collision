@@ -74,3 +74,28 @@ export function canonicalSectionId(id: string): string {
 export function sectionPosition(id: string): number {
   return FICHE_SECTION_IDS.indexOf(canonicalSectionId(id));
 }
+
+/**
+ * Tâche 4 (handoff 24/07) : paramètre `sections` de get_fiche. Note MCP : un
+ * paramètre tableau ajouté en cours de route peut arriver TYPÉ EN CHAÎNE dans
+ * une session déjà ouverte : accepter tableau ET chaîne (séparateurs virgule
+ * ou espace). Alias hérités résolus. null = toute la fiche (comportement
+ * historique). Ids inconnus renvoyés pour une erreur actionnable.
+ */
+export function parseSectionsParam(v: unknown): { ids: Set<string> | null; inconnus: string[] } {
+  let bruts: string[] = [];
+  if (Array.isArray(v)) bruts = v.filter((x): x is string => typeof x === "string");
+  else if (typeof v === "string") bruts = v.split(/[\s,]+/);
+  else return { ids: null, inconnus: [] };
+  const nettoyes = bruts.map((s) => s.trim()).filter(Boolean);
+  if (!nettoyes.length) return { ids: null, inconnus: [] };
+  const connus = new Set(FICHE_SECTION_IDS);
+  const ids = new Set<string>();
+  const inconnus: string[] = [];
+  for (const brut of nettoyes) {
+    const id = canonicalSectionId(brut);
+    if (connus.has(id)) ids.add(id);
+    else inconnus.push(brut);
+  }
+  return { ids, inconnus };
+}

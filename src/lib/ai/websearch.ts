@@ -4,15 +4,20 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_MODEL } from "../copilot/config";
 
-/** Tokens consommés par un appel (télémétrie de coût, chantier 3). */
+/** Tokens ET requêtes de recherche web consommés par un appel (télémétrie de
+ *  coût, chantier 3 + tâche 6 du handoff : la recherche est facturée en sus
+ *  par requête, le plafond était à moitié aveugle sans ce compteur). */
 export interface WebSearchUsage {
   tokens_in: number;
   tokens_out: number;
+  searches: number;
 }
 
 function addUsage(u: WebSearchUsage, res: Anthropic.Message): void {
   u.tokens_in += res.usage?.input_tokens ?? 0;
   u.tokens_out += res.usage?.output_tokens ?? 0;
+  const outils = (res.usage as { server_tool_use?: { web_search_requests?: number } } | undefined)?.server_tool_use;
+  u.searches += outils?.web_search_requests ?? 0;
 }
 
 /** Retire les balises de citation de l'API (<cite index="...">texte</cite>)
@@ -120,7 +125,7 @@ export async function runWebSearchJSONVerbose<T>(
   const tools = [
     { type: "web_search_20260209", name: "web_search", max_uses: maxUses, allowed_callers: ["direct"] },
   ] as Anthropic.MessageCreateParams["tools"];
-  const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0 };
+  const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0, searches: 0 };
 
   for (let i = 0; i < 6; i++) {
     const res = await client.messages.create({ model, max_tokens: maxTokens, system, tools, messages });

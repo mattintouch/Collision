@@ -30,6 +30,19 @@ le cas échéant. Fable s'y documente pendant le travail MCP réel.
    Tester les chemins d'écriture d'enrichissement sur une cible RÉELLE à
    champs partiellement vides (l'écriture est non destructive).
 
+## 24/07/2026 — correction d'un constat erroné du récap du 22/07
+
+Le récap envoyé à Fable affirmait « 173 tests verts mais lancés à la main,
+la CI n'est pas allumée ». C'était FAUX : deux workflows GitHub Actions
+(ci.yml : typecheck + tests + smoke MCP sur chaque PR et chaque push de
+branche claude/** ; deploy.yml : garde de main) tournent depuis le début,
+tous les runs récents sont verts. La tâche 5 du handoff, fondée sur ce
+constat, est donc déjà satisfaite pour l'essentiel ; le seul écart réel
+était l'étape de migrations automatiques de deploy.yml (inerte, gardée par
+des secrets jamais posés) qui contredisait la décision actée « migrations
+manuelles » : retirée. Leçon : vérifier l'existence d'un mécanisme
+(.github/workflows, runs Actions) avant de l'affirmer absent dans une revue.
+
 ## Historique repris des briefs précédents
 
 1. 17/07 : dérive base/registre sur la contrainte kind (0001 encore active

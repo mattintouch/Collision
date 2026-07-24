@@ -20,7 +20,7 @@ import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
-import { FICHE_SECTIONS, SECTIONS_OBLIGATOIRES, canonicalSectionId } from "../fiche/sections";
+import { FICHE_SECTIONS, FICHE_SECTION_IDS, SECTIONS_OBLIGATOIRES, canonicalSectionId, parseSectionsParam } from "../fiche/sections";
 import { SECTION_CONTRACTS, isEmptyContent } from "../fiche/schema";
 import {
   FICHE_STATUTS,
@@ -1693,8 +1693,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "get_fiche",
-    "Renvoie une fiche complète : métadonnées, les 19 sections avec leur contenu structuré (JSON), les commentaires ouverts et les notes à intégrer. Résoudre par slug, id, ou nom d'invité. Intentions : lire la fiche, préparer le challenge, réviser avant l'enregistrement.",
-    { fiche: z.string().describe("slug, id ou nom d'invité"), show: z.string().optional() },
+    "Renvoie une fiche : métadonnées, sections avec leur contenu structuré (JSON), commentaires ouverts et notes à intégrer. Résoudre par slug, id, ou nom d'invité. `sections` (liste d'ids, ou chaîne séparée par des virgules) charge SEULEMENT ces sections : une fiche complète pèse 50 Ko et plus, préférer la sélection pour un challenge ciblé. Intentions : lire la fiche, préparer le challenge, réviser avant l'enregistrement.",
+    {
+      fiche: z.string().describe("slug, id ou nom d'invité"),
+      show: z.string().optional(),
+      sections: z.union([z.array(z.string()), z.string()]).optional().describe("ids de sections à charger (ex. [\"playbook\", \"chiffres\"] ou \"playbook,chiffres\") ; omis = toute la fiche"),
+    },
     { readOnlyHint: true },
     async (a) => {
       const sb = createServiceClient();
@@ -1702,7 +1706,15 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
       kickQueue(); // lecture chaude : draine la génération en cours (plan Hobby)
-      const sections = await ficheSections(sb, f.id);
+      // Tâche 4 : sélection de sections. Accepte tableau ET chaîne (un
+      // paramètre ajouté en cours de route arrive typé en chaîne dans une
+      // session MCP déjà ouverte).
+      const { ids: demandees, inconnus } = parseSectionsParam(a.sections);
+      if (inconnus.length) {
+        return text({ error: `Section(s) inconnue(s) : ${inconnus.join(", ")}. Ids valides : ${FICHE_SECTION_IDS.join(", ")}.` });
+      }
+      const toutes = await ficheSections(sb, f.id);
+      const sections = demandees ? toutes.filter((s) => demandees.has(canonicalSectionId(s.section_id))) : toutes;
       const catalog = new Map(FICHE_SECTIONS.map((s) => [s.id, s]));
       const { data: comments } = await sb.from("fiche_comments").select("id, section_id, author, text, resolved, created_at").eq("fiche_id", f.id).eq("resolved", false).order("created_at");
       const { data: notes } = await sb.from("fiche_notes").select("id, text, source, integrated, created_at").eq("fiche_id", f.id).eq("integrated", false).order("created_at");
@@ -1737,6 +1749,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
             content: s.content ?? {},
           };
         }),
+        ...(demandees ? { sections_filtrees: true, sections_total: toutes.length } : {}),
         commentaires_ouverts: comments ?? [],
         notes_a_integrer: notes ?? [],
         ...(generation ? { generation } : {}),
@@ -2082,7 +2095,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         override: etat.override,
         generations_bloquees: etat.bloque,
         ventilation: ventilation.map((v) => ({ ...v, cout_eur: Number(v.cout_eur.toFixed(2)) })),
-        note: "Coût estimé sur les tokens (grille par famille de modèle). La recherche web est facturée en sus par requête : le plafond se recalibre sur la facture réelle.",
+        note: "Coût estimé : tokens (grille par famille de modèle) + recherches web (10 € les 1000, comptées par job depuis la migration 0042). Le plafond se recalibre sur la facture réelle.",
       });
     }
   );
