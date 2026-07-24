@@ -108,13 +108,18 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
     // Télémétrie de coût (chantier 3) : tokens accumulés sur toutes les
     // tentatives du job, écrits à part (best-effort tant que 0039 n'est pas
     // appliquée, pour ne jamais casser l'écriture du statut).
-    const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0 };
+    const usage: WebSearchUsage = { tokens_in: 0, tokens_out: 0, searches: 0 };
     const ecrireTelemetrie = async () => {
       if (usage.tokens_in === 0 && usage.tokens_out === 0) return;
       try {
         await sb.from("enrichment_jobs").update({ tokens_in: usage.tokens_in, tokens_out: usage.tokens_out, model }).eq("id", job.id);
+        // Requêtes de recherche web (tâche 6, colonne 0042) : écriture séparée,
+        // best-effort tant que la migration n'est pas appliquée.
+        if (usage.searches > 0) {
+          await sb.from("enrichment_jobs").update({ web_searches: usage.searches }).eq("id", job.id);
+        }
       } catch {
-        /* colonnes absentes : migration 0039 non appliquée */
+        /* colonnes absentes : migrations 0039/0042 non appliquées */
       }
     };
     try {

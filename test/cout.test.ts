@@ -108,3 +108,16 @@ describe("plafond budget mensuel (200 €, alerte 80, coupure 100)", () => {
     expect(apres.alertes_dues).toEqual(["80"]); // la lecture n'a rien consommé
   });
 });
+
+describe("recherches web dans le coût (tâche 6 du handoff)", () => {
+  it("compte 10 € les 1000 requêtes en plus des tokens", async () => {
+    const sb = fakeSb([{ objectif: "fiche:portrait", model: "claude-haiku-4-5", tokens_in: 0, tokens_out: 0, web_searches: 500 } as FakeJob & { web_searches: number }]);
+    const b = await verifierBudget(sb, NOW);
+    expect(b.depense_eur).toBe(5);
+  });
+  it("sans la colonne (0042 non appliquée) : coût tokens seuls, jamais bloquant", async () => {
+    const sb = fakeSb([haiku(1_000_000)]); // 5 €, web_searches absent
+    const b = await verifierBudget(sb, NOW);
+    expect(b.depense_eur).toBe(5);
+  });
+});
