@@ -6,7 +6,7 @@
 // 0041). L'état affiché (checklist, questions posées) se RÉDUIT depuis le flux
 // d'événements : le dernier événement gagne. Fonctions pures, testables à sec.
 
-export type ConsoleKind = "clip" | "note" | "chat" | "check" | "question";
+export type ConsoleKind = "clip" | "note" | "chat" | "check" | "question" | "lu";
 
 export interface ConsoleEvent {
   id: string;
@@ -98,4 +98,25 @@ export function timeLabel(e: ConsoleEvent, sessions: RecSession[]): string {
 export function mergeEvent(list: ConsoleEvent[], e: ConsoleEvent): ConsoleEvent[] {
   if (list.some((x) => x.id === e.id)) return list;
   return [...list, e].sort((a, b) => a.created_at.localeCompare(b.created_at));
+}
+
+/** Tâche 8 (handoff 24/07) — dernier-lu PAR OPÉRATEUR : borne ISO du dernier
+ *  message de régie lu par ce compte (événements kind='lu', payload jusqu_a).
+ *  Chaîne vide = jamais rien lu. */
+export function dernierLu(events: ConsoleEvent[], email: string): string {
+  let borne = "";
+  for (const e of events) {
+    if (e.kind !== "lu" || e.author_email !== email) continue;
+    const jusquA = typeof e.payload.jusqu_a === "string" ? e.payload.jusqu_a : "";
+    if (jusquA > borne) borne = jusquA;
+  }
+  return borne;
+}
+
+/** Messages de régie NON LUS par cet opérateur : écrits par un autre compte
+ *  après sa borne de lecture. Alimente le clignotement et la ligne de
+ *  flottaison. */
+export function chatNonLus(events: ConsoleEvent[], email: string): ConsoleEvent[] {
+  const borne = dernierLu(events, email);
+  return chatOf(events).filter((e) => e.author_email !== email && e.created_at > borne);
 }

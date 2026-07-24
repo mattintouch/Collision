@@ -21,7 +21,7 @@ import type { KpiCard, LienDate } from "@/lib/fiche/schema";
 import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
-  timecodeAt, timeLabel, mergeEvent,
+  timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus,
   type ConsoleEvent, type RecSession,
 } from "@/lib/fiche/console";
 
@@ -248,8 +248,44 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       me: e.author_email === data.viewer_email,
       time: timeLabel(e, sessions),
       text: textOf(e),
+      created_at: e.created_at,
     })),
     [events, sessions, data.viewer_email]
+  );
+
+  /* Tâche 8 (handoff 24/07) : dernier-lu par opérateur (événement en base),
+     ligne de flottaison « non lus » et clignotement du bouton RÉGIE. */
+  const monDernierLu = useMemo(() => dernierLu(events, data.viewer_email), [events, data.viewer_email]);
+  const nonLus = useMemo(() => chatNonLus(events, data.viewer_email), [events, data.viewer_email]);
+  const [estDesktop, setEstDesktop] = useState(false);
+  const [panneauOuvert, setPanneauOuvert] = useState(true); // dock droit desktop
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const maj = () => setEstDesktop(mq.matches);
+    maj();
+    mq.addEventListener("change", maj);
+    return () => mq.removeEventListener("change", maj);
+  }, []);
+  const regieVisible = estDesktop ? panneauOuvert : chatOpen;
+  // Marquage lu : quand la régie est visible, la borne avance jusqu'au dernier
+  // message des autres. L'écho fait retomber nonLus à zéro (pas de boucle).
+  useEffect(() => {
+    if (!regieVisible || nonLus.length === 0) return;
+    const jusquA = nonLus[nonLus.length - 1].created_at;
+    if (jusquA > monDernierLu) sendEvent("lu", { jusqu_a: jusquA });
+  }, [regieVisible, nonLus, monDernierLu, sendEvent]);
+  // Ancre en bas du chat : à l'ouverture et à chaque message, la liste arrive
+  // en bas (la flottaison non lus reste visible juste au-dessus).
+  const listeRegieRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!regieVisible) return;
+    const el = listeRegieRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [regieVisible, chat.length]);
+  // Index du premier non lu (par rapport à la liste chat) pour la flottaison.
+  const premierNonLu = useMemo(
+    () => chat.findIndex((m) => !m.me && m.created_at > monDernierLu),
+    [chat, monDernierLu]
   );
 
   const doneCount = data.checklist.filter((_, i) => checked[i]).length;
@@ -867,7 +903,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   }
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 120, background: "#FFF" }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 120, background: "#FFF", paddingRight: estDesktop && panneauOuvert ? 376 : undefined }}>
       {/* Header sticky : nom + numéro, REC ou chrono. */}
       <header style={{ position: "sticky", top: 0, zIndex: 60, background: "#000", color: "#FFF", display: "flex", alignItems: "stretch", height: 52 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "0 16px", alignSelf: "center", minWidth: 0, flex: 1 }}>
@@ -1149,11 +1185,13 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         </div>
       )}
 
-      {/* Drawer régie */}
-      {chatOpen && (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 64, zIndex: 70, display: "flex", justifyContent: "center", padding: "0 12px" }}>
-          <div style={{ width: "100%", maxWidth: 680, background: "#FFF", color: "#000", border: "1px solid #000", boxShadow: "0 8px 24px rgba(0,0,0,0.08)", maxHeight: "55vh", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #000", padding: "6px 8px 6px 16px" }}>
+      {/* Régie (tâche 8) : panneau latéral droit FIXE sur desktop, tiroir bas
+          sur mobile. Même corps dans les deux : statut, liste avec ligne de
+          flottaison NON LUS, saisie. Ancre en bas de liste. */}
+      {(() => {
+        const corps = (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #000", padding: "6px 8px 6px 16px", flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>RÉGIE</span>
                 <span style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: MONO, fontSize: 11, color: "#464641" }}>
@@ -1161,26 +1199,49 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                   {presents.length > 1 ? `EN LIGNE : ${presents.join(" · ")}` : syncMode === "realtime" ? "PARTAGÉ · TEMPS RÉEL" : "PARTAGÉ · SYNCHRO 2 S"}
                 </span>
               </div>
-              <button onClick={() => setChatOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", fontFamily: MONO, fontSize: 12, letterSpacing: "0.1em", padding: 10 }}>FERMER ×</button>
+              <button onClick={() => (estDesktop ? setPanneauOuvert(false) : setChatOpen(false))} style={{ border: "none", background: "none", cursor: "pointer", fontFamily: MONO, fontSize: 12, letterSpacing: "0.1em", padding: 10 }}>FERMER ×</button>
             </div>
-            <div style={{ overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {chat.map((m, i) => {
-                const me = m.me;
-                return (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: me ? "flex-end" : "flex-start" }}>
+            <div ref={listeRegieRef} style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {chat.length === 0 && (
+                <span style={{ fontSize: 14, color: "#6B6B65" }}>Aucun message. La régie est partagée entre les opérateurs connectés.</span>
+              )}
+              {chat.map((m, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {i === premierNonLu && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ flex: 1, height: 1, background: "#E63946" }} />
+                      <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.16em", color: "#E63946", fontWeight: 700 }}>NON LUS</span>
+                      <span style={{ flex: 1, height: 1, background: "#E63946" }} />
+                    </div>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: m.me ? "flex-end" : "flex-start" }}>
                     <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: "#8F8F88" }}>{m.who} · {m.time}</span>
-                    <span style={{ fontSize: 14, lineHeight: 1.5, background: me ? "#000" : "#ECECE8", color: me ? "#FFF" : "#0A0A0A", padding: "8px 12px", maxWidth: "85%" }}>{m.text}</span>
+                    <span style={{ fontSize: 14, lineHeight: 1.5, background: m.me ? "#000" : "#ECECE8", color: m.me ? "#FFF" : "#0A0A0A", padding: "8px 12px", maxWidth: "85%" }}>{m.text}</span>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
-            <div style={{ display: "flex", borderTop: "1px solid #000" }}>
+            <div style={{ display: "flex", borderTop: "1px solid #000", flexShrink: 0 }}>
               <input value={chatDraft} onChange={(e) => setChatDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") sendChat(); }} placeholder="Message à la régie" style={{ flex: 1, border: "none", outline: "none", padding: "14px 16px", fontSize: 15, fontFamily: "inherit", background: "#F7F7F5", minWidth: 0 }} />
               <button onClick={sendChat} style={{ border: "none", borderLeft: "1px solid #000", background: "#000", color: "#FFF", cursor: "pointer", padding: "0 20px", fontFamily: MONO, fontSize: 14 }}>»</button>
             </div>
+          </>
+        );
+        if (estDesktop) {
+          return panneauOuvert ? (
+            <aside style={{ position: "fixed", top: 52, right: 0, bottom: 0, width: 360, zIndex: 65, background: "#FFF", color: "#000", borderLeft: "1px solid #000", display: "flex", flexDirection: "column" }}>
+              {corps}
+            </aside>
+          ) : null;
+        }
+        return chatOpen ? (
+          <div style={{ position: "fixed", left: 0, right: 0, bottom: 64, zIndex: 70, display: "flex", justifyContent: "center", padding: "0 12px" }}>
+            <div style={{ width: "100%", maxWidth: 680, background: "#FFF", color: "#000", border: "1px solid #000", boxShadow: "0 8px 24px rgba(0,0,0,0.08)", maxHeight: "55vh", display: "flex", flexDirection: "column" }}>
+              {corps}
+            </div>
           </div>
-        </div>
-      )}
+        ) : null;
+      })()}
 
       {/* Barre d'actions fixe */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 80, background: "#000", borderTop: "1px solid #000", display: "flex", height: 64 }}>
@@ -1190,8 +1251,22 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         <button onClick={() => { setCarnetOpen(!carnetOpen); setChatOpen(false); }} style={{ flex: 1, border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: carnetOpen ? "#FFF" : "#000", color: carnetOpen ? "#000" : "#FFF", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em" }}>
           CARNET <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{carnet.length}</span>
         </button>
-        <button onClick={() => { setChatOpen(!chatOpen); setCarnetOpen(false); }} style={{ flex: 1, border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: chatOpen ? "#FFF" : "#000", color: chatOpen ? "#000" : "#FFF", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em" }}>
-          RÉGIE <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{chat.length}</span>
+        <button
+          onClick={() => {
+            if (estDesktop) setPanneauOuvert(!panneauOuvert);
+            else setChatOpen(!chatOpen);
+            setCarnetOpen(false);
+          }}
+          style={{
+            flex: 1, border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer",
+            background: regieVisible ? "#FFF" : "#000", color: regieVisible ? "#000" : "#FFF",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+            fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em",
+            // Tâche 8 : clignote tant que des messages non lus attendent, régie fermée.
+            animation: nonLus.length > 0 && !regieVisible ? "gdiy-blink 1.1s steps(2, start) infinite" : undefined,
+          }}
+        >
+          RÉGIE <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{nonLus.length > 0 && !regieVisible ? `${nonLus.length} NON LU(S)` : chat.length}</span>
         </button>
       </div>
     </div>
