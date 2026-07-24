@@ -75,6 +75,35 @@ async function updatePerson(id: string, patch: Record<string, unknown>): Promise
   return res.ok;
 }
 
+/** Lit une personne Folk par id (synchro continue, tâche 2). */
+export async function folkFindById(id: string): Promise<FolkPerson | null> {
+  const res = await folk("GET", `/people/${id}`);
+  if (!res.ok) return null;
+  const json = (await res.json()) as { data?: FolkPerson };
+  return json.data ?? null;
+}
+
+/** Crée une personne Folk avec ses champs (synchro continue, tâche 2). */
+export async function folkCreatePerson(body: Record<string, unknown>): Promise<FolkPerson | null> {
+  const res = await folk("POST", "/people", body);
+  if (!res.ok) return null;
+  const json = (await res.json()) as { data?: FolkPerson };
+  return json.data ?? null;
+}
+
+/** Update public pour la synchro (tâche 2). Repli : si l'API refuse les
+ *  sociétés en objets {name}, retente en chaînes. */
+export async function folkUpdatePerson(id: string, patch: Record<string, unknown>): Promise<boolean> {
+  if (await updatePerson(id, patch)) return true;
+  if (Array.isArray(patch.companies) && patch.companies.some((c) => typeof c === "object")) {
+    const noms = (patch.companies as ({ name?: string } | string)[])
+      .map((c) => (typeof c === "string" ? c : c.name ?? ""))
+      .filter(Boolean);
+    return updatePerson(id, { ...patch, companies: noms });
+  }
+  return false;
+}
+
 export interface FolkSyncResult {
   ok: boolean;
   matched: boolean;
