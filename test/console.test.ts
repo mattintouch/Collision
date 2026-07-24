@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf,
-  timecodeAt, timeLabel, mergeEvent,
+  timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus,
   type ConsoleEvent, type RecSession,
 } from "../src/lib/fiche/console";
 
@@ -90,5 +90,31 @@ describe("console partagée — temps", () => {
   it("hors de toute session : heure murale, pas de timecode", () => {
     const avant = ev({ timecode: null, created_at: "2026-07-20T08:30:00Z" });
     expect(timeLabel(avant, [session])).toMatch(/^\d{2}:\d{2}$/);
+  });
+});
+
+describe("console partagée — dernier-lu par opérateur (tâche 8)", () => {
+  const flux: ConsoleEvent[] = [
+    ev({ kind: "chat", created_at: "2026-07-24T10:00:00Z", author_email: "matt@stefani.fr", payload: { text: "un" } }),
+    ev({ kind: "lu", created_at: "2026-07-24T10:00:30Z", author_email: "clemence@stefani.fr", payload: { jusqu_a: "2026-07-24T10:00:00Z" } }),
+    ev({ kind: "chat", created_at: "2026-07-24T10:01:00Z", author_email: "matt@stefani.fr", payload: { text: "deux" } }),
+    ev({ kind: "chat", created_at: "2026-07-24T10:02:00Z", author_email: "clemence@stefani.fr", payload: { text: "trois" } }),
+  ];
+
+  it("la borne de lecture est PAR compte, la plus récente gagne", () => {
+    expect(dernierLu(flux, "clemence@stefani.fr")).toBe("2026-07-24T10:00:00Z");
+    expect(dernierLu(flux, "matt@stefani.fr")).toBe("");
+  });
+
+  it("les non lus excluent ses propres messages et ce qui précède la borne", () => {
+    const pourClemence = chatNonLus(flux, "clemence@stefani.fr");
+    expect(pourClemence.map((e) => e.payload.text)).toEqual(["deux"]);
+    const pourMatt = chatNonLus(flux, "matt@stefani.fr");
+    expect(pourMatt.map((e) => e.payload.text)).toEqual(["trois"]);
+  });
+
+  it("les événements lu ne polluent ni le carnet ni la régie", () => {
+    expect(chatOf(flux).length).toBe(3);
+    expect(carnetOf(flux).length).toBe(0);
   });
 });

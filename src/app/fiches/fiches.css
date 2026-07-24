@@ -41,3 +41,10 @@
   50% { opacity: 0.25; }
   100% { opacity: 1; }
 }
+
+/* Tâche 8 (handoff 24/07) : clignotement du bouton RÉGIE quand des messages
+   non lus attendent et que la régie est fermée. */
+@keyframes gdiy-blink {
+  0%, 49% { background: #E63946; color: #fff; }
+  50%, 100% { background: #000; color: #fff; }
+}

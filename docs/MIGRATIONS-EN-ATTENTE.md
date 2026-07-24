@@ -38,6 +38,11 @@
   Défensif : sans la migration, l'écriture du compteur est ignorée et le coût
   se calcule sur les seuls tokens (repli dans jobsDepuis). À appliquer au
   merge de la PR.
+- `0043_console_lu.sql` : contrainte kind de fiche_console_events élargie à
+  'lu' (dernier-lu par opérateur, tâche 8 du handoff). Défensif : sans la
+  migration, l'insertion des événements lu échoue silencieusement (best-effort
+  côté client), la flottaison considère tout comme non lu. À appliquer au
+  merge de la PR.
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base
