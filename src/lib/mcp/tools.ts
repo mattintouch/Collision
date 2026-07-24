@@ -6,6 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
+import { kickFolkSync } from "../folk/sync";
 import { hasFolkKey, fetchFolkGroups } from "../folk/client";
 import { checkGmail } from "../gmail";
 import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
@@ -150,7 +151,12 @@ async function autoAttachCibleContacts(
     if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "email", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
   for (const valeur of r.telephone)
     if (!known.has(valeur.trim().toLowerCase())) rows.push({ cible_id: cibleId, kind: "telephone", valeur, source: r.source, confiance: verifie ? 5 : 3, verifie });
-  if (rows.length) await sb.from("contacts").insert(rows);
+  if (rows.length) {
+    await sb.from("contacts").insert(rows);
+    // Synchro continue vers Folk (tâche 2) : coordonnées rattachées à la
+    // cible, la fiche Folk suit en tâche de fond.
+    kickFolkSync(cibleId);
+  }
   return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
@@ -877,15 +883,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         cible_id: target.id, kind: a.kind, valeur: a.valeur, label: a.label ?? null, source: "Claude", confiance: 4,
       });
       if (error) return text({ error: error.message });
+      // Synchro continue vers Folk (tâche 2) : coordonnée ajoutée, la fiche
+      // Folk suit en tâche de fond (match folk_id/email/nom, union, jamais de
+      // mise à vide). Remplace les anciens folkAddPhone/folkAddEmail au match
+      // par nom seul.
       let folk: string | undefined;
-      if (a.kind === "telephone") {
-        const r = await folkAddPhone(target.nom, a.valeur);
-        folk = r.detail;
-        await persistFolkId(sb, target.id, r.folk_id);
-      } else if (a.kind === "email") {
-        const r = await folkAddEmail(target.nom, a.valeur);
-        folk = r.detail;
-        await persistFolkId(sb, target.id, r.folk_id);
+      if (a.kind === "telephone" || a.kind === "email") {
+        kickFolkSync(target.id);
+        folk = "synchro Folk lancée en tâche de fond";
       }
       return text({ ok: true, cible: target.nom, folk });
     }
@@ -1024,6 +1029,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const err = await setCibleWatchlists(sb, target.id, a.watchlist);
         if (err) return text({ error: err });
         modifie.push("watchlist");
+      }
+      // Synchro continue vers Folk (tâche 2) : un champ possédé par Magellan
+      // a changé, la fiche Folk suit en tâche de fond.
+      if (modifie.some((c) => ["role", "organisation", "secteur", "pays", "ville", "nom"].includes(c))) {
+        kickFolkSync(target.id);
       }
       return text({ ok: true, cible: target.nom, cible_id: target.id, modifie });
     }

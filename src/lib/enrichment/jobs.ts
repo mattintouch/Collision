@@ -12,6 +12,7 @@ import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
 import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
 import { processRedaction } from "../fiche/redaction";
+import { syncCibleToFolk } from "../folk/sync";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
 import { verifierBudget } from "../ai/cout";
 import type { WebSearchUsage } from "../ai/websearch";
@@ -183,7 +184,12 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
       if (!proposal) throw new Error("Recherche web sans résultat exploitable");
       await breakerSucces(sb);
       let applied: string[] | undefined;
-      if (job.apply) applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
+      if (job.apply) {
+        applied = await applyProfileProposal(sb, row as CibleEnrichie, proposal);
+        // Synchro continue vers Folk (tâche 2) : l'enrichissement appliqué a pu
+        // remplir des champs possédés par Magellan. Best-effort, dans le job.
+        if (applied?.length) await syncCibleToFolk(sb, job.cible_id).catch(() => {});
+      }
       await sb
         .from("enrichment_jobs")
         .update({ statut: "done", resultat: proposal, sources: proposal.sources ?? [], applied: applied ?? null, error: null, updated_at: nowIso() })
