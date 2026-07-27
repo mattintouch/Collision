@@ -120,3 +120,41 @@ export function chatNonLus(events: ConsoleEvent[], email: string): ConsoleEvent[
   const borne = dernierLu(events, email);
   return chatOf(events).filter((e) => e.author_email !== email && e.created_at > borne);
 }
+
+/* ── Alerte de saisie pendant le REC (demande produit C2 du récap du 27/07).
+   Le payload de présence Realtime (PR 7) est étendu d'un champ typing_at
+   (ISO 8601, null au repos). Rien n'est persisté : le signal vit en mémoire
+   dans le canal. Extension rétrocompatible : un client qui ignore le champ
+   ne casse rien. */
+
+/** Fenêtre de fraîcheur d'une saisie : au delà, le signal est considéré
+ *  éteint même si le retour à null s'est perdu. Vaut aussi pour le debounce
+ *  côté émetteur (retour à null après 3 s d'inactivité). */
+export const SAISIE_FRAICHEUR_MS = 3000;
+
+export interface PresenceOperateur {
+  email: string;
+  typing_at?: string | null;
+}
+
+/** Libellés des opérateurs DISTANTS en train d'écrire sur la fiche pendant un
+ *  REC actif. Vide hors REC (aucun faux positif en IDLE), vide pour sa propre
+ *  saisie, vide quand typing_at est absent, null ou périmé. Alimente le
+ *  bandeau rouge de la régie. */
+export function saisiesEnCours(
+  presences: PresenceOperateur[],
+  moi: string,
+  recActif: boolean,
+  nowMs: number
+): string[] {
+  if (!recActif) return [];
+  const labels = presences
+    .filter((p) => p.email && p.email !== moi)
+    .filter((p) => {
+      if (typeof p.typing_at !== "string" || !p.typing_at) return false;
+      const t = Date.parse(p.typing_at);
+      return Number.isFinite(t) && nowMs - t < SAISIE_FRAICHEUR_MS;
+    })
+    .map((p) => labelFromEmail(p.email));
+  return Array.from(new Set(labels));
+}
