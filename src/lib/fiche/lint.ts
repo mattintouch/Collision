@@ -64,15 +64,17 @@ const SEQUENCE_MOTS = 12;
  *  mentions de qui a demandé quoi, commentaires sur la génération. */
 const META_NARRATIF = /\b(recadrage du|bloc neuf|version pr[eé]c[eé]dente|demand[eé] par|ajout[eé] (le|par)|r[eé]g[eé]n[eé]r[eé] (le|par)|section (mise [aà] jour|r[eé][eé]crite))\b/i;
 
-/** Chiffres remarquables : valeur avec unité (M€, M$, %, k€...) ou nombre
- *  d'au moins deux chiffres, éventuellement décimal. Les années seules
- *  (1900-2099) sont ignorées : une date répétée n'est pas un KPI recopié. */
-const CHIFFRE_RE = /\d{1,3}(?:[  ]\d{3})*(?:[.,]\d+)?\s?(?:%|€|\$|M€|M\$|Md€|Md\$|k€|k\$|M|Md)|\b\d{2,}(?:[.,]\d+)?\b/g;
+/** Chiffres remarquables : valeur avec unité (M€, M$, %, k€...), nombre
+ *  décimal, ou entier d'au moins 3 chiffres. Les entiers nus de 1 ou 2
+ *  chiffres sont ignorés (numéros de questions, jours de dates : mesuré sur
+ *  la fiche Gobert, « 24 » comptait 22 occurrences de pur bruit), comme les
+ *  années seules (1900-2099) : une date répétée n'est pas un KPI recopié. */
+const CHIFFRE_RE = /\d{1,3}(?:[\u00a0\u202f ]\d{3})+(?:[.,]\d+)?\s?(?:%|€|\$|M€|M\$|Md€|Md\$|k€|k\$|M\b|Md\b)?|\d+(?:[.,]\d+)?\s?(?:%|€|\$|M€|M\$|Md€|Md\$|k€|k\$|M\b|Md\b)|\b\d+[.,]\d+\b|\b\d{3,}\b/g;
 
 function chiffresRemarquables(texte: string): string[] {
   const out: string[] = [];
   for (const m of texte.matchAll(CHIFFRE_RE)) {
-    const brut = m[0].replace(/[  ]/g, " ").trim();
+    const brut = m[0].replace(/[\u00a0\u202f]/g, " ").trim();
     const nu = brut.replace(/[^\d.,]/g, "");
     if (/^(19|20)\d{2}$/.test(nu) && nu === brut) continue; // année seule
     if (nu.replace(/[.,]/g, "").length < 2) continue;
@@ -80,6 +82,11 @@ function chiffresRemarquables(texte: string): string[] {
   }
   return out;
 }
+
+/** Sections exclues du comptage des chiffres : listes de liens dont les
+ *  titres et URLs portent légitimement les mêmes valeurs que le corps. Leurs
+ *  SÉQUENCES restent lintées (doublon a_lire contre sources, règle 1). */
+const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["chiffres", "sources", "a_lire"]);
 
 /**
  * Lint d'une fiche assemblée : sections → contenu. Règle 5 :
@@ -100,7 +107,7 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
         meta_narratif.push({ section: sectionId, extrait: texte.slice(0, 120) });
       }
       motsSection.push(...normalise(texte).split(" ").filter(Boolean));
-      if (sectionId !== "chiffres") {
+      if (!SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId)) {
         for (const valeur of chiffresRemarquables(texte)) {
           const cle = valeur.replace(/\s/g, "");
           const cur = parChiffre.get(cle) ?? { valeur, sections: [] };
