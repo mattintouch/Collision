@@ -21,6 +21,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractJson, type WebSearchUsage } from "../ai/websearch";
 import { hasAnthropicKey } from "../copilot/config";
 import { isEmptyContent, BUDGETS_V3 } from "./schema";
+import { lintFiche, type LintRapport } from "./lint";
 import { writeSection, type FicheRow } from "./store";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
@@ -65,6 +66,34 @@ export interface RapportRedaction {
   balisage_nettoye?: string[];
   /** Correctif anti-répétition (règle 3) : méta narratif retiré du contenu. */
   meta_narratif_nettoye?: string[];
+  /** Règle 5 : verdict du lint APRÈS la passe (doublons et chiffres répétés
+   *  résiduels = bloquants restants ; zéro attendu sur une fiche fraîche). */
+  lint_residuel?: Pick<LintRapport, "doublons" | "chiffres_repetes" | "meta_narratif" | "bloquants">;
+}
+
+/** Cible du lint injectée dans le prompt de la passe (règle 5) : les doublons
+ *  détectés deviennent des consignes explicites de résorption. */
+export function consignesLint(lint: LintRapport): string {
+  const morceaux: string[] = [];
+  if (lint.doublons.length) {
+    morceaux.push(`DOUBLONS DÉTECTÉS PAR LE LINT (séquences recopiées entre sections), à résorber : garder dans la section propriétaire, remplacer ailleurs par un renvoi court ou un pointeur ZG :\n${lint.doublons
+      .slice(0, 15)
+      .map((d) => `- « ${d.extrait.slice(0, 90)}... » présent dans : ${d.sections.join(", ")}${d.proprietaire ? ` (propriétaire : ${d.proprietaire})` : ""}`)
+      .join("\n")}`);
+  }
+  if (lint.chiffres_repetes.length) {
+    morceaux.push(`CHIFFRES RÉPÉTÉS HORS SECTION CHIFFRES (au delà de 2 occurrences = bloquant) :\n${lint.chiffres_repetes
+      .slice(0, 15)
+      .map((c) => `- ${c.valeur} : ${c.occurrences} occurrences (${c.sections.join(", ")})`)
+      .join("\n")}`);
+  }
+  if (lint.meta_narratif.length) {
+    morceaux.push(`MÉTA NARRATIF À RETIRER :\n${lint.meta_narratif.slice(0, 10).map((m) => `- ${m.section} : « ${m.extrait} »`).join("\n")}`);
+  }
+  if (lint.hors_budget.length) {
+    morceaux.push(`HORS BUDGET (à réécrire sous le budget, pas à tronquer bêtement) :\n${lint.hors_budget.slice(0, 15).map((h) => `- ${h}`).join("\n")}`);
+  }
+  return morceaux.length ? `\n\n${morceaux.join("\n\n")}` : "";
 }
 
 const SYSTEM = [
@@ -218,8 +247,11 @@ export async function processRedaction(
 
   const client = new Anthropic();
   const model = REDACTION_MODEL();
+  // Règle 5 : le lint mesure AVANT la passe et ses trouvailles deviennent des
+  // consignes explicites (doublons, chiffres répétés, méta narratif, budgets).
+  const lintAvant = lintFiche(actuel);
   const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: `Invité : ${cible.nom}. Fiche actuelle (JSON par section) :\n${JSON.stringify(actuel)}` },
+    { role: "user", content: `Invité : ${cible.nom}. Fiche actuelle (JSON par section) :\n${JSON.stringify(actuel)}${consignesLint(lintAvant)}` },
   ];
   const compte = (res: Anthropic.Message) => {
     if (!opts.usageOut) return;
@@ -249,6 +281,9 @@ export async function processRedaction(
   }
 
   const apres = { ...actuel, ...admis };
+  // Règle 5, verdict : le lint repasse APRÈS la passe ; le résiduel est le
+  // critère d'acceptation (« zéro doublon bloquant sur une fiche fraîche »).
+  const lintApres = lintFiche(apres);
   const rapport: RapportRedaction = {
     dedoublonnages: Array.isArray(sortie.rapport?.dedoublonnages) ? (sortie.rapport!.dedoublonnages as string[]).slice(0, 30) : [],
     chiffres_reconcilies: Array.isArray(sortie.rapport?.chiffres_reconcilies) ? (sortie.rapport!.chiffres_reconcilies as RapportRedaction["chiffres_reconcilies"]).slice(0, 20) : [],
@@ -256,6 +291,14 @@ export async function processRedaction(
     hors_budget_residuel: itemsHorsBudget(apres).slice(0, 20),
     titres_corriges: Array.isArray(sortie.rapport?.titres_corriges) ? (sortie.rapport!.titres_corriges as string[]).slice(0, 10) : [],
     noms_unifies: Array.isArray(sortie.rapport?.noms_unifies) ? (sortie.rapport!.noms_unifies as RapportRedaction["noms_unifies"]).slice(0, 10) : [],
+    balisage_nettoye: Array.isArray(sortie.rapport?.balisage_nettoye) ? (sortie.rapport!.balisage_nettoye as string[]).slice(0, 10) : [],
+    meta_narratif_nettoye: Array.isArray(sortie.rapport?.meta_narratif_nettoye) ? (sortie.rapport!.meta_narratif_nettoye as string[]).slice(0, 10) : [],
+    lint_residuel: {
+      doublons: lintApres.doublons.slice(0, 10),
+      chiffres_repetes: lintApres.chiffres_repetes.slice(0, 10),
+      meta_narratif: lintApres.meta_narratif.slice(0, 10),
+      bloquants: lintApres.bloquants,
+    },
   };
   return { sections: written, sources: 0, rapport };
 }
