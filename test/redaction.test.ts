@@ -108,7 +108,7 @@ describe("contrat v3 — contrats de section (règle 2, contrainte technique 3)"
   it("les contrats reflètent budgets et propriété des faits pour update_section manuel", () => {
     const contrats = JSON.stringify(SECTION_CONTRACTS);
     expect(JSON.stringify(SECTION_CONTRACTS.parcours)).toContain("12 lignes maximum");
-    expect(JSON.stringify(SECTION_CONTRACTS.recit_canonique)).toContain("7 temps MAXIMUM");
+    expect(JSON.stringify(SECTION_CONTRACTS.recit_canonique)).toContain("5 paragraphes MAXIMUM");
     expect(JSON.stringify(SECTION_CONTRACTS.a_lire)).toContain("3 sources MAXIMUM");
     expect(JSON.stringify(SECTION_CONTRACTS.playbook)).toContain("Six leviers maximum");
     // La timeline biographique n'est plus au contrat de l'univers.
