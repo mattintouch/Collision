@@ -178,10 +178,15 @@ describe("récap hebdo v2 — B3, prompt de correction conditionnel", () => {
     )).toBeNull();
   });
 
-  it("une cause récurrente sur deux semaines (3 jobs et plus) déclenche le prompt", () => {
+  it("la semaine réelle du 27/07 (6 timeouts, 2 seulement la semaine passée) reste sans prompt", () => {
+    const semaine = ["a", "b", "c", "a", "b", "c"].map((id) => ({ cause: timeout, cible_id: id }));
+    expect(promptCorrection(semaine, [{ cause: timeout }, { cause: timeout }])).toBeNull();
+  });
+
+  it("une cause massive sur deux semaines (3 jobs et plus chaque semaine) déclenche le prompt", () => {
     const p = promptCorrection(
       [{ cause: timeout, cible_id: "a" }, { cause: timeout, cible_id: "b" }, { cause: timeout, cible_id: "a" }],
-      [{ cause: timeout }]
+      [{ cause: timeout }, { cause: timeout }, { cause: timeout }]
     );
     expect(p).toContain("Découpe la recherche web en sous-requêtes plus courtes");
     expect(p).toContain("retry avec backoff");

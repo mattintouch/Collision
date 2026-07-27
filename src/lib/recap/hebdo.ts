@@ -74,9 +74,10 @@ export function normaliseCause(error: string): string {
 
 /**
  * B3 : prompt de correction CONDITIONNEL. Une cause est systématique quand
- * elle frappe sur plusieurs semaines (présente cette semaine ET la précédente,
- * au moins 3 jobs cette semaine) ou en masse (au moins 5 fiches distinctes
- * cette semaine). Un incident ponctuel ne produit qu'une liste à relancer.
+ * elle frappe en masse sur plusieurs semaines (au moins 3 jobs cette semaine
+ * ET au moins 3 jobs la semaine précédente) ou en masse cette semaine (au
+ * moins 5 fiches distinctes). Un incident ponctuel, ou une cause qui n'était
+ * qu'anecdotique la semaine passée, ne produit qu'une liste à relancer.
  */
 export function promptCorrection(
   cetteSemaine: { cause: string; cible_id: string | null }[],
@@ -89,9 +90,10 @@ export function promptCorrection(
     if (j.cible_id) cur.cibles.add(j.cible_id);
     parCause.set(j.cause, cur);
   }
-  const causesPrec = new Set(semainePrecedente.map((j) => j.cause));
+  const jobsPrec = new Map<string, number>();
+  for (const j of semainePrecedente) jobsPrec.set(j.cause, (jobsPrec.get(j.cause) ?? 0) + 1);
   for (const [cause, stats] of parCause) {
-    const systematique = (stats.jobs >= 3 && causesPrec.has(cause)) || stats.cibles.size >= 5;
+    const systematique = (stats.jobs >= 3 && (jobsPrec.get(cause) ?? 0) >= 3) || stats.cibles.size >= 5;
     if (!systematique) continue;
     if (cause.startsWith("timeout")) {
       return "Les jobs de génération dépassent régulièrement 10 minutes et tombent en timeout. Découpe la recherche web en sous-requêtes plus courtes, réduis le nombre de requêtes par passe, et ajoute au worker un retry avec backoff. Si le dépassement persiste, relève le timeout du worker et documente la nouvelle valeur.";
