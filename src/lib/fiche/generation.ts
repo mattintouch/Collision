@@ -21,7 +21,7 @@ import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 import { writeSection, type FicheRow } from "./store";
 import { motifIneligibleGeneration, cibleEstTest, type CibleGeneration } from "../qualification";
-import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU, BUDGETS_V3 } from "./schema";
+import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU, BUDGETS_V3, idZoneGrise } from "./schema";
 
 type SB = ReturnType<typeof createServiceClient>;
 type Content = Record<string, unknown>;
@@ -177,7 +177,7 @@ interface DerouleJson {
   lecon?: string;
   sequencage?: { debut_min?: number; fin_min?: number; court?: string; titre?: string; intention?: string; mode?: string; rappel_label?: string; rappel?: string }[];
   dix_questions?: { num?: string; bloc?: number; texte?: string; note?: string }[];
-  zone_grise?: { texte?: string; origine?: string }[];
+  zone_grise?: { id?: string; texte?: string; origine?: string }[];
   sources?: LienJson[];
 }
 
@@ -436,8 +436,8 @@ export async function processFicheGroupe(
     const pbTxt = pb.length ? `\n\nPlaybook déjà identifié (à faire vivre dans le déroulé) : ${pb.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<DerouleJson>(
-      systemFor("Mission : le DÉROULÉ de l'épisode, structuré par les trois couches. L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Le séquençage : 6 à 8 blocs sur 150 minutes, environ 60 % du temps sur la mécanique personnelle, alterner récit et extraction, placer UN bloc de pédagogie courte au milieu, ancré sur un cas concret (jamais abstrait), monter en intimité vers la fin, clore sur la leçon transférable. Les 10 questions : majorité en comment, chacune rattachée à son bloc ; AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité). La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix."),
-      `${intro}${dejaPose}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "...", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "texte du rappel (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "RELANCE : ... · CHIFFRE À DEMANDER : ... · AVEC TACT : ..."}],\n  "zone_grise": [{"texte": "à faire confirmer par l'invité", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : le DÉROULÉ de l'épisode, structuré par les trois couches. L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Le séquençage : 6 à 8 blocs sur 150 minutes, environ 60 % du temps sur la mécanique personnelle, alterner récit et extraction, placer UN bloc de pédagogie courte au milieu, ancré sur un cas concret (jamais abstrait), monter en intimité vers la fin, clore sur la leçon transférable. Les 10 questions : majorité en comment, chacune rattachée à son bloc ; AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité). La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix ; chaque item porte un identifiant court zg_motcle, et les rappels des blocs POINTENT cet identifiant (« ZG: motcle, consigne en moins de 90 caractères »), ils ne recopient JAMAIS le texte complet de l'item."),
+      `${intro}${dejaPose}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "sequencage": [6 à 8 blocs : {"debut_min": 0, "fin_min": 20, "court": "chip court", "titre": "titre du bloc", "intention": "450 caractères max", "mode": "RÉCIT · ÉMOTION | EXTRACTION · LE COMMENT | PÉDAGOGIE · ANCRÉE | PROFONDEUR · INTIMITÉ | EXTRACTION · CLOSE", "rappel_label": "ZONE GRISE | CHIFFRE | DISTINCTION | REGARD CROISÉ (optionnel)", "rappel": "POINTEUR de 140 caractères max, jamais un paragraphe ; pour la zone grise : ZG: motcle, consigne courte (optionnel)"}],\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "bloc": index du bloc (0-based), "texte": "question courte, tutoiement, sans point final", "note": "200 caractères max : RELANCE : ... · CHIFFRE À DEMANDER : ... ; pour la zone grise, pointer ZG: motcle"}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -462,9 +462,16 @@ export async function processFicheGroupe(
       if (!texte) return null;
       return { num: asString(x.num), bloc: typeof x.bloc === "number" ? x.bloc : undefined, texte, note: asString(x.note) };
     });
+    // Règle 6 : identifiant court par item, fourni par le modèle ou dérivé du
+    // texte, unique dans la fiche (les rappels et notes pointent dessus).
+    const idsZg = new Set<string>();
     const zone = asArray(raw.zone_grise, (x) => {
       const texte = asString(x.texte);
-      return texte ? { texte, origine: asString(x.origine) } : null;
+      if (!texte) return null;
+      const brut = asString(x.id)?.toLowerCase().replace(/[^a-z0-9_]/g, "");
+      const id = brut && !idsZg.has(brut) ? brut : idZoneGrise(texte, idsZg);
+      idsZg.add(id);
+      return { id, texte, origine: asString(x.origine) };
     });
     await put("enjeu", { texte: asString(raw.enjeu), lecon: asString(raw.lecon) }, !!asString(raw.enjeu) || !!asString(raw.lecon));
     await put("sequencage", { blocs }, blocs.length > 0);

@@ -303,7 +303,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
     questions,
     zone_grise: asArray(get("zone_grise").items, (x) => {
       const texte = asString(x.texte);
-      return texte ? { texte, origine: asString(x.origine) } : null;
+      return texte ? { id: asString(x.id), texte, origine: asString(x.origine) } : null;
     }),
     sources: liens(get("sources").liens),
     footer: asString(get("footer").texte) ?? DEFAULT_FOOTER,

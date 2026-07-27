@@ -91,3 +91,14 @@ describe("budgets serveur (règle 2) — clampBudgets", () => {
     expect(long.texte.length).toBe(2000); // entrée intacte
   });
 });
+
+describe("identifiants de zone grise (règle 6)", () => {
+  it("dérive un identifiant court et stable du premier mot significatif", async () => {
+    const { idZoneGrise } = await import("../src/lib/fiche/schema");
+    const pris = new Set<string>();
+    expect(idZoneGrise("Gautier est vendéen, pas choletais", pris)).toBe("zg_gautier");
+    pris.add("zg_gautier");
+    expect(idZoneGrise("Gautier sponsorisait le centre de formation", pris)).toBe("zg_gautier_2");
+    expect(idZoneGrise("Le ticket individuel n'est pas public", pris)).toBe("zg_ticket");
+  });
+});
