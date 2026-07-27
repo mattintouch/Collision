@@ -14,6 +14,7 @@ import { hasGoogleSync } from "../google/contacts";
 import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
 import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cout";
+import { stripCiteTags } from "../ai/websearch";
 import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -1779,7 +1780,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         num: def.num ?? null,
         role: def.role ?? null,
         version: row?.version ?? 0,
-        content: row?.content ?? {},
+        // Nettoyage défensif à la lecture (chantier 1 du 27/07), comme ficheSections.
+        content: stripCiteTags(row?.content ?? {}),
         contrat: SECTION_CONTRACTS[sectionId] ?? null, // forme attendue par update_section
       });
     }

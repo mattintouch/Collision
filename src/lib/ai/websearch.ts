@@ -35,6 +35,22 @@ export function stripCitations<T>(v: T): T {
   return v;
 }
 
+/** Nettoyage DOUX pour le stockage et le rendu des fiches (chantier 1 du
+ *  27/07, constat Taittinger) : retire les balises de citation en conservant
+ *  le texte intérieur ET les sauts de ligne. À la différence de stripCitations
+ *  (calibré pour les sorties JSON de recherche), il ne normalise pas les
+ *  espaces verticaux : la prose stockée garde ses paragraphes. */
+export function stripCiteTags<T>(v: T): T {
+  if (typeof v === "string") {
+    return (v as string).replace(/<\/?cite[^>]*>/g, "").replace(/[ \t]{2,}/g, " ") as unknown as T;
+  }
+  if (Array.isArray(v)) return v.map(stripCiteTags) as unknown as T;
+  if (v && typeof v === "object") {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, stripCiteTags(x)])) as unknown as T;
+  }
+  return v;
+}
+
 /** Extrait le premier bloc JSON ([...] ou {...}) d'un texte (gère les ```json). */
 export function extractJson<T>(text: string): T | null {
   if (!text) return null;

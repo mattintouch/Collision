@@ -61,6 +61,8 @@ export interface RapportRedaction {
   /** v3.1 : titres alignés sur le corps et graphies de noms propres unifiées. */
   titres_corriges: string[];
   noms_unifies: { retenu: string; ecartes: string[] }[];
+  /** Chantier 1 du 27/07 : fuites de balisage résiduel nettoyées. */
+  balisage_nettoye?: string[];
 }
 
 const SYSTEM = [
@@ -85,6 +87,7 @@ const SYSTEM = [
   [
     "CONTRÔLE DES TITRES (v3.1) : vérifie les champs de titre (sticky_header.societe, entete.sous_titre, entete.societe) contre les faits consolidés du corps. Toute divergence numérique ou qualificatif contredit par le corps (exemple : « Septuple champion » dans le sous-titre quand le corps établit 8 titres) se corrige SUR LE CHAMP DE TITRE, aligné sur la valeur retenue dans le corps. Tu ne peux modifier QUE sous_titre et societe : jamais le numéro, les titre_lignes, les pilules ni les liens.",
     "CONTRÔLE DES NOMS PROPRES (v3.1) : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
+    "CONTRÔLE DU BALISAGE (chantier du 27/07) : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
   ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
@@ -95,7 +98,8 @@ const SYSTEM = [
     '    "chiffres_reconcilies": [{"fait": "délai défaite-reconquête", "valeur_retenue": "15 mois", "source": "...", "valeurs_ecartees": ["12 mois", "14 mois"]}, ...],',
     '    "sections_reduites": [{"section": "playbook", "avant": "8 items, ~40 lignes", "apres": "6 items, ~18 lignes"}, ...],',
     '    "titres_corriges": ["sous_titre : Septuple champion corrigé en Octuple champion (8 titres établis par le corps)", ...],',
-    '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...]',
+    '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...],',
+    '    "balisage_nettoye": ["mecanique_succes : balise cite retirée de la définition", ...]',
     "  }",
     "}",
   ].join("\n"),
