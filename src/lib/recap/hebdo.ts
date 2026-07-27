@@ -15,7 +15,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
-import { estivalActif } from "../domain";
+import { estivalActif, isPlaceholder } from "../domain";
 import { evaluerCouverture } from "../editorial";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
@@ -104,6 +104,77 @@ export function promptCorrection(
     return `La cause « ${cause} » revient de façon systématique sur les jobs de génération. Diagnostique la, corrige le code ou la configuration en cause, et ajoute un test qui la couvre.`;
   }
   return null;
+}
+
+/* ── Logique de la partie A (brief du 27/07, chantier 2) : helpers purs. */
+
+const normaliseNom = (s: string) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Distance d'édition, plafonnée : au delà de 2 le calcul exact est inutile. */
+function distanceEdition(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (Math.abs(m - n) > 2) return 3;
+  const dp = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[n];
+}
+
+/** Deux graphies désignent-elles la même personne ? (2b : « Kevin Beesly »
+ *  contre « Kevin Beesley »). Accents et ponctuation neutralisés, distance
+ *  d'édition faible (2 sur les noms longs, 1 sur les courts). */
+export function nomsProches(a: string, b: string): boolean {
+  const na = normaliseNom(a), nb = normaliseNom(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  return distanceEdition(na, nb) <= (Math.min(na.length, nb.length) >= 6 ? 2 : 1);
+}
+
+/** 2b : dédoublonne les alliés d'une ligne par correspondance approchée,
+ *  première graphie rencontrée conservée (les relais arrivent en tête). */
+export function dedoublonneAllies(allies: string[]): string[] {
+  const out: string[] = [];
+  for (const a of allies) {
+    if (!out.some((x) => nomsProches(x, a))) out.push(a);
+  }
+  return out;
+}
+
+/** 2c : une personne qui a sa propre ligne de mouvement n'est pas répétée
+ *  comme allié sur une autre ligne. La ligne de mouvement prime. */
+export function retireCiblesDesAllies(mouvements: MouvementCible[]): MouvementCible[] {
+  const noms = mouvements.map((m) => m.nom);
+  return mouvements.map((m) => ({
+    ...m,
+    allies: m.allies.filter((a) => !noms.some((n) => nomsProches(n, a))),
+  }));
+}
+
+/** 2d : le statut d'une cible validée. « enregistrement à caler » ne
+ *  s'applique qu'aux stages confirme et programme sans date planifiée,
+ *  jamais à une cible déjà enregistrée ou publiée (cas Rafaèle Tordjman). */
+export function statutValide(stageKey: string | null, dateCalee: string | null): string {
+  if (dateCalee) return `enregistrement calé le ${dateCalee}`;
+  if (stageKey === "enregistre") return "publication à venir";
+  if (stageKey === "publie") return "épisode publié";
+  if (stageKey === "produit") return "en production";
+  return "enregistrement à caler";
+}
+
+/** 2e, le correctif central : la bascule liste prioritaire / sandbox se fait
+ *  sur l'archétype et la priorité, pas sur le stage. Le sandbox ne contient
+ *  que les cibles à la fois SANS archétype, SANS priorité haute et SANS
+ *  allié : un big fish au stage identifie va en liste prioritaire. */
+export function vaAuSandbox(c: { archetype: string | null; priorite: string | null; nb_allies: number }): boolean {
+  return !c.archetype && (c.priorite ?? "").toLowerCase() !== "haute" && c.nb_allies === 0;
 }
 
 /** C2 : le méga-prompt, un seul bloc qui réorganise, déduplique et clarifie
@@ -196,17 +267,23 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     }
   } catch { /* rien */ }
 
-  // Résolution des cibles touchées (par id, plus par nom pour l'audit).
+  // Résolution des cibles touchées (par id, plus par nom pour l'audit), avec
+  // l'archétype et la priorité (2e) et les champs du détecteur de placeholder.
+  const COLS = "id, nom, organisation, role, stage_key, stage_label, archive, archetype, priorite";
+  type CibleRow = {
+    id: string; nom: string; organisation: string | null; role: string | null;
+    stage_key: string | null; stage_label: string | null; archive: boolean;
+    archetype: string | null; priorite: string | null;
+  };
   const ids = new Set(flags.keys());
   const noms = new Set([...stageParNom.keys(), ...nomsValides]);
-  type CibleRow = { id: string; nom: string; organisation: string | null; stage_key: string | null; stage_label: string | null; archive: boolean };
   const cibles = new Map<string, CibleRow>();
   if (ids.size) {
-    const { data } = await sb.from("cibles_enrichies").select("id, nom, organisation, stage_key, stage_label, archive").in("id", [...ids]);
+    const { data } = await sb.from("cibles_enrichies").select(COLS).in("id", [...ids]);
     for (const c of ((data ?? []) as CibleRow[])) cibles.set(c.id, c);
   }
   if (noms.size) {
-    const { data } = await sb.from("cibles_enrichies").select("id, nom, organisation, stage_key, stage_label, archive").in("nom", [...noms]);
+    const { data } = await sb.from("cibles_enrichies").select(COLS).in("nom", [...noms]);
     for (const c of ((data ?? []) as CibleRow[])) {
       cibles.set(c.id, c);
       if (nomsValides.includes(c.nom)) flag(c.id, { valide: true });
@@ -215,59 +292,21 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     }
   }
 
-  // Alliés par cible touchée (relais d'abord).
-  const alliesPar = new Map<string, string[]>();
-  if (flags.size) {
-    const { data } = await sb.from("appuis").select("cible_id, nom, est_relais").in("cible_id", [...flags.keys()]).limit(300);
-    for (const a of ((data ?? []) as { cible_id: string; nom: string; est_relais: boolean | null }[])) {
-      const liste = alliesPar.get(a.cible_id) ?? [];
-      if (a.est_relais) liste.unshift(a.nom);
-      else liste.push(a.nom);
-      alliesPar.set(a.cible_id, liste);
-    }
-  }
-
-  const ETAPES_HAUTES = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
-  const mouvements: MouvementCible[] = [];
-  for (const [cid, f] of flags) {
-    const c = cibles.get(cid);
-    if (!c || c.archive) continue;
-    let rang: 1 | 2 | 3;
-    let etape: string;
-    let statut: string;
-    if (f.enregistre) {
-      rang = 1; etape = "enregistrée cette semaine"; statut = "publication à venir";
-    } else if (f.episode !== undefined || f.valide || (f.nouvelleEtape && ETAPES_HAUTES.has(f.nouvelleEtape))) {
-      rang = 1;
-      etape = c.stage_label ? c.stage_label.toLowerCase() : "validée";
-      const cale = dateFr(f.episode ?? null);
-      statut = cale ? `enregistrement calé le ${cale}` : "enregistrement à caler";
-    } else if (f.nouvelleEtape || f.appuiAjoute) {
-      rang = 2;
-      etape = f.nouvelleEtape && c.stage_label ? `passée à ${c.stage_label.toLowerCase()}` : (c.stage_label ?? "en pipeline").toLowerCase();
-      statut = f.appuiAjoute ? "allié ajouté cette semaine" : "en progression";
-    } else {
-      rang = 3;
-      etape = (c.stage_label ?? "en pipeline").toLowerCase();
-      statut = "mouvement cette semaine";
-    }
-    mouvements.push({ nom: c.nom, organisation: c.organisation, etape, statut, allies: (alliesPar.get(cid) ?? []).slice(0, 4), rang });
-  }
-  mouvements.sort((a, b) => a.rang - b.rang || a.nom.localeCompare(b.nom));
-
-  /* ── A2, sandbox : mouvements de faible enjeu (créations en début de
-        pipeline, simples enrichissements), hors mouvements prioritaires. */
-  const dejaNommes = new Set(mouvements.map((m) => m.nom));
-  const sandbox: string[] = [];
+  // Mouvements de faible enjeu (candidats) : créations de la semaine et
+  // profils enrichis, quel que soit le stage. La bascule liste / sandbox se
+  // décide plus bas sur l'archétype, la priorité et les alliés (2e), plus
+  // jamais sur le stage : un big fish créé au stade identifie sort du sandbox.
+  const faibles = new Map<string, "creation" | "enrichissement">();
   {
     const { data: neuves } = await sb
       .from("cibles_enrichies")
-      .select("nom, stage_key, archive, created_at")
+      .select(`${COLS}, created_at`)
       .gte("created_at", depuis)
       .eq("archive", false)
-      .limit(100);
-    for (const c of ((neuves ?? []) as { nom: string; stage_key: string | null }[])) {
-      if (!dejaNommes.has(c.nom) && (c.stage_key === "identifie" || c.stage_key === null)) sandbox.push(c.nom);
+      .limit(200);
+    for (const c of ((neuves ?? []) as CibleRow[])) {
+      cibles.set(c.id, c);
+      if (!flags.has(c.id)) faibles.set(c.id, "creation");
     }
     const { data: enrichis } = await sb
       .from("enrichment_jobs")
@@ -276,14 +315,89 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
       .eq("objectif", "profil")
       .gte("updated_at", depuis)
       .limit(200);
-    const idsEnrichis = [...new Set(((enrichis ?? []) as { cible_id: string }[]).map((j) => j.cible_id))];
+    const idsEnrichis = [...new Set(((enrichis ?? []) as { cible_id: string }[]).map((j) => j.cible_id))]
+      .filter((id) => id && !flags.has(id) && !faibles.has(id));
     if (idsEnrichis.length) {
-      const { data } = await sb.from("cibles_enrichies").select("id, nom, archive").in("id", idsEnrichis);
-      for (const c of ((data ?? []) as { nom: string; archive: boolean }[])) {
-        if (!c.archive && !dejaNommes.has(c.nom) && !sandbox.includes(c.nom)) sandbox.push(c.nom);
+      const { data } = await sb.from("cibles_enrichies").select(COLS).in("id", idsEnrichis);
+      for (const c of ((data ?? []) as CibleRow[])) {
+        cibles.set(c.id, c);
+        faibles.set(c.id, "enrichissement");
       }
     }
   }
+
+  // 2a : les cibles de test (colonne is_test, défensif tant que 0032 n'est
+  // pas appliquée) et les placeholders ne paraissent JAMAIS dans le récap.
+  const testIds = new Set<string>();
+  try {
+    const { data, error } = await sb.from("cibles").select("id").eq("is_test", true);
+    if (!error) for (const r of ((data ?? []) as { id: string }[])) testIds.add(r.id);
+  } catch { /* colonne absente */ }
+  const exclue = (c: CibleRow) => c.archive || testIds.has(c.id) || isPlaceholder(c.nom, c.role, c.organisation);
+
+  // Alliés par cible concernée (relais d'abord), graphies dédoublonnées (2b).
+  const alliesPar = new Map<string, string[]>();
+  const idsConcernes = [...new Set([...flags.keys(), ...faibles.keys()])];
+  if (idsConcernes.length) {
+    const { data } = await sb.from("appuis").select("cible_id, nom, est_relais").in("cible_id", idsConcernes).limit(1000);
+    for (const a of ((data ?? []) as { cible_id: string; nom: string; est_relais: boolean | null }[])) {
+      const liste = alliesPar.get(a.cible_id) ?? [];
+      if (a.est_relais) liste.unshift(a.nom);
+      else liste.push(a.nom);
+      alliesPar.set(a.cible_id, liste);
+    }
+  }
+  const alliesDe = (cid: string) => dedoublonneAllies(alliesPar.get(cid) ?? []).slice(0, 4);
+
+  const ETAPES_HAUTES = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
+  let mouvements: MouvementCible[] = [];
+  for (const [cid, f] of flags) {
+    const c = cibles.get(cid);
+    if (!c || exclue(c)) continue;
+    let rang: 1 | 2 | 3;
+    let etape: string;
+    let statut: string;
+    if (f.enregistre) {
+      rang = 1; etape = "enregistrée cette semaine"; statut = "publication à venir";
+    } else if (f.episode !== undefined || f.valide || (f.nouvelleEtape && ETAPES_HAUTES.has(f.nouvelleEtape))) {
+      rang = 1;
+      etape = c.stage_label ? c.stage_label.toLowerCase() : "validée";
+      statut = statutValide(c.stage_key, dateFr(f.episode ?? null));
+    } else {
+      rang = 2;
+      etape = f.nouvelleEtape && c.stage_label ? `passée à ${c.stage_label.toLowerCase()}` : (c.stage_label ?? "en pipeline").toLowerCase();
+      statut = f.appuiAjoute ? "allié ajouté cette semaine" : "en progression";
+    }
+    mouvements.push({ nom: c.nom, organisation: c.organisation, etape, statut, allies: alliesDe(cid), rang });
+  }
+
+  /* ── A2, sandbox, et candidats faibles requalifiés (2e) : un candidat sans
+        archétype, sans priorité haute et sans allié va au sandbox ; les
+        autres (big fish, pépites, priorités hautes, cibles avec allié)
+        rejoignent la liste prioritaire en mouvements notables. */
+  const sandbox: string[] = [];
+  for (const [cid, source] of faibles) {
+    const c = cibles.get(cid);
+    if (!c || exclue(c)) continue;
+    const nbAllies = (alliesPar.get(cid) ?? []).length;
+    if (vaAuSandbox({ archetype: c.archetype, priorite: c.priorite, nb_allies: nbAllies })) {
+      if (!sandbox.some((n) => nomsProches(n, c.nom))) sandbox.push(c.nom);
+    } else {
+      mouvements.push({
+        nom: c.nom,
+        organisation: c.organisation,
+        etape: (c.stage_label ?? "en pipeline").toLowerCase(),
+        statut: source === "creation" ? "entrée au pipeline cette semaine" : "profil enrichi cette semaine",
+        allies: alliesDe(cid),
+        rang: 3,
+      });
+    }
+  }
+  // 2c : la ligne de mouvement prime sur la mention en allié.
+  mouvements = retireCiblesDesAllies(mouvements);
+  mouvements.sort((a, b) => a.rang - b.rang || a.nom.localeCompare(b.nom));
+  const nomsMouvements = mouvements.map((m) => m.nom);
+  const sandboxFinal = sandbox.filter((n) => !nomsMouvements.some((m) => nomsProches(m, n)));
 
   /* ── B1, échecs détaillés : chaque échec nomme sa cible et sa cause. */
   const { data: jobs } = await sb
@@ -370,7 +484,7 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     cout = { semaine_eur: coutSemaine, mois_eur: coutMois, plafond_eur: plafondEur() };
   }
 
-  return { depuis, mouvements, sandbox, notes, besoins, generations, echecs, cout, prompt_correction, backlog, mega_prompt };
+  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, mega_prompt };
 }
 
 /** Triage proposé par item (écrit en commentaire du backlog par le cron,

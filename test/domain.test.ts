@@ -24,7 +24,7 @@ function base(over: Partial<ScoreInput> = {}): ScoreInput {
 }
 
 describe("isPlaceholder", () => {
-  const yes = ["Un chef étoilé local", "Founder Canvas", "Fondatrice Polène", "XX Hugel", "Delphine H (Ernotte?)", "CEO d'une licorne"];
+  const yes = ["Un chef étoilé local", "Founder Canvas", "Fondatrice Polène", "XX Hugel", "Delphine H (Ernotte?)", "CEO d'une licorne", "Test P0 Regressions", "TEST watchlist creation"];
   const no = ["Tony Parker", "Olivier Pomel", "Xavier Niel", "Édouard Meylan"];
   for (const n of yes) it(`flags « ${n} »`, () => expect(isPlaceholder(n, null, null)).toBe(true));
   for (const n of no) it(`n'flag pas « ${n} »`, () => expect(isPlaceholder(n, "CEO", "Org")).toBe(false));
