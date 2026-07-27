@@ -102,3 +102,29 @@ describe("identifiants de zone grise (règle 6)", () => {
     expect(idZoneGrise("Le ticket individuel n'est pas public", pris)).toBe("zg_ticket");
   });
 });
+
+describe("lint — bruit structurel écarté (mesuré sur Gobert v60/v74)", () => {
+  it("un même lien dans a_lire et sources n'est pas un doublon ; un apport dupliqué l'est", () => {
+    const lien = { titre: "Rudy Gobert élu défenseur de l'année pour la quatrième fois", url: "https://www.bebasket.fr/rudy-gobert-elu-defenseur", date: "mai 2024" };
+    const propre = lintFiche({
+      a_lire: { liens: [{ ...lien, apport: "le palmarès défensif complet et son contexte" }] },
+      sources: { liens: [{ ...lien, apport: "récit du quatrième trophée et réactions du vestiaire" }] },
+    });
+    expect(propre.doublons).toEqual([]);
+    const apportDuplique = "la même phrase d'apport recopiée mot pour mot entre la liste curée et la liste exhaustive des sources";
+    const sale = lintFiche({
+      a_lire: { liens: [{ ...lien, apport: apportDuplique }] },
+      sources: { liens: [{ ...lien, apport: apportDuplique }] },
+    });
+    expect(sale.doublons.length).toBe(1);
+  });
+
+  it("un pointeur ZG qui cite le chiffre interdit ne compte pas comme répétition", () => {
+    const rapport = lintFiche({
+      zone_grise: { items: [{ id: "zg_gautier", texte: "Ticket individuel non public : ne pas avancer 250 000 euros." }] },
+      sequencage: { blocs: [{ debut_min: 0, fin_min: 10, court: "x", titre: "y", rappel: "ZG: gautier, ticket non public, ne pas dire 250 000" }] },
+      dix_questions: { questions: [{ texte: "q", note: "ZG: gautier, ne pas dire 250 000" }] },
+    });
+    expect(rapport.chiffres_repetes).toEqual([]);
+  });
+});
