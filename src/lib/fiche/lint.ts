@@ -55,6 +55,17 @@ function textesDe(content: Content, prefix = ""): { chemin: string; texte: strin
   return out;
 }
 
+/** Un même lien vit LÉGITIMEMENT dans a_lire (curée) et sources (exhaustive) :
+ *  seul le champ apport ne doit pas se dupliquer (règle 1). Le lint des
+ *  séquences ignore donc titre, url et date de ces deux sections. */
+const SECTIONS_LIENS = new Set(["a_lire", "sources"]);
+const CHAMPS_LIENS_IGNORES = /(^|\.)(titre|url|date|temps_lecture|niveau)($|\[)/;
+
+/** Un pointeur de zone grise (« ZG: gautier, ne pas dire 250 k€ ») cite le
+ *  chiffre interdit PAR CONSTRUCTION : ses valeurs ne comptent pas comme
+ *  répétition. */
+const estPointeurZg = (texte: string) => /^\s*zg\s*:/i.test(texte) || /·\s*zg\s*:/i.test(texte);
+
 const normalise = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9à-ÿ%€$]+/gi, " ").trim();
 
@@ -83,10 +94,11 @@ function chiffresRemarquables(texte: string): string[] {
   return out;
 }
 
-/** Sections exclues du comptage des chiffres : listes de liens dont les
- *  titres et URLs portent légitimement les mêmes valeurs que le corps. Leurs
- *  SÉQUENCES restent lintées (doublon a_lire contre sources, règle 1). */
-const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["chiffres", "sources", "a_lire"]);
+/** Sections exclues du comptage des chiffres : la propriétaire (chiffres),
+ *  les listes de liens (titres et URLs portent légitimement les valeurs du
+ *  corps) et la zone grise, propriétaire des chiffres non tranchés et des
+ *  formulations interdites (« ne pas dire 250 k€ » n'est pas une répétition). */
+const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["chiffres", "sources", "a_lire", "zone_grise"]);
 
 /**
  * Lint d'une fiche assemblée : sections → contenu. Règle 5 :
@@ -102,12 +114,13 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
   for (const [sectionId, content] of Object.entries(sections)) {
     const textes = textesDe(content ?? {});
     const motsSection: string[] = [];
-    for (const { texte } of textes) {
+    for (const { chemin, texte } of textes) {
       if (META_NARRATIF.test(texte)) {
         meta_narratif.push({ section: sectionId, extrait: texte.slice(0, 120) });
       }
-      motsSection.push(...normalise(texte).split(" ").filter(Boolean));
-      if (!SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId)) {
+      const lienIgnore = SECTIONS_LIENS.has(sectionId) && CHAMPS_LIENS_IGNORES.test(chemin);
+      if (!lienIgnore) motsSection.push(...normalise(texte).split(" ").filter(Boolean));
+      if (!SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId) && !estPointeurZg(texte)) {
         for (const valeur of chiffresRemarquables(texte)) {
           const cle = valeur.replace(/\s/g, "");
           const cur = parChiffre.get(cle) ?? { valeur, sections: [] };
@@ -124,18 +137,48 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
     }
   }
 
-  // Doublons : séquences vues dans 2 sections ou plus, fusionnées quand une
-  // séquence en recouvre une autre sur les mêmes sections (fenêtres glissantes).
+  // Doublons : séquences vues dans 2 sections ou plus. Les fenêtres
+  // glissantes d'un même passage recopié se chaînent en un extrait maximal
+  // (deux fenêtres consécutives partagent 11 mots), par ensemble de sections.
   const bruts = [...parSequence.values()].filter((s) => s.sections.size >= 2);
-  const doublons: DoublonSequence[] = [];
-  for (const d of bruts.sort((a, b) => b.extrait.length - a.extrait.length)) {
+  const parGroupe = new Map<string, { sections: string[]; shingles: string[] }>();
+  for (const d of bruts) {
     const cle = [...d.sections].sort().join("|");
-    const englobant = doublons.find(
-      (x) => [...x.sections].sort().join("|") === cle && (x.extrait.includes(d.extrait) || `${x.extrait} `.includes(`${d.extrait.split(" ").slice(1).join(" ")} `))
-    );
-    if (englobant) continue;
-    const proprietaire = [...d.sections].find((s) => PROPRIETAIRES[s]) ?? null;
-    doublons.push({ extrait: d.extrait, sections: [...d.sections].sort(), proprietaire });
+    const g = parGroupe.get(cle) ?? { sections: [...d.sections].sort(), shingles: [] };
+    g.shingles.push(d.extrait);
+    parGroupe.set(cle, g);
+  }
+  const doublons: DoublonSequence[] = [];
+  for (const g of parGroupe.values()) {
+    const set = new Set(g.shingles);
+    const suivantDe = new Map<string, string>();
+    const aPredecesseur = new Set<string>();
+    for (const s of set) {
+      const suffixe = s.split(" ").slice(1).join(" ");
+      for (const t of set) {
+        if (t === s) continue;
+        if (t.split(" ").slice(0, SEQUENCE_MOTS - 1).join(" ") === suffixe) {
+          suivantDe.set(s, t);
+          aPredecesseur.add(t);
+          break;
+        }
+      }
+    }
+    const proprietaire = g.sections.find((s) => PROPRIETAIRES[s]) ?? null;
+    for (const s of set) {
+      if (aPredecesseur.has(s)) continue;
+      let extrait = s;
+      let cur = s;
+      const vus = new Set([s]);
+      while (suivantDe.has(cur)) {
+        const nxt = suivantDe.get(cur)!;
+        if (vus.has(nxt)) break;
+        extrait += ` ${nxt.split(" ").slice(SEQUENCE_MOTS - 1).join(" ")}`;
+        cur = nxt;
+        vus.add(nxt);
+      }
+      doublons.push({ extrait, sections: g.sections, proprietaire });
+    }
   }
 
   const chiffres_repetes: ChiffreRepete[] = [...parChiffre.values()]
