@@ -118,7 +118,11 @@ export interface SequencageContent {
 export interface DixQuestionsContent {
   questions?: { num?: string; bloc?: number; texte: string; note?: string }[];
 }
-export interface ZoneGriseContent { items?: { texte: string; origine?: string }[] }
+/** Zone grise (correctif du 27/07, règle 6) : chaque item porte un identifiant
+ *  court et stable (zg_gautier). Les rappels du séquençage et les notes des
+ *  dix questions POINTENT l'identifiant (« ZG: gautier, consigne courte »),
+ *  ils ne recopient jamais le texte complet. */
+export interface ZoneGriseContent { items?: { id?: string; texte: string; origine?: string }[] }
 export interface FooterContent { texte?: string }
 
 /** Items par défaut de la checklist pré-rec (brief §4.3 + ajouts Matt).
@@ -167,6 +171,21 @@ export const BUDGETS_V3 = {
   tensions_cartes: 3,
   zg_pointeur_chars: 90, // pointeur « ZG: <mot-clé> » hors zone grise
 } as const;
+
+/** Identifiant court et stable d'un item de zone grise (règle 6) : dérivé du
+ *  premier mot significatif du texte, unique dans la fiche. Sert quand la
+ *  génération n'en a pas fourni. */
+export function idZoneGrise(texte: string, existants: Set<string>): string {
+  const VIDES = new Set(["le", "la", "les", "un", "une", "des", "de", "du", "au", "aux", "ne", "pas", "et", "ou", "en", "sur", "par", "pour", "avec", "sans", "que", "qui", "son", "sa", "ses", "il", "elle", "a"]);
+  const mots = texte
+    .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ").trim().split(" ")
+    .filter((m) => m.length >= 3 && !VIDES.has(m));
+  const base = `zg_${(mots[0] ?? "item").slice(0, 16)}`;
+  if (!existants.has(base)) return base;
+  for (let i = 2; i < 100; i++) if (!existants.has(`${base}_${i}`)) return `${base}_${i}`;
+  return `${base}_${existants.size}`;
+}
 
 /** Troncature propre au mot le plus proche, avec ellipse. */
 function tronque(s: string, max: number): string {
@@ -306,7 +325,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui ?", ressort: "argent", clip: "le chiffre lâché fait l'extrait" }] },
   sequencage: { blocs: [{ debut_min: 0, fin_min: 20, court: "Origines", titre: "Créteil, Minitel, la débrouille", intention: "Récit. Le mettre à l'aise.", mode: "RÉCIT · ÉMOTION", rappel_label: "ZONE GRISE", rappel: "texte du rappel contextuel" }] },
   dix_questions: { questions: [{ num: "01", bloc: 0, texte: "Question courte, tutoiement, sans point final", note: "RELANCE : ... · TERRAIN GLISSANT : ..." }] },
-  zone_grise: { items: [{ texte: "Information non vérifiée, à faire dire par l'invité. Les chiffres contradictoires non tranchés par la rédaction atterrissent ici : ne pas citer une valeur unique à l'antenne.", origine: "note Matthieu / rédaction (chiffre non tranché)" }] },
+  zone_grise: { items: [{ id: "zg_motcle (identifiant court et stable ; les rappels et notes pointent « ZG: motcle, consigne »)", texte: "Information non vérifiée, à faire dire par l'invité. Les chiffres contradictoires non tranchés par la rédaction atterrissent ici : ne pas citer une valeur unique à l'antenne.", origine: "note Matthieu / rédaction (chiffre non tranché)" }] },
   sources: { liens: [{ date: "2023", titre: "Titre", apport: "ce que la source apporte", url: "https://..." }] },
   footer: { texte: DEFAULT_FOOTER },
 };

@@ -97,7 +97,7 @@ export interface FicheViewData {
   reseaux: { question: string; meta?: string }[];
   blocs: FicheBloc[];
   questions: FicheQuestion[];
-  zone_grise: { texte: string; origine?: string }[];
+  zone_grise: { id?: string; texte: string; origine?: string }[];
   sources: LienDate[];
   footer: string;
 }
@@ -885,7 +885,12 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>ZONE GRISE : À FAIRE DIRE PAR L&apos;INVITÉ</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
               {data.zone_grise.map((z, i) => (
-                <div key={i} style={{ fontSize: 15, lineHeight: 1.5, borderLeft: "2px solid #000", paddingLeft: 12 }}>
+                <div key={i} id={z.id || undefined} style={{ fontSize: 15, lineHeight: 1.5, borderLeft: "2px solid #000", paddingLeft: 12 }}>
+                  {z.id && (
+                    <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "1px 6px", marginRight: 8, verticalAlign: "middle" }}>
+                      ZG: {z.id.replace(/^zg_/, "")}
+                    </span>
+                  )}
                   {z.texte} {z.origine && <span style={monoSrc}>({z.origine})</span>}
                 </div>
               ))}

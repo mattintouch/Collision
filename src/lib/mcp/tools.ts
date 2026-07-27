@@ -1836,6 +1836,30 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     }
   );
 
+  W(
+    "integrate_note",
+    "Marque une note de fiche comme INTÉGRÉE (correctif du 27/07, règle 4) : à appeler dès que le contenu d'une note (notes_a_integrer) a été fusionné dans les sections, y compris à la main via update_section. Une note intégrée n'est plus servie par get_fiche : c'est la plus grosse source de gonflement du payload. `integrated:false` la fait réapparaître (réversible).",
+    { fiche: z.string(), note_id: z.string(), integrated: z.boolean().optional().describe("défaut true ; false pour faire réapparaître la note"), show: z.string().optional() },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const { data, error } = await sb
+        .from("fiche_notes")
+        .update({ integrated: a.integrated ?? true })
+        .eq("id", a.note_id)
+        .eq("fiche_id", f.id)
+        .select("id, integrated")
+        .maybeSingle();
+      if (error) return text({ error: error.message });
+      if (!data) return text({ error: `Note ${a.note_id} introuvable sur la fiche ${f.slug}.` });
+      const row = data as { id: string; integrated: boolean };
+      return text({ ok: true, fiche: f.slug, note_id: row.id, integrated: row.integrated, detail: row.integrated ? "Note intégrée : elle ne sera plus servie par get_fiche." : "Note réactivée : elle réapparaît dans notes_a_integrer." });
+    }
+  );
+
   RT(
     "lint_fiche",
     "Lint anti répétition d'une fiche (correctif du 27/07, règle 5) : mesure NON destructive sur le contenu STOCKÉ. Détecte les séquences de 12 mots recopiées entre sections (avec la section propriétaire présumée), les chiffres remarquables répétés plus de 2 fois hors section chiffres (bloquant), les dépassements de budget par champ, et le méta narratif (RECADRAGE, BLOC NEUF, version précédente). Critère d'acceptation : zéro doublon bloquant sur une fiche fraîchement générée.",
