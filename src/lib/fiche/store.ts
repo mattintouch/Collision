@@ -4,6 +4,7 @@
 // l'équipe, pas d'un utilisateur authentifié côté navigateur.
 
 import type { createServiceClient } from "../supabase/service";
+import { stripCiteTags } from "../ai/websearch";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "./sections";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -212,7 +213,14 @@ export async function seedSections(sb: SB, ficheId: string): Promise<void> {
  *  présentées sous leur clé canonique (migration douce à la lecture). */
 export async function ficheSections(sb: SB, ficheId: string): Promise<FicheSectionRow[]> {
   const { data } = await sb.from("fiche_sections").select("*").eq("fiche_id", ficheId).order("position");
-  const rows = ((data ?? []) as FicheSectionRow[]).map((r) => ({ ...r, section_id: canonicalSectionId(r.section_id) }));
+  // Nettoyage défensif à la lecture (chantier 1 du 27/07) : les fiches
+  // générées avant le correctif stripCitations portent encore des balises
+  // <cite> en base ; aucun rendu ni outil MCP ne doit les montrer.
+  const rows = ((data ?? []) as FicheSectionRow[]).map((r) => ({
+    ...r,
+    section_id: canonicalSectionId(r.section_id),
+    content: stripCiteTags(r.content ?? {}),
+  }));
   // Dédoublonnage héritée/canonique : la ligne au contenu non vide gagne.
   const byId = new Map<string, FicheSectionRow>();
   for (const r of rows) {
@@ -236,6 +244,10 @@ export async function writeSection(
 ): Promise<{ version: number } | null> {
   sectionId = canonicalSectionId(sectionId); // alias hérités acceptés à l'écriture
   if (!FICHE_SECTION_IDS.includes(sectionId)) return null;
+  // Assainissement au stockage (chantier 1 du 27/07) : aucune balise de
+  // citation n'entre en base, quel que soit le chemin (génération, passe de
+  // rédaction, outil MCP update_section).
+  content = stripCiteTags(content);
   const { data: cur } = await sb
     .from("fiche_sections")
     .select("id, content, version")
