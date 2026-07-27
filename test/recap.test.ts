@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildRecapEmail, normaliseCause, promptCorrection, type RecapData } from "../src/lib/recap/hebdo";
+import {
+  buildRecapEmail, normaliseCause, promptCorrection,
+  nomsProches, dedoublonneAllies, retireCiblesDesAllies, statutValide, vaAuSandbox,
+  type RecapData, type MouvementCible,
+} from "../src/lib/recap/hebdo";
 
 const data: RecapData = {
   depuis: "2026-07-20T00:00:00Z",
@@ -199,5 +203,45 @@ describe("récap hebdo v2 — B3, prompt de correction conditionnel", () => {
       []
     );
     expect(p).toContain("repli à une seule requête large");
+  });
+});
+
+describe("logique de la partie A (chantier 2 du 27/07)", () => {
+  it("2b : les graphies proches d'un même allié sont dédoublonnées, une seule conservée", () => {
+    expect(dedoublonneAllies(["Kevin Beesley", "Kevin Beesly"])).toEqual(["Kevin Beesley"]);
+    expect(dedoublonneAllies(["Kalem Mauvois", "Kevin Beesley"])).toEqual(["Kalem Mauvois", "Kevin Beesley"]);
+    expect(nomsProches("Rafaèle Tordjman", "Rafaele Tordjman")).toBe(true);
+    expect(nomsProches("Kevin Beesley", "Kalem Mauvois")).toBe(false);
+  });
+
+  it("2c : une personne qui a sa propre ligne de mouvement disparaît des alliés des autres lignes", () => {
+    const mouvements: MouvementCible[] = [
+      { nom: "Virginie Taittinger", organisation: "Taittinger", etape: "qualifiée", statut: "en progression", allies: ["Ferdinand Pougatch-Taittinger", "Vitalie Taittinger"], rang: 2 },
+      { nom: "Ferdinand Pougatch-Taittinger", organisation: null, etape: "identifiée", statut: "entrée au pipeline cette semaine", allies: [], rang: 3 },
+    ];
+    const nets = retireCiblesDesAllies(mouvements);
+    expect(nets[0].allies).toEqual(["Vitalie Taittinger"]);
+    expect(nets[1].nom).toBe("Ferdinand Pougatch-Taittinger");
+  });
+
+  it("2d : jamais « enregistrement à caler » sur une cible enregistrée ou publiée (cas Tordjman)", () => {
+    expect(statutValide("enregistre", null)).toBe("publication à venir");
+    expect(statutValide("publie", null)).toBe("épisode publié");
+    expect(statutValide("confirme", null)).toBe("enregistrement à caler");
+    expect(statutValide("programme", null)).toBe("enregistrement à caler");
+    expect(statutValide("confirme", "28 juillet")).toBe("enregistrement calé le 28 juillet");
+  });
+
+  it("2e : un big fish ou une pépite ne va JAMAIS au sandbox, même au stade identifie", () => {
+    expect(vaAuSandbox({ archetype: "big_fish", priorite: null, nb_allies: 0 })).toBe(false); // Xavier Niel
+    expect(vaAuSandbox({ archetype: "pepite", priorite: null, nb_allies: 0 })).toBe(false);
+    expect(vaAuSandbox({ archetype: null, priorite: "haute", nb_allies: 0 })).toBe(false);
+    expect(vaAuSandbox({ archetype: "quick_win", priorite: null, nb_allies: 0 })).toBe(false);
+    expect(vaAuSandbox({ archetype: null, priorite: null, nb_allies: 1 })).toBe(false);
+  });
+
+  it("2e : le sandbox ne garde que les cibles sans archétype, sans priorité haute et sans allié", () => {
+    expect(vaAuSandbox({ archetype: null, priorite: null, nb_allies: 0 })).toBe(true);
+    expect(vaAuSandbox({ archetype: null, priorite: "normale", nb_allies: 0 })).toBe(true);
   });
 });

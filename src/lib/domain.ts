@@ -144,6 +144,9 @@ export function isPlaceholder(
   if (n.includes("?")) return true; // « (Ernotte?) », nom incertain
   if (/^xx\b/i.test(n)) return true; // « XX Hugel »
   if (/^(un|une)\s/i.test(n)) return true; // « Un chef étoilé local »
+  // Enregistrements de test (« Test P0 Regressions », « TEST watchlist
+  // creation ») : jamais dans le récap ni dans la file de génération (2a).
+  if (/^test\b/i.test(n)) return true;
   // Commence par un mot de fonction au lieu d'un prénom → générique.
   if (/^(fondat\w*|founder|co-?founder|ceo|cto|pdg|dg|président\w*|dirigeant\w*|patron\w*)\b/i.test(n))
     return true;
