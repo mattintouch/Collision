@@ -43,6 +43,29 @@ des secrets jamais posés) qui contredisait la décision actée « migrations
 manuelles » : retirée. Leçon : vérifier l'existence d'un mécanisme
 (.github/workflows, runs Actions) avant de l'affirmer absent dans une revue.
 
+## 27/07/2026 — récap hebdo v2 (structure A / B / C)
+
+1. **Bug latent trouvé et corrigé pendant la réécriture** : compileRecap
+   filtrait le journal mcp_audit sur une colonne `created_at` qui n'existe
+   pas (la colonne s'appelle `ts`). Supabase ne levait pas d'erreur bloquante
+   dans le chemin best-effort : la section « écritures » du récap v1 était en
+   réalité TOUJOURS vide, silencieusement. Leçon (même famille que la dérive
+   base/registre du 17/07) : vérifier le schéma réel d'une table avant
+   d'écrire un filtre, et se méfier des chemins best-effort qui avalent les
+   erreurs de colonne.
+2. **La règle « aucun tiret » est plus invasive qu'il n'y paraît** : elle
+   proscrit aussi les mots composés français légitimes dans le texte de
+   l'email (« ci-dessus », « méga-prompt » reformulés). Le test automatisé
+   balaie le texte visible (balises et blocs pre exclus, séparateurs du
+   sandbox exclus) et refuse tout tiret : la contrainte est désormais
+   exécutable, plus seulement déclarative.
+3. **Détection des mouvements** : le journal mcp_audit porte le payload
+   complet des appels (payload.stage, payload.cible), ce qui permet de
+   détecter les changements d'étape sans table d'historique dédiée. Limite
+   acceptée : les changements faits via l'interface web (sans passer par un
+   outil MCP) n'y figurent pas ; si le besoin se confirme, une table
+   d'historique d'étapes sera nécessaire.
+
 ## Historique repris des briefs précédents
 
 1. 17/07 : dérive base/registre sur la contrainte kind (0001 encore active

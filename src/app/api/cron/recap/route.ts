@@ -29,7 +29,7 @@ async function run(req: Request): Promise<Response> {
         .eq("id", t.id)
         .eq("statut", "nouveau");
     }
-    const { subject, html } = buildRecapEmail(data, triages);
+    const { subject, html } = buildRecapEmail(data);
     const to = await recapRecipients(sb);
     if (!to.length) return Response.json({ ok: false, error: "Aucun destinataire (RECAP_EMAILS ou staff des shows)." }, { status: 500 });
     if (!hasGmailSend()) return Response.json({ ok: false, error: "Envoi Gmail indisponible (délégation)." }, { status: 500 });
