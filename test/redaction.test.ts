@@ -49,10 +49,10 @@ describe("contrat v3 — passe de rédaction (règle 4)", () => {
     expect(admis.univers.intro).toEqual(["marché"]);
   });
 
-  it("récit : 1 ouverture + 7 temps maximum", () => {
+  it("récit : 5 paragraphes maximum (correctif du 27/07)", () => {
     const long = Array.from({ length: 15 }, (_, i) => `paragraphe ${i}`);
     const admis = appliquerRedaction({ recit_canonique: { paragraphes: ["a"] } }, { recit_canonique: { paragraphes: long } });
-    expect((admis.recit_canonique.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_ouverture + BUDGETS_V3.recit_temps);
+    expect((admis.recit_canonique.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_paragraphes);
   });
 });
 

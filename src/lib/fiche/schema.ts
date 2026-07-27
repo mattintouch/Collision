@@ -141,18 +141,120 @@ export const DEFAULT_FOOTER =
  * Renvoyé par get_section (champ `contrat`) pour que le challenge via MCP
  * (Matthieu, Clémence, Claude) écrive la bonne forme sans documentation externe.
  */
-/** Budgets durs du contrat v3 (règle 2) : appliqués au parsing de la
- *  génération (clamp de comptes), rappelés dans les prompts et imposés par la
- *  passe de rédaction. Une ligne ≈ 80 caractères. */
+/** Budgets durs : contrat v3 (règle 2) + correctif anti-répétition du 27/07
+ *  (règle 2, chiffrés par champ). Appliqués au parsing de la génération,
+ *  rappelés dans les prompts, imposés par la passe de rédaction ET par le
+ *  serveur au stockage (clampBudgets dans writeSection : troncature avec
+ *  avertissement). Une ligne ≈ 80 caractères. */
 export const BUDGETS_V3 = {
-  recit_ouverture: 1,   // 1 paragraphe d'ouverture (5 lignes max)
-  recit_temps: 7,       // + 7 temps d'une ligne maximum
+  // Le correctif anti-répétition remplace « 1 ouverture + 7 temps » :
+  // le récit tient en 5 paragraphes maximum de 300 caractères chacun.
+  recit_paragraphes: 5,
+  recit_paragraphe_chars: 300,
   parcours_lignes: 12,
   playbook_items: 6,
   univers_points: 4,    // points de marché hors graphiques
   a_lire_sources: 3,
   bloc_b_item_chars: 240, // 3 lignes × ~80 caractères : au delà, échec de génération
+  enjeu_texte_chars: 1200,
+  enjeu_lecon_chars: 600,
+  sequencage_rappel_chars: 140,   // un POINTEUR, pas un paragraphe
+  sequencage_intention_chars: 450,
+  dix_questions_note_chars: 200,
+  zone_grise_items: 12,
+  zone_grise_item_chars: 400,
+  chiffres_kpis: 16,
+  tensions_cartes: 3,
+  zg_pointeur_chars: 90, // pointeur « ZG: <mot-clé> » hors zone grise
 } as const;
+
+/** Troncature propre au mot le plus proche, avec ellipse. */
+function tronque(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const coupe = s.slice(0, max - 1);
+  const auMot = coupe.replace(/\s+\S*$/, "");
+  return `${auMot || coupe}…`;
+}
+
+/** Validation serveur des budgets (correctif anti-répétition, règle 2) :
+ *  troncature avec avertissement, jamais de rejet silencieux. Appelée par
+ *  writeSection sur tout contenu entrant. Pure : ne mute pas l'entrée. */
+export function clampBudgets(
+  sectionId: string,
+  content: Record<string, unknown>
+): { content: Record<string, unknown>; avertissements: string[] } {
+  const avertissements: string[] = [];
+  const c: Record<string, unknown> = JSON.parse(JSON.stringify(content ?? {}));
+  const champTexte = (obj: Record<string, unknown>, champ: string, max: number, ou: string) => {
+    const v = obj[champ];
+    if (typeof v === "string" && v.length > max) {
+      obj[champ] = tronque(v, max);
+      avertissements.push(`${ou} : ${v.length} caractères, budget ${max}, tronqué`);
+    }
+  };
+  const listeMax = (champ: string, max: number) => {
+    const v = c[champ];
+    if (Array.isArray(v) && v.length > max) {
+      c[champ] = v.slice(0, max);
+      avertissements.push(`${sectionId}.${champ} : ${v.length} éléments, budget ${max}, tronqué`);
+    }
+  };
+  const chaqueItem = (champ: string, sous: string, max: number) => {
+    const v = c[champ];
+    if (!Array.isArray(v)) return;
+    v.forEach((item, i) => {
+      if (item && typeof item === "object") champTexte(item as Record<string, unknown>, sous, max, `${sectionId}.${champ}[${i}].${sous}`);
+    });
+  };
+  switch (sectionId) {
+    case "enjeu":
+      champTexte(c, "texte", BUDGETS_V3.enjeu_texte_chars, "enjeu.texte");
+      champTexte(c, "lecon", BUDGETS_V3.enjeu_lecon_chars, "enjeu.lecon");
+      break;
+    case "recit_canonique":
+      listeMax("paragraphes", BUDGETS_V3.recit_paragraphes);
+      {
+        const v = c.paragraphes;
+        if (Array.isArray(v)) {
+          c.paragraphes = v.map((p, i) => {
+            if (typeof p === "string" && p.length > BUDGETS_V3.recit_paragraphe_chars) {
+              avertissements.push(`recit_canonique.paragraphes[${i}] : ${p.length} caractères, budget ${BUDGETS_V3.recit_paragraphe_chars}, tronqué`);
+              return tronque(p, BUDGETS_V3.recit_paragraphe_chars);
+            }
+            return p;
+          });
+        }
+      }
+      break;
+    case "sequencage":
+      chaqueItem("blocs", "rappel", BUDGETS_V3.sequencage_rappel_chars);
+      chaqueItem("blocs", "intention", BUDGETS_V3.sequencage_intention_chars);
+      break;
+    case "dix_questions":
+      chaqueItem("questions", "note", BUDGETS_V3.dix_questions_note_chars);
+      break;
+    case "zone_grise":
+      listeMax("items", BUDGETS_V3.zone_grise_items);
+      chaqueItem("items", "texte", BUDGETS_V3.zone_grise_item_chars);
+      break;
+    case "chiffres":
+      listeMax("kpis", BUDGETS_V3.chiffres_kpis);
+      break;
+    case "tensions":
+      listeMax("cartes", BUDGETS_V3.tensions_cartes);
+      break;
+    case "playbook":
+      listeMax("items", BUDGETS_V3.playbook_items);
+      break;
+    case "parcours":
+      listeMax("lignes", BUDGETS_V3.parcours_lignes);
+      break;
+    case "a_lire":
+      listeMax("liens", BUDGETS_V3.a_lire_sources);
+      break;
+  }
+  return { content: c, avertissements };
+}
 
 export const SECTION_CONTRACTS: Record<string, unknown> = {
   sticky_header: { societe: "iliad" },
@@ -171,9 +273,8 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   },
   recit_canonique: {
     paragraphes: [
-      "OUVERTURE (contrat v3) : un seul paragraphe de 5 lignes max pour la lecture de préparation.",
-      "Puis le récit en 7 temps MAXIMUM, chaque temps en UNE ligne. Aucune prose longue.",
-      "La chronologie datée appartient à la section parcours : ne pas la réécrire ici.",
+      "5 paragraphes MAXIMUM de 300 caractères chacun (correctif du 27/07).",
+      "Le récit raconte : la chronologie datée appartient à parcours, les stats à chiffres.",
     ],
   },
   mecanique_succes: {
