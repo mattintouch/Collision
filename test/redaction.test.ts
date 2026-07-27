@@ -116,3 +116,26 @@ describe("contrat v3 — contrats de section (règle 2, contrainte technique 3)"
     expect(contrats).toContain("contrat v3");
   });
 });
+
+describe("règle 5 en pipeline — consignes du lint pour la passe", () => {
+  it("les doublons du lint deviennent des consignes explicites de résorption", async () => {
+    const { consignesLint } = await import("../src/lib/fiche/redaction");
+    const consignes = consignesLint({
+      doublons: [{ extrait: "gautier est vendeen pas choletais il sponsorisait le centre de formation de", sections: ["sequencage", "zone_grise"], proprietaire: "zone_grise" }],
+      chiffres_repetes: [{ valeur: "238 M$", occurrences: 4, sections: ["enjeu", "playbook", "recit_canonique"] }],
+      hors_budget: ["sequencage.blocs[2].rappel : 270 caractères, budget 140"],
+      meta_narratif: [{ section: "sequencage", extrait: "RECADRAGE DU 27/07" }],
+      bloquants: 3,
+    });
+    expect(consignes).toContain("DOUBLONS DÉTECTÉS PAR LE LINT");
+    expect(consignes).toContain("propriétaire : zone_grise");
+    expect(consignes).toContain("238 M$ : 4 occurrences");
+    expect(consignes).toContain("MÉTA NARRATIF À RETIRER");
+    expect(consignes).toContain("budget 140");
+  });
+
+  it("aucune consigne quand le lint est propre", async () => {
+    const { consignesLint } = await import("../src/lib/fiche/redaction");
+    expect(consignesLint({ doublons: [], chiffres_repetes: [], hors_budget: [], meta_narratif: [], bloquants: 0 })).toBe("");
+  });
+});
