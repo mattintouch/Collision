@@ -48,3 +48,11 @@
   0%, 49% { background: #E63946; color: #fff; }
   50%, 100% { background: #000; color: #fff; }
 }
+
+/* Alerte de saisie (demande C2 du récap du 27/07) : bandeau de la régie
+   quand un autre opérateur écrit sur la fiche pendant le REC. Cycle 800 ms,
+   opacité 1 vers 0.3. */
+@keyframes gdiy-saisie {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

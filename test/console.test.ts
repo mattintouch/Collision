@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf,
   timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus,
-  type ConsoleEvent, type RecSession,
+  saisiesEnCours, SAISIE_FRAICHEUR_MS,
+  type ConsoleEvent, type RecSession, type PresenceOperateur,
 } from "../src/lib/fiche/console";
 
 const ev = (over: Partial<ConsoleEvent>): ConsoleEvent => ({
@@ -116,5 +117,46 @@ describe("console partagée — dernier-lu par opérateur (tâche 8)", () => {
   it("les événements lu ne polluent ni le carnet ni la régie", () => {
     expect(chatOf(flux).length).toBe(3);
     expect(carnetOf(flux).length).toBe(0);
+  });
+});
+
+describe("alerte de saisie pendant le REC (demande C2 du 27/07)", () => {
+  const now = Date.parse("2026-07-27T10:00:00Z");
+  const frais = new Date(now - 1000).toISOString();
+  const perime = new Date(now - SAISIE_FRAICHEUR_MS - 200).toISOString();
+  const p = (email: string, typing_at?: string | null): PresenceOperateur => ({ email, typing_at });
+
+  it("scénario nominal : la saisie fraîche d'un opérateur distant s'affiche", () => {
+    const presences = [p("matt@stefani.fr"), p("clemence@stefani.fr", frais)];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual(["CLEMENCE"]);
+  });
+
+  it("aucun faux positif hors REC, quelle que soit l'activité", () => {
+    const presences = [p("clemence@stefani.fr", frais)];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", false, now)).toEqual([]);
+  });
+
+  it("sa propre saisie ne déclenche jamais son propre bandeau", () => {
+    const presences = [p("matt@stefani.fr", frais)];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual([]);
+  });
+
+  it("un signal périmé s'éteint même si le retour à null s'est perdu", () => {
+    const presences = [p("clemence@stefani.fr", perime)];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual([]);
+  });
+
+  it("plusieurs opérateurs simultanés : tous les libellés, dédoublonnés", () => {
+    const presences = [
+      p("clemence@stefani.fr", frais),
+      p("louis@collision.studio", frais),
+      p("clemence@stefani.fr", frais), // second onglet du même compte
+    ];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual(["CLEMENCE", "LOUIS"]);
+  });
+
+  it("rétrocompatibilité : un payload de présence sans typing_at est ignoré", () => {
+    const presences = [p("clemence@stefani.fr"), p("louis@collision.studio", null)];
+    expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual([]);
   });
 });

@@ -22,7 +22,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
   timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus,
-  type ConsoleEvent, type RecSession,
+  saisiesEnCours, SAISIE_FRAICHEUR_MS,
+  type ConsoleEvent, type RecSession, type PresenceOperateur,
 } from "@/lib/fiche/console";
 
 export interface FicheBloc {
@@ -139,11 +140,34 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const [emailDetail, setEmailDetail] = useState<string | null>(null);
   const [renvoiEnCours, setRenvoiEnCours] = useState(false);
   const [copie, setCopie] = useState<string | null>(null);
-  const [presents, setPresents] = useState<string[]>([]);
+  const [presences, setPresences] = useState<PresenceOperateur[]>([]);
   const [syncMode, setSyncMode] = useState<"realtime" | "polling">("realtime");
   const sb = useMemo(() => createClient(), []);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const presents = useMemo(
+    () => Array.from(new Set(presences.map((p) => labelFromEmail(p.email)))),
+    [presences]
+  );
+  /* Alerte de saisie (C2 du 27/07) : le canal de la PR 7 transporte aussi
+     typing_at dans le payload de présence. Émission throttlée (1 s), retour à
+     null après 3 s d'inactivité. Aucun canal ni table supplémentaire. */
+  const channelRef = useRef<ReturnType<typeof sb.channel> | null>(null);
+  const saisieTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saisieDernierTrack = useRef(0);
+  const signalerSaisie = useCallback(() => {
+    const ch = channelRef.current;
+    if (!ch) return;
+    const t = Date.now();
+    if (t - saisieDernierTrack.current > 1000) {
+      saisieDernierTrack.current = t;
+      void ch.track({ email: data.viewer_email, typing_at: new Date(t).toISOString() });
+    }
+    if (saisieTimer.current) clearTimeout(saisieTimer.current);
+    saisieTimer.current = setTimeout(() => {
+      void ch.track({ email: data.viewer_email, typing_at: null });
+    }, SAISIE_FRAICHEUR_MS);
+  }, [data.viewer_email]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -183,9 +207,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         setSessions((prev) => [...prev.filter((x) => x.id !== s.id), s].sort((a, b) => a.started_at.localeCompare(b.started_at)));
       })
       .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState<{ email: string }>();
-        const emails = Object.values(state).flat().map((m) => m.email).filter(Boolean);
-        setPresents(Array.from(new Set(emails.map(labelFromEmail))));
+        const state = channel.presenceState<PresenceOperateur>();
+        setPresences(Object.values(state).flat().filter((m) => !!m.email));
       })
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
@@ -194,8 +217,11 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") demarrerPolling();
       });
+    channelRef.current = channel;
     return () => {
       if (poll) clearInterval(poll);
+      if (saisieTimer.current) clearTimeout(saisieTimer.current);
+      channelRef.current = null;
       void sb.removeChannel(channel);
     };
   }, [sb, data.fiche_id, data.viewer_email]);
@@ -288,6 +314,14 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     [chat, monDernierLu]
   );
 
+  /* Alerte de saisie : opérateurs distants en train d'écrire sur la fiche
+     pendant le REC. `now` (tic 1 s) fait expirer les signaux périmés même si
+     le retour à null s'est perdu ; hors REC la liste est toujours vide. */
+  const saisiesActives = useMemo(
+    () => saisiesEnCours(presences, data.viewer_email, recStarted, now),
+    [presences, data.viewer_email, recStarted, now]
+  );
+
   const doneCount = data.checklist.filter((_, i) => checked[i]).length;
   const checklistComplete = doneCount === data.checklist.length;
 
@@ -301,8 +335,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     data.questions.filter((q) => (blocs[q.bloc] ? q.bloc : blocs.length - 1) === i);
   const askedTotal = data.questions.filter((q) => asked[q.num]).length;
 
-  const toggleQuestion = (num: string) => sendEvent("question", { num, asked: !asked[num] });
-  const toggleCheck = (index: number) => sendEvent("check", { index, checked: !checked[index] });
+  const toggleQuestion = (num: string) => { signalerSaisie(); sendEvent("question", { num, asked: !asked[num] }); };
+  const toggleCheck = (index: number) => { signalerSaisie(); sendEvent("check", { index, checked: !checked[index] }); };
   const goBloc = useCallback((i: number) => {
     const el = document.getElementById(`bloc-${i}`);
     if (el) {
@@ -323,6 +357,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     setChatDraft("");
   };
   const markClip = () => {
+    signalerSaisie();
     sendEvent("clip", { text: "Moment fort marqué" });
     setCarnetOpen(true);
     setChatOpen(false);
@@ -1178,7 +1213,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               ))}
             </div>
             <div style={{ display: "flex", borderTop: "1px solid #000" }}>
-              <input value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addNote(); }} placeholder="Note rapide, entrée pour valider" style={{ flex: 1, border: "none", outline: "none", padding: "14px 16px", fontSize: 15, fontFamily: "inherit", background: "#F7F7F5", minWidth: 0 }} />
+              <input value={noteDraft} onChange={(e) => { signalerSaisie(); setNoteDraft(e.target.value); }} onKeyDown={(e) => { if (e.key === "Enter") addNote(); }} placeholder="Note rapide, entrée pour valider" style={{ flex: 1, border: "none", outline: "none", padding: "14px 16px", fontSize: 15, fontFamily: "inherit", background: "#F7F7F5", minWidth: 0 }} />
               <button onClick={addNote} style={{ border: "none", borderLeft: "1px solid #000", background: "#000", color: "#FFF", cursor: "pointer", padding: "0 20px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.1em" }}>NOTER</button>
             </div>
           </div>
@@ -1191,6 +1226,14 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       {(() => {
         const corps = (
           <>
+            {/* Alerte de saisie (C2 du 27/07) : bandeau fixe en haut de la
+                régie, rouge, clignotement 800 ms, tant qu'un autre opérateur
+                écrit sur la fiche pendant le REC. Intra UI uniquement. */}
+            {saisiesActives.length > 0 && (
+              <div style={{ flexShrink: 0, background: "#E63946", color: "#FFF", padding: "8px 16px", fontFamily: MONO, fontSize: 11, letterSpacing: "0.12em", fontWeight: 700, animation: "gdiy-saisie 800ms linear infinite" }}>
+                SAISIE EN COURS SUR LA FICHE PAR {saisiesActives.join(", ")}
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #000", padding: "6px 8px 6px 16px", flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>RÉGIE</span>
