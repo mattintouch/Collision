@@ -1836,6 +1836,38 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   );
 
   W(
+    "assainir_fiche",
+    "Rejoue l'assainisseur de balisage sur une fiche EXISTANTE (backfill du chantier 1 du 27/07) : détecte les sections dont le contenu STOCKÉ porte encore des balises de citation (<cite ...>) et les réécrit nettoyées via writeSection (versionné : l'état précédent est archivé, rollback possible). Nécessaire parce que toutes les LECTURES sont déjà nettoyées défensivement : la base seule sait quelles sections sont sales. Idempotent : repassé sur une fiche propre, ne réécrit rien.",
+    { fiche: z.string(), show: z.string().optional() },
+    { destructiveHint: false, idempotentHint: true },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : repasser en_challenge via set_status avant d'assainir.", cause: "fiche_verrouillee" });
+      const { data } = await sb.from("fiche_sections").select("section_id, content").eq("fiche_id", f.id);
+      const sales = ((data ?? []) as { section_id: string; content: Record<string, unknown> }[])
+        .filter((r) => /<\/?cite[^>]*>/.test(JSON.stringify(r.content ?? {})));
+      const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
+      const nettoyees: string[] = [];
+      for (const r of sales) {
+        // writeSection assainit à l'écriture : réécrire le contenu brut suffit.
+        const res = await writeSection(sb, f.id, r.section_id, r.content ?? {}, author ?? "assainisseur");
+        if (res) nettoyees.push(`${canonicalSectionId(r.section_id)} (v${res.version})`);
+      }
+      return text({
+        ok: true,
+        fiche: f.slug,
+        sections_nettoyees: nettoyees,
+        detail: nettoyees.length
+          ? "Contenu stocké réécrit propre, versions précédentes archivées dans fiche_section_versions (rollback possible)."
+          : "Aucune balise résiduelle dans le contenu stocké de cette fiche.",
+      });
+    }
+  );
+
+  W(
     "add_comment",
     "Ajoute un commentaire de challenge ancré à une section (façon commentaire Google Docs). Sert au dialogue Matt / Clémence sur une fiche : signaler un manque, contester un angle, demander une source. Reste ouvert jusqu'à resolve_comment.",
     {
