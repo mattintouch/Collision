@@ -5,6 +5,7 @@
 
 import type { createServiceClient } from "../supabase/service";
 import { stripCiteTags } from "../ai/websearch";
+import { clampBudgets } from "./schema";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "./sections";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -234,20 +235,26 @@ export async function ficheSections(sb: SB, ficheId: string): Promise<FicheSecti
 
 /** Écrit une section (remplacement complet du contenu) avec versioning :
  *  la version courante est archivée dans fiche_section_versions avant l'écrasement.
- *  Renvoie la nouvelle version, ou null si la section n'existe pas. */
+ *  Renvoie la nouvelle version (et les budgets tronqués le cas échéant),
+ *  ou null si la section n'existe pas. */
 export async function writeSection(
   sb: SB,
   ficheId: string,
   sectionId: string,
   content: Record<string, unknown>,
   author: string | null
-): Promise<{ version: number } | null> {
+): Promise<{ version: number; avertissements?: string[] } | null> {
   sectionId = canonicalSectionId(sectionId); // alias hérités acceptés à l'écriture
   if (!FICHE_SECTION_IDS.includes(sectionId)) return null;
   // Assainissement au stockage (chantier 1 du 27/07) : aucune balise de
   // citation n'entre en base, quel que soit le chemin (génération, passe de
   // rédaction, outil MCP update_section).
   content = stripCiteTags(content);
+  // Budgets serveur (correctif anti-répétition, règle 2) : troncature avec
+  // avertissement, jamais de dépassement stocké en silence.
+  const budget = clampBudgets(sectionId, content);
+  content = budget.content;
+  const avertissements = budget.avertissements.length ? budget.avertissements : undefined;
   const { data: cur } = await sb
     .from("fiche_sections")
     .select("id, content, version")
@@ -265,7 +272,7 @@ export async function writeSection(
       updated_by: author,
     });
     await bumpFiche(sb, ficheId);
-    return { version: 1 };
+    return { version: 1, avertissements };
   }
   const row = cur as { id: string; content: Record<string, unknown>; version: number };
   // Archive de l'état courant avant écrasement (rollback).
@@ -282,7 +289,7 @@ export async function writeSection(
     .update({ content, version: next, updated_by: author, updated_at: new Date().toISOString() })
     .eq("id", row.id);
   await bumpFiche(sb, ficheId);
-  return { version: next };
+  return { version: next, avertissements };
 }
 
 /** Incrémente la version et l'horodatage de la fiche parente (best-effort). */

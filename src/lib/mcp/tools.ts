@@ -16,6 +16,7 @@ import { hasAnthropicKey } from "../copilot/config";
 import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cout";
 import { stripCiteTags } from "../ai/websearch";
 import { motifIneligibleGeneration, cibleEstTest } from "../qualification";
+import { lintFiche } from "../fiche/lint";
 import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -1831,7 +1832,27 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
       const r = await writeSection(sb, f.id, sectionId, a.content, author);
       if (!r) return text({ error: `Section inconnue : ${a.section_id}.` });
-      return text({ ok: true, fiche: f.slug, section_id: sectionId, titre: def.titre, version: r.version });
+      return text({ ok: true, fiche: f.slug, section_id: sectionId, titre: def.titre, version: r.version, avertissements_budget: r.avertissements });
+    }
+  );
+
+  RT(
+    "lint_fiche",
+    "Lint anti répétition d'une fiche (correctif du 27/07, règle 5) : mesure NON destructive sur le contenu STOCKÉ. Détecte les séquences de 12 mots recopiées entre sections (avec la section propriétaire présumée), les chiffres remarquables répétés plus de 2 fois hors section chiffres (bloquant), les dépassements de budget par champ, et le méta narratif (RECADRAGE, BLOC NEUF, version précédente). Critère d'acceptation : zéro doublon bloquant sur une fiche fraîchement générée.",
+    { fiche: z.string(), show: z.string().optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = a.show ? await showId(sb, a.show) : null;
+      const f = await resolveFiche(sb, a.fiche, sid);
+      if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
+      const rows = await ficheSections(sb, f.id);
+      const sections: Record<string, Record<string, unknown>> = {};
+      for (const r of rows) {
+        if (!isEmptyContent(r.content)) sections[r.section_id] = r.content ?? {};
+      }
+      const rapport = lintFiche(sections);
+      return text({ ok: true, fiche: f.slug, ...rapport });
     }
   );
 

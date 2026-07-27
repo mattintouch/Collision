@@ -37,9 +37,14 @@ export type FicheGroupe = (typeof FICHE_GROUPES)[number];
 /** Règle 1 du contrat v3 : propriété unique des faits, injectée dans chaque
  *  prompt de recherche. */
 const PROPRIETE_FAITS = [
-  "PROPRIÉTÉ UNIQUE DES FAITS (contrat v3, règle 1) : chaque type de fait a UNE section propriétaire ; les autres y renvoient en une phrase courte, elles ne le réécrivent JAMAIS en entier.",
+  "PROPRIÉTÉ UNIQUE DES FAITS (contrat v3 règle 1, durcie par le correctif anti répétition du 27/07) : chaque type de fait a UNE section propriétaire ; les autres y renvoient en une phrase courte, elles ne le réécrivent JAMAIS en entier.",
   "- Chronologie datée : propriété EXCLUSIVE de la section parcours. Interdiction de reconstruire une frise ou une liste de jalons datés ailleurs (ni dans le récit, ni dans l'univers, ni ailleurs).",
-  "- Récit canonique : un paragraphe d'ouverture (5 lignes max) puis un récit en 7 temps maximum, chaque temps en UNE ligne. Aucune prose longue.",
+  "- Données chiffrées sourcées (KPI, montants, stats) : propriété de la section chiffres. Une autre section peut citer UN chiffre inline si le propos l'exige, sans re-citer la source ; jamais plus d'une occurrence hors section propriétaire.",
+  "- Statuts de vérification, chiffres non tranchés, formulations interdites : propriété de zone_grise. Ailleurs, un POINTEUR court « ZG: <mot-clé> » (90 caractères max), jamais le texte complet de l'item.",
+  "- Cadrage éditorial de l'épisode : propriété d'enjeu. Aucune autre section ne re-justifie le fil rouge.",
+  "- Lectures recommandées curées (3 max) : propriété d'a_lire ; sources est exhaustive ; aucun lien ne figure dans les deux avec le même apport.",
+  "- Personnes de l'écosystème : propriété d'entourage. Le séquençage cite un nom, jamais la bio.",
+  "- Récit canonique : 5 paragraphes MAXIMUM de 300 caractères chacun. Il raconte ; il ne re-liste ni les dates (parcours) ni les stats (chiffres).",
   "- Univers : marché, fédérations, économie, distinctions UNIQUEMENT (4 points max hors graphiques). Aucune biographie.",
   "- Divergences de la mécanique : des DÉCISIONS structurantes, formulées comme décisions, jamais comme récit biographique.",
   "- Un fait cité une fois en version longue ; toute reprise est un renvoi court (« cf. parcours 2015 ») ou une omission.",
@@ -60,6 +65,7 @@ const REGLES = [
   "INTERDITS transverses : SIREN, immatriculations, numéros professionnels (toque, RPPS), adresses administratives, données d'annuaire, sauf pertinence narrative explicite.",
   "Règle de vérification ABSOLUE : chaque chiffre porte sa source datée. Un chiffre non confirmé par une source publique fiable n'apparaît PAS. N'invente jamais un chiffre, une date ou une citation.",
   "URLs : uniquement des URLs réellement rencontrées dans tes recherches. AUCUNE URL reconstruite, devinée ou complétée. En cas de doute, omets l'URL.",
+  "INTERDICTION DU MÉTA NARRATIF (correctif du 27/07) : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU... », « la version précédente... », « BLOC NEUF »), ni qui a demandé quoi et quand, ni de commentaire sur la génération elle-même. Ce méta contenu vit dans les commentaires de fiche et le versioning, pas dans le contenu.",
 ].join("\n");
 
 /** Doctrine de profondeur GDIY (pack Matthieu, v2 juillet 2026) : grille
@@ -92,7 +98,7 @@ function systemFor(mission: string): string {
     mission,
     DOCTRINE,
     PROPRIETE_FAITS,
-    "BUDGETS DE LONGUEUR (contrat v3, règle 2, DURS) : la fiche cible est scannable en fragments pendant l'enregistrement. Tout item destiné au Bloc B (console) tient en 3 lignes maximum (environ 240 caractères) : au delà, c'est un échec de génération, découpe ou raccourcis. La concision prime sur l'exhaustivité : un fait fort et court bat trois faits délayés.",
+    "BUDGETS DE LONGUEUR (contrat v3 règle 2 + correctif du 27/07, DURS, imposés aussi par le serveur au stockage) : la fiche cible est scannable en fragments pendant l'enregistrement. Tout item du Bloc B tient en 3 lignes maximum (environ 240 caractères). Budgets par champ : enjeu.texte 1200 caractères, enjeu.lecon 600 ; récit 5 paragraphes de 300 ; rappel de séquençage 140 (c'est un POINTEUR, pas un paragraphe) ; intention de bloc 450 ; note de question 200 ; zone grise 12 items de 400 ; 16 KPI ; 6 leviers de playbook ; 3 cartes de tension. La concision prime sur l'exhaustivité : un fait fort et court bat trois faits délayés.",
     REGLES,
     STYLE,
     "Réponds UNIQUEMENT en JSON, sans texte autour, au format exact demandé.",
@@ -275,17 +281,18 @@ export async function processFicheGroupe(
 
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
-      systemFor("Mission : le RÉCIT CANONIQUE et la matière de lecture, format v3. Le récit : UN paragraphe d'ouverture (5 lignes max) pour la lecture de préparation, puis le récit en 7 TEMPS maximum, chaque temps en UNE ligne : le lecteur reformule la trajectoire de mémoire à partir de ces temps, pas d'une prose longue. Le PARCOURS daté (12 lignes max) est la section PROPRIÉTAIRE de toute la chronologie : les dates vivent là et nulle part ailleurs. Plus les 30 secondes avant d'entrer, et la liste À LIRE limitée aux 3 MEILLEURES sources (pas huit)."),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si réellement trouvés),\n  "recit": ["paragraphe d'ouverture, 5 lignes max", "temps 1, une ligne", "temps 2, une ligne", ...] (1 ouverture + 7 temps MAXIMUM, AUCUNE donnée d'annuaire, AUCUNE frise datée : les dates vont dans parcours),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}] (chaque texte : 3 lignes max),\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final, sans donnée d'annuaire"}] (12 lignes MAXIMUM, section propriétaire de la chronologie),\n  "a_lire": [3 MAXIMUM : {"niveau": "indispensable|utile|optionnel", "titre", "date", "temps_lecture": "12 min", "apport": "en une phrase", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : le RÉCIT CANONIQUE et la matière de lecture. Le récit : 5 PARAGRAPHES MAXIMUM de 300 caractères chacun ; le lecteur reformule la trajectoire de mémoire à partir de ces paragraphes, pas d'une prose longue. Le PARCOURS daté (12 lignes max) est la section PROPRIÉTAIRE de toute la chronologie : les dates vivent là et nulle part ailleurs. Plus les 30 secondes avant d'entrer, et la liste À LIRE limitée aux 3 MEILLEURES sources (pas huit)."),
+      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "une phrase : qui il est, pourquoi maintenant",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "LinkedIn", "url": "..."}, {"label": "Wikipedia", "url": "..."}] (seulement si réellement trouvés),\n  "recit": ["paragraphe 1", "paragraphe 2", ...] (5 paragraphes MAXIMUM de 300 caractères chacun, AUCUNE donnée d'annuaire, AUCUNE frise datée : les dates vont dans parcours, les stats dans chiffres),\n  "trente_secondes": [{"label": "Qui", "texte": "..."}, {"label": "Fait d'armes", "texte": "..."}, {"label": "Pourquoi maintenant", "texte": "..."}, {"label": "État d'esprit", "texte": "..."}] (chaque texte : 3 lignes max),\n  "parcours": [{"annee": "1999", "texte": "ligne sans point final, sans donnée d'annuaire"}] (12 lignes MAXIMUM, section propriétaire de la chronologie),\n  "a_lire": [3 MAXIMUM : {"niveau": "indispensable|utile|optionnel", "titre", "date", "temps_lecture": "12 min", "apport": "en une phrase", "url"}],\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
     const raw = r.json;
     if (!raw) throw new Error(`Recherche portrait sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
-    // Budget v3 : 1 ouverture + 7 temps maximum (clamp dur au parsing).
+    // Budget (correctif du 27/07) : 5 paragraphes maximum (clamp dur au
+    // parsing ; la longueur par paragraphe est tronquée par writeSection).
     const recit = (raw.recit ?? [])
       .filter((p): p is string => typeof p === "string" && !!p.trim())
-      .slice(0, BUDGETS_V3.recit_ouverture + BUDGETS_V3.recit_temps);
+      .slice(0, BUDGETS_V3.recit_paragraphes);
     const trente = asArray(raw.trente_secondes, (x) => {
       const label = asString(x.label); const texte = asString(x.texte);
       return label && texte ? { label, texte } : null;

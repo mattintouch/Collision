@@ -63,6 +63,8 @@ export interface RapportRedaction {
   noms_unifies: { retenu: string; ecartes: string[] }[];
   /** Chantier 1 du 27/07 : fuites de balisage résiduel nettoyées. */
   balisage_nettoye?: string[];
+  /** Correctif anti-répétition (règle 3) : méta narratif retiré du contenu. */
+  meta_narratif_nettoye?: string[];
 }
 
 const SYSTEM = [
@@ -71,13 +73,16 @@ const SYSTEM = [
   [
     "RÈGLE 1, propriété unique des faits :",
     "- La chronologie datée vit dans parcours (12 lignes max) et NULLE PART ailleurs. Toute frise ou liste de jalons datés hors parcours est à supprimer ou à réduire en renvoi court.",
-    "- recit_canonique : un paragraphe d'ouverture (5 lignes max) puis 7 temps maximum, une ligne chacun. Aucune prose longue.",
+    "- recit_canonique : 5 paragraphes maximum de 300 caractères chacun (correctif du 27/07). Il raconte, il ne re-liste ni dates ni stats.",
+    "- Données chiffrées sourcées : propriété de chiffres. Ailleurs, UN chiffre inline maximum si le propos l'exige, sans re-citer la source. Au delà de 2 occurrences d'une même valeur hors chiffres, c'est un défaut à résorber.",
+    "- Statuts de vérification et chiffres non tranchés : propriété de zone_grise. Ailleurs, un POINTEUR court « ZG: <mot-clé> » (90 caractères max), JAMAIS le texte complet recopié.",
+    "- Cadrage éditorial : propriété d'enjeu ; aucune autre section ne re-justifie le fil rouge. Personnes de l'écosystème : propriété d'entourage ; le séquençage cite un nom, pas la bio.",
     "- univers : marché, fédérations, économie, distinctions uniquement, 4 points max hors graphiques. Retire toute timeline ou biographie. Les graphiques (barres, comparaison, rentabilite) restent tels quels.",
     "- mecanique_succes : les divergences sont des DÉCISIONS, pas un récit biographique.",
     "- Un fait n'apparaît qu'UNE fois en version longue dans toute la fiche. Les reprises deviennent un renvoi court (« cf. parcours 2015 ») ou disparaissent.",
   ].join("\n"),
   [
-    "RÈGLE 2, budgets durs : recit = 1 ouverture + 7 temps ; parcours = 12 lignes max ; playbook = 6 leviers max, champs connu/manque/question en 2 lignes max chacun ; univers = 4 points max ; a_lire = 3 sources max (garde les meilleures).",
+    "RÈGLE 2, budgets durs (imposés aussi par le serveur au stockage, avec troncature) : recit = 5 paragraphes de 300 caractères ; parcours = 12 lignes max ; playbook = 6 leviers max, champs connu/manque/question en 2 lignes max chacun ; univers = 4 points max ; a_lire = 3 sources max (garde les meilleures) ; enjeu.texte = 1200 caractères, enjeu.lecon = 600 ; rappel de séquençage = 140 caractères (un POINTEUR, pas un paragraphe) ; intention de bloc = 450 ; note de question = 200 ; zone_grise = 12 items de 400 caractères ; chiffres = 16 KPI ; tensions = 3 cartes.",
     "RÈGLE 3, format scannable : le Bloc B (trente_secondes, chiffres, parcours, playbook, entourage, anecdotes, tensions, questions_recurrentes, sequencage, dix_questions, zone_grise) est lu en studio. AUCUN item de plus de 3 lignes (environ 240 caractères) : découpe ou raccourcis.",
   ].join("\n"),
   [
@@ -88,6 +93,7 @@ const SYSTEM = [
     "CONTRÔLE DES TITRES (v3.1) : vérifie les champs de titre (sticky_header.societe, entete.sous_titre, entete.societe) contre les faits consolidés du corps. Toute divergence numérique ou qualificatif contredit par le corps (exemple : « Septuple champion » dans le sous-titre quand le corps établit 8 titres) se corrige SUR LE CHAMP DE TITRE, aligné sur la valeur retenue dans le corps. Tu ne peux modifier QUE sous_titre et societe : jamais le numéro, les titre_lignes, les pilules ni les liens.",
     "CONTRÔLE DES NOMS PROPRES (v3.1) : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
     "CONTRÔLE DU BALISAGE (chantier du 27/07) : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
+    "CONTRÔLE DU MÉTA NARRATIF (correctif du 27/07) : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU 27/07 », « la version précédente de cette section », « BLOC NEUF, DEMANDÉ PAR... »), ni qui a demandé quoi et quand, ni de commentaire sur la génération. Retire ces mentions en conservant le fait éditorial s'il y en a un, et signale chaque retrait dans le rapport (meta_narratif_nettoye). Ce méta contenu vit dans les commentaires et le versioning.",
   ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
@@ -99,7 +105,8 @@ const SYSTEM = [
     '    "sections_reduites": [{"section": "playbook", "avant": "8 items, ~40 lignes", "apres": "6 items, ~18 lignes"}, ...],',
     '    "titres_corriges": ["sous_titre : Septuple champion corrigé en Octuple champion (8 titres établis par le corps)", ...],',
     '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...],',
-    '    "balisage_nettoye": ["mecanique_succes : balise cite retirée de la définition", ...]',
+    '    "balisage_nettoye": ["mecanique_succes : balise cite retirée de la définition", ...],',
+    '    "meta_narratif_nettoye": ["sequencage : mention RECADRAGE DU 27/07 retirée du bloc 3", ...]',
     "  }",
     "}",
   ].join("\n"),
@@ -137,7 +144,7 @@ function clampContenu(id: string, content: Content): Content {
   const clampArr = (champ: string, max: number) => {
     if (Array.isArray(c[champ])) c[champ] = (c[champ] as unknown[]).slice(0, max);
   };
-  if (id === "recit_canonique") clampArr("paragraphes", BUDGETS_V3.recit_ouverture + BUDGETS_V3.recit_temps);
+  if (id === "recit_canonique") clampArr("paragraphes", BUDGETS_V3.recit_paragraphes);
   if (id === "parcours") clampArr("lignes", BUDGETS_V3.parcours_lignes);
   if (id === "playbook") clampArr("items", BUDGETS_V3.playbook_items);
   if (id === "univers") clampArr("intro", BUDGETS_V3.univers_points);

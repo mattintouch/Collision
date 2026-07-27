@@ -49,10 +49,10 @@ describe("contrat v3 — passe de rédaction (règle 4)", () => {
     expect(admis.univers.intro).toEqual(["marché"]);
   });
 
-  it("récit : 1 ouverture + 7 temps maximum", () => {
+  it("récit : 5 paragraphes maximum (correctif du 27/07)", () => {
     const long = Array.from({ length: 15 }, (_, i) => `paragraphe ${i}`);
     const admis = appliquerRedaction({ recit_canonique: { paragraphes: ["a"] } }, { recit_canonique: { paragraphes: long } });
-    expect((admis.recit_canonique.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_ouverture + BUDGETS_V3.recit_temps);
+    expect((admis.recit_canonique.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_paragraphes);
   });
 });
 
@@ -108,7 +108,7 @@ describe("contrat v3 — contrats de section (règle 2, contrainte technique 3)"
   it("les contrats reflètent budgets et propriété des faits pour update_section manuel", () => {
     const contrats = JSON.stringify(SECTION_CONTRACTS);
     expect(JSON.stringify(SECTION_CONTRACTS.parcours)).toContain("12 lignes maximum");
-    expect(JSON.stringify(SECTION_CONTRACTS.recit_canonique)).toContain("7 temps MAXIMUM");
+    expect(JSON.stringify(SECTION_CONTRACTS.recit_canonique)).toContain("5 paragraphes MAXIMUM");
     expect(JSON.stringify(SECTION_CONTRACTS.a_lire)).toContain("3 sources MAXIMUM");
     expect(JSON.stringify(SECTION_CONTRACTS.playbook)).toContain("Six leviers maximum");
     // La timeline biographique n'est plus au contrat de l'univers.
