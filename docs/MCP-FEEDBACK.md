@@ -66,6 +66,26 @@ manuelles » : retirée. Leçon : vérifier l'existence d'un mécanisme
    outil MCP) n'y figurent pas ; si le besoin se confirme, une table
    d'historique d'étapes sera nécessaire.
 
+## 27/07/2026 — brief rendu / recap / qualification (chantiers 1 à 3)
+
+1. **Fenêtre de déploiement gelée = correctifs fantômes** : les balises
+   `<cite>` visibles sur la fiche Taittinger venaient de fiches générées
+   entre le 24/07 et le 27/07 au matin, fenêtre où stripCitations (mergé le
+   24/07) n'était PAS déployé (déploiements Vercel bloqués par la limite
+   Hobby, projet rebasculé en Pro le 27/07 à 08h46). Leçon : un correctif
+   mergé n'existe pas tant que le déploiement n'est pas vérifié ; vérifier
+   l'état du déploiement fait partie de la livraison.
+2. **Le nettoyage défensif à la lecture masque la donnée sale** : une fois
+   ficheSections et get_section assainis, plus AUCUNE lecture (web ou MCP)
+   ne montre les balises stockées : impossible de détecter les fiches à
+   backfiller depuis l'extérieur. D'où l'outil `assainir_fiche`, qui lit le
+   contenu BRUT en base, ne réécrit que les sections réellement sales
+   (versionné, rollback par fiche_section_versions) et reste idempotent.
+3. **La cause racine du sandbox pollué était un déficit de PROCESS, pas de
+   code** : personne ne qualifie les cibles, l'archétype reste vide, le tri
+   par valeur n'a rien à trier. Le correctif durable est un outil de flux
+   (file à qualifier + porte de génération), pas une règle de tri de plus.
+
 ## Historique repris des briefs précédents
 
 1. 17/07 : dérive base/registre sur la contrainte kind (0001 encore active
