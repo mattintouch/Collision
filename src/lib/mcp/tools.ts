@@ -15,6 +15,7 @@ import { syncShowContacts } from "../google/sync";
 import { hasAnthropicKey } from "../copilot/config";
 import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cout";
 import { stripCiteTags } from "../ai/websearch";
+import { motifIneligibleGeneration, cibleEstTest } from "../qualification";
 import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -1595,6 +1596,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
       if (!hasAnthropicKey())
         return text({ error: "Clé IA absente : ajouter ANTHROPIC_API_KEY sur Vercel pour activer l'enrichissement." });
+      // Porte de qualification (chantier 3) : ni test ni placeholder ne
+      // consomme de job. L'enrichissement d'une cible réelle non qualifiée
+      // reste permis : c'est lui qui aide à la qualifier.
+      {
+        const { data: row } = await sb.from("cibles_enrichies").select("nom, role, organisation").eq("id", target.id).maybeSingle();
+        const motif = motifIneligibleGeneration((row ?? { nom: target.nom }) as { nom: string | null; role?: string | null; organisation?: string | null }, { test: await cibleEstTest(sb, target.id) });
+        if (motif) return text({ error: `Enrichissement refusé : ${motif}.` });
+      }
       const { data: job, error } = await sb
         .from("enrichment_jobs")
         .insert({ cible_id: target.id, objectif: a.objectif ?? "profil", apply: a.apply ?? false })
@@ -1636,10 +1645,23 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data } = await q.limit(cap);
       const ids = ((data ?? []) as { id: string }[]).map((r) => r.id);
       if (!ids.length) return text({ ok: true, en_file: 0, detail: "Aucune cible ne correspond." });
-      const { error } = await sb.from("enrichment_jobs").insert(ids.map((cible_id) => ({ cible_id, objectif: "profil", apply: a.apply ?? false })));
+      // Porte de qualification (chantier 3) : les tests et placeholders ne
+      // consomment jamais de job de recherche web (gaspillage constaté au
+      // récap du 27/07 : Test P0 Regressions, Founder Canvas, Un chef étoilé
+      // local, partis en échec « sans résultat »).
+      const { data: lignes } = await sb.from("cibles_enrichies").select("id, nom, role, organisation").in("id", ids);
+      const exclusions: string[] = [];
+      const eligibles: string[] = [];
+      for (const r of ((lignes ?? []) as { id: string; nom: string | null; role: string | null; organisation: string | null }[])) {
+        const motif = motifIneligibleGeneration(r, { test: await cibleEstTest(sb, r.id) });
+        if (motif) exclusions.push(`${r.nom ?? r.id} (${motif})`);
+        else eligibles.push(r.id);
+      }
+      if (!eligibles.length) return text({ ok: true, en_file: 0, exclusions, detail: "Aucune cible éligible : tests et placeholders sont exclus de la file." });
+      const { error } = await sb.from("enrichment_jobs").insert(eligibles.map((cible_id) => ({ cible_id, objectif: "profil", apply: a.apply ?? false })));
       if (error) return text({ error: error.message });
       kickQueue(); // draine en tâche de fond ; le reste part au fil des appels/lectures
-      return text({ ok: true, en_file: ids.length, detail: "Jobs d'enrichissement en file — traités en tâche de fond (quelques-uns par appel). Suivre via get_dossier." });
+      return text({ ok: true, en_file: eligibles.length, exclusions: exclusions.length ? exclusions : undefined, detail: "Jobs d'enrichissement en file — traités en tâche de fond (quelques-uns par appel). Suivre via get_dossier." });
     }
   );
 

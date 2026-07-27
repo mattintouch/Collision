@@ -7,6 +7,7 @@ import clsx from "clsx";
 const tabs = [
   { key: "aujourdhui", label: "Aujourd'hui" },
   { key: "board", label: "Board" },
+  { key: "qualifier", label: "À qualifier" },
   { key: "episodes", label: "Épisodes" },
   { key: "veille", label: "Veille" },
   { key: "copilote", label: "Copilote" },

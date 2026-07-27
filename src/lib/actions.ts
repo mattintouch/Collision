@@ -853,6 +853,39 @@ export async function setCibleArchetype(input: {
   return { ok: true };
 }
 
+/** Qualifier une cible depuis la file à qualifier (chantier 3 du 27/07) :
+ *  archétype ET priorité en un geste. La cible sort de la file dès que
+ *  l'archétype est posé, le récap et le scoring retrouvent de quoi trier. */
+export async function qualifierCible(input: {
+  cible_id: string;
+  archetype: "big_fish" | "pepite" | "quick_win";
+  priorite?: "haute" | "moyenne" | "basse";
+  show_slug: string;
+}): Promise<ActionResult> {
+  const supabase = createClient();
+  const patch: Record<string, unknown> = { archetype: input.archetype };
+  if (input.priorite) patch.priorite = input.priorite;
+  const { error } = await supabase.from("cibles").update(patch).eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/qualifier`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
+/** Archiver une cible depuis la file à qualifier (l'autre geste : un nom
+ *  factice ou une piste abandonnée sort de la file ET de la génération). */
+export async function archiverCible(input: {
+  cible_id: string;
+  show_slug: string;
+}): Promise<ActionResult> {
+  const supabase = createClient();
+  const { error } = await supabase.from("cibles").update({ archive: true }).eq("id", input.cible_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/qualifier`);
+  revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
 /** Supprimer une cible (et ses données liées en cascade). */
 export async function deleteCible(input: {
   cible_id: string;

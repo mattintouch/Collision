@@ -20,6 +20,7 @@ import { hasAnthropicKey } from "../copilot/config";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 import { writeSection, type FicheRow } from "./store";
+import { motifIneligibleGeneration, cibleEstTest, type CibleGeneration } from "../qualification";
 import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU, BUDGETS_V3 } from "./schema";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -474,12 +475,27 @@ export async function processFicheGroupe(
 }
 
 /** Met en file les jobs de génération d'une cible (sans doublon sur les jobs
- *  déjà en attente ou en cours). Renvoie le nombre de jobs ajoutés. */
+ *  déjà en attente ou en cours). Renvoie le nombre de jobs ajoutés.
+ *  Porte de qualification (chantier 3 du 27/07) : une cible de test, un
+ *  placeholder ou une cible non qualifiée (archétype vide) ne déclenche
+ *  aucune génération de fiche : l'erreur dit quoi faire. */
 export async function enqueueFicheGeneration(
   sb: SB,
   cibleId: string,
   groupes: readonly FicheGroupe[] = FICHE_GROUPES
 ): Promise<number> {
+  const { data: cibleRow } = await sb
+    .from("cibles_enrichies")
+    .select("nom, role, organisation, archetype")
+    .eq("id", cibleId)
+    .maybeSingle();
+  if (cibleRow) {
+    const motif = motifIneligibleGeneration(cibleRow as CibleGeneration, {
+      test: await cibleEstTest(sb, cibleId),
+      pourFiche: true,
+    });
+    if (motif) throw new Error(`Génération de fiche refusée : ${motif}.`);
+  }
   const { data: encours } = await sb
     .from("enrichment_jobs")
     .select("objectif")
