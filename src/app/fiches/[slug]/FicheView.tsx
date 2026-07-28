@@ -26,17 +26,9 @@ import {
   type ConsoleEvent, type RecSession, type PresenceOperateur,
 } from "@/lib/fiche/console";
 
-export interface FicheBloc {
-  debut_min: number;
-  fin_min: number;
-  court: string;
-  titre: string;
-  intention?: string;
-  mode?: string;
-  rappel_label?: string;
-  rappel?: string;
-}
-export interface FicheQuestion { num: string; bloc: number; texte: string; note?: string }
+// Refonte conversation (27/07) : le déroulé minuté est supprimé. Les questions
+// sont des propositions à plat, rayées d'un tap avec timecode pendant le REC.
+export interface FicheQuestion { num: string; texte: string; note?: string }
 export interface ALireLien {
   niveau?: "indispensable" | "utile" | "optionnel";
   titre: string;
@@ -95,7 +87,6 @@ export interface FicheViewData {
   tensions: { a: string; b: string; angle?: string }[];
   recurrentes: { intro?: string; items: { question: string; reponse?: string }[] };
   reseaux: { question: string; meta?: string }[];
-  blocs: FicheBloc[];
   questions: FicheQuestion[];
   zone_grise: { id?: string; texte: string; origine?: string }[];
   sources: LienDate[];
@@ -124,7 +115,6 @@ function fmt(sec: number): string {
   return h > 0 ? `${p(h)}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
 }
 const pad2 = (n: number) => String(n).padStart(2, "0");
-const rangeLabel = (b: FicheBloc) => `${pad2(Math.floor(b.debut_min / 60))}:${pad2(b.debut_min % 60)} – ${pad2(Math.floor(b.fin_min / 60))}:${pad2(b.fin_min % 60)}`;
 
 export default function FicheView({ data }: { data: FicheViewData }) {
   const [events, setEvents] = useState<ConsoleEvent[]>(data.console_events);
@@ -232,7 +222,6 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const derniereClose = [...sessions].reverse().find((s) => s.ended_at) ?? null;
   const recStarted = !!openSession;
   const elapsed = openSession ? Math.max(0, Math.floor((now - new Date(openSession.started_at).getTime()) / 1000)) : 0;
-  const elapsedMin = elapsed / 60;
 
   /* Écriture d'un événement : identité résolue côté serveur (défauts 0041),
      ajout optimiste avec id client, dédoublonné à l'écho realtime. */
@@ -325,25 +314,10 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const doneCount = data.checklist.filter((_, i) => checked[i]).length;
   const checklistComplete = doneCount === data.checklist.length;
 
-  const blocs = data.blocs;
-  let currentBloc = -1;
-  if (recStarted && blocs.length) {
-    currentBloc = blocs.findIndex((b) => elapsedMin >= b.debut_min && elapsedMin < b.fin_min);
-    if (currentBloc === -1 && elapsedMin >= (blocs[blocs.length - 1]?.fin_min ?? 0)) currentBloc = blocs.length - 1;
-  }
-  const questionsOf = (i: number) =>
-    data.questions.filter((q) => (blocs[q.bloc] ? q.bloc : blocs.length - 1) === i);
   const askedTotal = data.questions.filter((q) => asked[q.num]).length;
 
   const toggleQuestion = (num: string) => { signalerSaisie(); sendEvent("question", { num, asked: !asked[num] }); };
   const toggleCheck = (index: number) => { signalerSaisie(); sendEvent("check", { index, checked: !checked[index] }); };
-  const goBloc = useCallback((i: number) => {
-    const el = document.getElementById(`bloc-${i}`);
-    if (el) {
-      const y = el.getBoundingClientRect().top + window.pageYOffset - 108;
-      window.scrollTo({ top: y, behavior: "smooth" });
-    }
-  }, []);
   const addNote = () => {
     const t = noteDraft.trim();
     if (!t) return;
@@ -629,7 +603,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         const sans = data.a_lire.filter((l) => !l.niveau);
         return (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>À lire</h2>
+            <h2 style={h2Style}>À lire la veille</h2>
             {[...groupes.map((n) => ({ label: NIVEAUX[n], items: data.a_lire.filter((l) => l.niveau === n) })), { label: "", items: sans }]
               .filter((g) => g.items.length)
               .map((g, gi) => (
@@ -810,71 +784,35 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         ) : null;
 
       case "sequencage":
-        // Le déroulé rend séquençage + questions ensemble (dix_questions sauté).
-        return blocs.length ? (
-          <div key={id}>
-            <section style={sectionStyle}>
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <h2 style={h2Style}>Le déroulé, 2h30</h2>
-                <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65" }}>{askedTotal} / {data.questions.length} POSÉES</span>
-              </div>
-              <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Proposition de séquençage, les questions à leur place. Tape une question quand elle est posée : elle se raye avec le timecode.</p>
-            </section>
-            {blocs.map((b, i) => {
-              const isCur = i === currentBloc;
-              const qs = questionsOf(i);
-              return (
-                <section key={i} id={`bloc-${i}`} style={{ marginTop: 36 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 14, borderBottom: "2px solid #000", paddingBottom: 8, flexWrap: "wrap", background: isCur ? "#F4C435" : "transparent" }}>
-                    <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: isCur ? "#B5790A" : "#6B6B65" }}>{rangeLabel(b)}</span>
-                    <h2 style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 34, lineHeight: 0.95, textTransform: "uppercase", margin: 0 }}>{b.titre}</h2>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
-                    {b.mode && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", letterSpacing: "0.06em" }}>{b.mode}</span>}
-                    {b.intention && <span style={{ fontSize: 13, color: "#464641", maxWidth: 480 }}>{b.intention}</span>}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-                    {qs.map((q) => {
-                      const isAsked = !!asked[q.num];
-                      return (
-                        <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ cursor: "pointer", border: "1px solid #000", padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start", opacity: isAsked ? 0.45 : 1, background: isAsked ? "#F7F7F5" : "#FFF" }}>
-                          <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 40, lineHeight: 0.85, color: "#BFBFB9", flexShrink: 0, minWidth: 34 }}>{q.num}</span>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-                            <span style={{ fontSize: 18, lineHeight: 1.35, fontWeight: 600, textDecoration: isAsked ? "line-through" : "none" }}>{q.texte}</span>
-                            {q.note && <span style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: "#6B6B65" }}>{q.note}</span>}
-                            {isAsked && <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#2FA46A", fontWeight: 700 }}>POSÉE · {askedAt[q.num]}</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {b.rappel && (
-                    <div style={{ marginTop: 12, borderLeft: "3px solid #F4C435", padding: "10px 14px", background: "#F6F4EF" }}>
-                      {b.rappel_label && <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>{b.rappel_label}</span>}
-                      <p style={{ fontSize: 15, lineHeight: 1.5, margin: "6px 0 0 0", color: "#1B1D1E" }}>{b.rappel}</p>
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
-        ) : null;
+        // Refonte conversation (27/07) : le déroulé minuté est supprimé, la
+        // section stockée des anciennes fiches n'est plus affichée.
+        return null;
 
       case "dix_questions":
-        // Rendues dans le déroulé (sequencage) ; en secours si aucun séquençage.
-        return !blocs.length && data.questions.length ? (
+        // Des PROPOSITIONS à plat, jamais un script : la conversation les
+        // amène. Tape une question quand elle est posée : elle se raye avec
+        // le timecode (état partagé entre opérateurs).
+        return data.questions.length ? (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Les {data.questions.length} questions</h2>
-            <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
-              {data.questions.map((q) => (
-                <div key={q.num} style={{ display: "grid", gridTemplateColumns: "56px 1fr", gap: 14, padding: "18px 0", borderBottom: "1px solid #D9D9D4" }}>
-                  <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 52, lineHeight: 0.85, color: "#BFBFB9" }}>{q.num}</span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <span style={{ fontSize: 18, lineHeight: 1.4, fontWeight: 600 }}>{q.texte}</span>
-                    {q.note && <span style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: "#464641" }}>{q.note}</span>}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <h2 style={h2Style}>Les questions</h2>
+              <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65" }}>{askedTotal} / {data.questions.length} POSÉES</span>
+            </div>
+            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Des propositions, pas un script : la conversation décide. Tape une question quand elle est posée, elle se raye avec le timecode.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+              {data.questions.map((q) => {
+                const isAsked = !!asked[q.num];
+                return (
+                  <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ cursor: "pointer", border: "1px solid #000", padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start", opacity: isAsked ? 0.45 : 1, background: isAsked ? "#F7F7F5" : "#FFF" }}>
+                    <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 40, lineHeight: 0.85, color: "#BFBFB9", flexShrink: 0, minWidth: 34 }}>{q.num}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+                      <span style={{ fontSize: 18, lineHeight: 1.35, fontWeight: 600, textDecoration: isAsked ? "line-through" : "none" }}>{q.texte}</span>
+                      {q.note && <span style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: "#6B6B65" }}>{q.note}</span>}
+                      {isAsked && <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#2FA46A", fontWeight: 700 }}>POSÉE · {askedAt[q.num]}</span>}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         ) : null;
@@ -998,21 +936,6 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </button>
         )}
       </header>
-
-      {/* Nav de blocs sticky (déroulé). */}
-      {blocs.length > 0 && (
-        <nav style={{ position: "sticky", top: 52, zIndex: 50, background: "#000", borderBottom: "1px solid #2B2B27", display: "flex", overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-          {blocs.map((b, i) => {
-            const isCur = i === currentBloc;
-            return (
-              <button key={i} onClick={() => goBloc(i)} style={{ flexShrink: 0, border: "none", borderRight: "1px solid #2B2B27", cursor: "pointer", padding: "9px 16px", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, background: isCur ? "#FFF" : "#000", color: isCur ? "#000" : "#FFF", minHeight: 44, boxSizing: "border-box" }}>
-                <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", opacity: 0.7 }}>{rangeLabel(b).split(" ")[0]}</span>
-                <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 19, lineHeight: 1, textTransform: "uppercase", whiteSpace: "nowrap" }}>{b.court}</span>
-              </button>
-            );
-          })}
-        </nav>
-      )}
 
       <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px" }}>
         {/* Gate anti fiche vide (chantier 2 §3.1) : une section obligatoire vide

@@ -323,7 +323,9 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   tensions: { cartes: [{ a: "Discours : ...", b: "Fait : ...", angle: "comment l'aborder sans agressivité" }] },
   questions_recurrentes: { items: [{ question: "Le forfait à 2 euros, comment vous avez fait", reponse: "réponse rodée en une ligne" }] },
   questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui ?", ressort: "argent", clip: "le chiffre lâché fait l'extrait" }] },
-  sequencage: { blocs: [{ debut_min: 0, fin_min: 20, court: "Origines", titre: "Créteil, Minitel, la débrouille", intention: "Récit. Le mettre à l'aise.", mode: "RÉCIT · ÉMOTION", rappel_label: "ZONE GRISE", rappel: "texte du rappel contextuel" }] },
+  // sequencage RETIRÉ (refonte du 27/07) : la conversation n'est plus scriptée.
+  // Le contrat reste lisible pour les données historiques, l'écriture est déconseillée.
+  sequencage: { blocs: [{ debut_min: 0, fin_min: 20, court: "RETIRÉ", titre: "Section retirée le 27/07, plus générée ni affichée", intention: "", mode: "", rappel_label: "", rappel: "" }] },
   dix_questions: { questions: [{ num: "01", bloc: 0, texte: "Question courte, tutoiement, sans point final", note: "RELANCE : ... · TERRAIN GLISSANT : ..." }] },
   zone_grise: { items: [{ id: "zg_motcle (identifiant court et stable ; les rappels et notes pointent « ZG: motcle, consigne »)", texte: "Information non vérifiée, à faire dire par l'invité. Les chiffres contradictoires non tranchés par la rédaction atterrissent ici : ne pas citer une valeur unique à l'antenne.", origine: "note Matthieu / rédaction (chiffre non tranché)" }] },
   sources: { liens: [{ date: "2023", titre: "Titre", apport: "ce que la source apporte", url: "https://..." }] },

@@ -43,9 +43,9 @@ const REDACTION_MODEL = () => process.env.REDACTION_MODEL ?? "claude-sonnet-4-6"
 export const SECTIONS_REDACTIBLES = [
   "enjeu", "recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire",
   "trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes",
-  "tensions", "questions_recurrentes", "sequencage", "dix_questions", "zone_grise",
+  "tensions", "questions_recurrentes", "dix_questions", "zone_grise",
   "entete", "sticky_header",
-] as const;
+] as const; // sequencage retiré (refonte du 27/07) : plus généré, plus rédigé
 
 /** v3.1 item 3 : sur les sections de titre, la passe ne peut corriger QUE ces
  *  champs (cohérence titres contre corps), le reste est préservé tel quel. */
@@ -105,14 +105,14 @@ const SYSTEM = [
     "- recit_canonique : 5 paragraphes maximum de 300 caractères chacun (correctif du 27/07). Il raconte, il ne re-liste ni dates ni stats.",
     "- Données chiffrées sourcées : propriété de chiffres. Ailleurs, UN chiffre inline maximum si le propos l'exige, sans re-citer la source. Au delà de 2 occurrences d'une même valeur hors chiffres, c'est un défaut à résorber.",
     "- Statuts de vérification et chiffres non tranchés : propriété de zone_grise. Ailleurs, un POINTEUR court « ZG: <mot-clé> » (90 caractères max), JAMAIS le texte complet recopié.",
-    "- Cadrage éditorial : propriété d'enjeu ; aucune autre section ne re-justifie le fil rouge. Personnes de l'écosystème : propriété d'entourage ; le séquençage cite un nom, pas la bio.",
+    "- Cadrage éditorial : propriété d'enjeu ; aucune autre section ne re-justifie le fil rouge. Personnes de l'écosystème : propriété d'entourage ; une question cite un nom, pas la bio.",
     "- univers : marché, fédérations, économie, distinctions uniquement, 4 points max hors graphiques. Retire toute timeline ou biographie. Les graphiques (barres, comparaison, rentabilite) restent tels quels.",
     "- mecanique_succes : les divergences sont des DÉCISIONS, pas un récit biographique.",
     "- Un fait n'apparaît qu'UNE fois en version longue dans toute la fiche. Les reprises deviennent un renvoi court (« cf. parcours 2015 ») ou disparaissent.",
   ].join("\n"),
   [
-    "RÈGLE 2, budgets durs (imposés aussi par le serveur au stockage, avec troncature) : recit = 5 paragraphes de 300 caractères ; parcours = 12 lignes max ; playbook = 6 leviers max, champs connu/manque/question en 2 lignes max chacun ; univers = 4 points max ; a_lire = 3 sources max (garde les meilleures) ; enjeu.texte = 1200 caractères, enjeu.lecon = 600 ; rappel de séquençage = 140 caractères (un POINTEUR, pas un paragraphe) ; intention de bloc = 450 ; note de question = 200 ; zone_grise = 12 items de 400 caractères ; chiffres = 16 KPI ; tensions = 3 cartes.",
-    "RÈGLE 3, format scannable : le Bloc B (trente_secondes, chiffres, parcours, playbook, entourage, anecdotes, tensions, questions_recurrentes, sequencage, dix_questions, zone_grise) est lu en studio. AUCUN item de plus de 3 lignes (environ 240 caractères) : découpe ou raccourcis.",
+    "RÈGLE 2, budgets durs (imposés aussi par le serveur au stockage, avec troncature) : recit = 5 paragraphes de 300 caractères ; parcours = 12 lignes max ; playbook = 6 leviers max, champs connu/manque/question en 2 lignes max chacun ; univers = 4 points max ; a_lire = 3 sources max (garde les meilleures) ; enjeu.texte = 1200 caractères, enjeu.lecon = 600 ; note de question = 200 ; zone_grise = 12 items de 400 caractères ; chiffres = 16 KPI ; tensions = 3 cartes.",
+    "RÈGLE 3, format scannable : le Bloc B (trente_secondes, chiffres, parcours, playbook, entourage, anecdotes, tensions, questions_recurrentes, dix_questions, zone_grise) est lu en studio. AUCUN item de plus de 3 lignes (environ 240 caractères) : découpe ou raccourcis.",
   ].join("\n"),
   [
     "RÈGLE DES CHIFFRES : construis mentalement la liste des valeurs chiffrées de la fiche. Pour chaque fait cité avec des valeurs divergentes, impose UNE valeur avec sa source (la mieux sourcée), partout. Si tu ne peux pas trancher, retire les valeurs divergentes des sections et ajoute un item en zone_grise : « {fait} : valeurs divergentes ({valeurs}), ne pas citer un chiffre unique à l'antenne », origine « rédaction (chiffre non tranché) ».",
@@ -123,7 +123,7 @@ const SYSTEM = [
     "CONTRÔLE DES NOMS PROPRES (v3.1) : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
     "CONTRÔLE DU BALISAGE (chantier du 27/07) : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
     "CONTRÔLE DU MÉTA NARRATIF (correctif du 27/07) : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU 27/07 », « la version précédente de cette section », « BLOC NEUF, DEMANDÉ PAR... »), ni qui a demandé quoi et quand, ni de commentaire sur la génération. Retire ces mentions en conservant le fait éditorial s'il y en a un, et signale chaque retrait dans le rapport (meta_narratif_nettoye). Ce méta contenu vit dans les commentaires et le versioning.",
-    "POINTEURS DE ZONE GRISE (correctif du 27/07, règle 6) : chaque item de zone_grise porte un identifiant court et stable (champ id, format zg_motcle) ; s'il manque, attribue le. Tout rappel de séquençage ou note de question qui recopie le texte d'un item de zone grise devient un POINTEUR : « ZG: motcle, consigne essentielle en moins de 90 caractères ». Exemple : « Gautier est vendéen, pas choletais ; il sponsorisait... redressement judiciaire... ticket non public : ne pas avancer 250 000 euros » (270 caractères recopiés 3 fois) devient « ZG: gautier, ticket non public, ne pas dire 250 k€. » Signale chaque conversion dans dedoublonnages.",
+    "POINTEURS DE ZONE GRISE (correctif du 27/07, règle 6) : chaque item de zone_grise porte un identifiant court et stable (champ id, format zg_motcle) ; s'il manque, attribue le. Toute note de question qui recopie le texte d'un item de zone grise devient un POINTEUR : « ZG: motcle, consigne essentielle en moins de 90 caractères ». Exemple : « Gautier est vendéen, pas choletais ; il sponsorisait... redressement judiciaire... ticket non public : ne pas avancer 250 000 euros » (270 caractères recopiés 3 fois) devient « ZG: gautier, ticket non public, ne pas dire 250 k€. » Signale chaque conversion dans dedoublonnages.",
   ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
@@ -136,7 +136,7 @@ const SYSTEM = [
     '    "titres_corriges": ["sous_titre : Septuple champion corrigé en Octuple champion (8 titres établis par le corps)", ...],',
     '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...],',
     '    "balisage_nettoye": ["mecanique_succes : balise cite retirée de la définition", ...],',
-    '    "meta_narratif_nettoye": ["sequencage : mention RECADRAGE DU 27/07 retirée du bloc 3", ...]',
+    '    "meta_narratif_nettoye": ["enjeu : mention RECADRAGE DU 27/07 retirée", ...]',
     "  }",
     "}",
   ].join("\n"),
@@ -154,7 +154,7 @@ function textesDe(content: Content): string[] {
   return out;
 }
 
-const BLOC_B = new Set(["trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes", "tensions", "questions_recurrentes", "sequencage", "dix_questions", "zone_grise"]);
+const BLOC_B = new Set(["trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes", "tensions", "questions_recurrentes", "dix_questions", "zone_grise"]);
 
 /** Items du Bloc B encore hors budget 3 lignes (contrôle final, règle 4.4). */
 export function itemsHorsBudget(sections: Record<string, Content>): string[] {
