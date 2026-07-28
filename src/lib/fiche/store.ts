@@ -184,8 +184,8 @@ export async function ensureFiche(
  *  sources_rapides) encore présente est RENOMMÉE vers sa nouvelle clé, contenu
  *  conservé, plutôt que doublée. */
 export async function seedSections(sb: SB, ficheId: string): Promise<void> {
-  const { data } = await sb.from("fiche_sections").select("id, section_id").eq("fiche_id", ficheId);
-  const rows = ((data ?? []) as { id: string; section_id: string }[]);
+  const { data } = await sb.from("fiche_sections").select("id, section_id, position").eq("fiche_id", ficheId);
+  const rows = ((data ?? []) as { id: string; section_id: string; position: number }[]);
   const present = new Set(rows.map((r) => r.section_id));
   // Renommage des clés héritées vers les clés du contrat v2 (contenu conservé).
   for (const r of rows) {
@@ -194,6 +194,16 @@ export async function seedSections(sb: SB, ficheId: string): Promise<void> {
       await sb.from("fiche_sections").update({ section_id: canonical, position: sectionPosition(canonical) }).eq("id", r.id);
       present.add(canonical);
       present.delete(r.section_id);
+    }
+  }
+  // Réalignement sur l'ordre du catalogue (refonte du 27/07 : a_lire passe en
+  // annexe). Sans risque : aucun outil de réordonnancement n'existe, les
+  // positions stockées sont toujours les défauts du catalogue au moment du
+  // semis ; les fiches existantes suivent le nouvel ordre au prochain passage.
+  for (const r of rows) {
+    const attendu = sectionPosition(canonicalSectionId(r.section_id));
+    if (attendu >= 0 && r.position !== attendu) {
+      await sb.from("fiche_sections").update({ position: attendu }).eq("id", r.id);
     }
   }
   const missing = FICHE_SECTIONS.filter((s) => !present.has(s.id));

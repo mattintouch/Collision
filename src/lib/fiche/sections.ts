@@ -27,7 +27,8 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "mecanique_succes", titre: "Mécanique du succès", num: "A3", bloc: "A", role: "OBLIGATOIRE, cœur de la fiche : définition du « meilleur » avec métrique explicite, pairs nommés et positionnement relatif, 3 à 5 points de divergence datés (décisions structurantes), contrefactuel signalé comme raisonnement" },
   { id: "univers", titre: "Univers / marché", num: "A4", bloc: "A", role: "adapté au profil : marché (entrepreneur), discipline et hiérarchie (sportif), écosystème professionnel (avocat, médecin). Taille, économie, acteurs, tendances multi-années, tout sourcé et daté. Visuels barres/timeline réutilisables" },
   { id: "personnel", titre: "Personnel", num: "A5", bloc: "A", role: "situation familiale, histoires personnelles PUBLIQUES, épreuves, passions. Source publique obligatoire par élément (sinon zone grise). Bandeau d'usage : matière pour le rapport, diffusion à l'antenne à valider. Aucune inférence sur la vie privée" },
-  { id: "a_lire", titre: "À lire", num: "A6", bloc: "A", role: "5 à 8 sources hiérarchisées (indispensable / utile / optionnel) : titre, date, temps de lecture, apport en une phrase. Wikipédia inclus sans complexe. URLs vérifiées à la génération, jamais reconstruites" },
+  // a_lire déplacé en ANNEXE de pied de fiche (refonte conversation du 27/07) :
+  // c'est l'outil de recherche de la veille, pas une lecture du Bloc A.
 
   // ── Bloc B : console (pendant l'enregistrement, ancre « console ») ───────
   // v3.1 item 1 : les questions clips remontent en tête du Bloc B, juste après
@@ -42,10 +43,16 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "anecdotes", titre: "Anecdotes sur l'invité", num: "B7", bloc: "B", role: "anecdotes sourcées, les bien cachées marquées en bonus (cachee=true) : matériau narratif exclusif" },
   { id: "tensions", titre: "Tensions", num: "B8", bloc: "B", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },
   { id: "questions_recurrentes", titre: "Questions récurrentes (à dépasser)", num: "B9", bloc: "B", role: "questions déjà posées 10 fois + réponse rodée en 1 ligne. À ne pas reposer telles quelles" },
-  { id: "sequencage", titre: "Séquençage", num: "B10", bloc: "B", role: "6-8 blocs sur 2h30, alterner récit et extraction, monter en intimité, timings mono" },
-  { id: "dix_questions", titre: "Les 10 questions", num: "B11", bloc: "B", role: "10 questions + relances. Courtes, directes, tutoiement, sans guillemets, majorité en 'comment'" },
+  // Refonte conversation (27/07, décision Matthieu) : le déroulé minuté est
+  // SUPPRIMÉ. Plus généré, plus rendu, plus rédigé par la passe 5. Le
+  // section_id reste au catalogue pour les données historiques et les ancres.
+  { id: "sequencage", titre: "Séquençage (retiré)", num: "B10", bloc: "B", role: "RETIRÉ (refonte du 27/07) : la conversation n'est plus scriptée. Données historiques conservées, section ni générée ni affichée" },
+  { id: "dix_questions", titre: "Les questions", num: "B11", bloc: "B", role: "des PROPOSITIONS à plat, jamais un script : courtes, directes, tutoiement, sans guillemets, majorité en 'comment'. Rayées d'un tap avec timecode pendant le REC" },
   { id: "zone_grise", titre: "Zone grise", num: "B12", bloc: "B", role: "bandeau alerte : notes internes non vérifiées et données non sourçables, à faire confirmer par l'invité" },
-  { id: "sources", titre: "Sources", num: "B13", bloc: "B", role: "liste exhaustive, liens datés avec l'apport de chacun, URLs vérifiées" },
+
+  // ── annexe : la recherche de la veille ────────────────────────────────────
+  { id: "a_lire", titre: "À lire la veille", num: "B13", bloc: "B", role: "ANNEXE de préparation : 3 sources curées (indispensable / utile / optionnel) avec titre, date, temps de lecture, apport en une phrase. URLs vérifiées à la génération, jamais reconstruites" },
+  { id: "sources", titre: "Sources", num: "B14", bloc: "B", role: "liste exhaustive, liens datés avec l'apport de chacun, URLs vérifiées" },
 
   // ── chrome ────────────────────────────────────────────────────────────────
   { id: "footer", titre: "Pied de page", role: "mono, rappel post-rec : photos + mémo vocal (ressenti, accroche LinkedIn, titre, potentiel)" },

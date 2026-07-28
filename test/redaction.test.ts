@@ -139,3 +139,20 @@ describe("règle 5 en pipeline — consignes du lint pour la passe", () => {
     expect(consignesLint({ doublons: [], chiffres_repetes: [], hors_budget: [], meta_narratif: [], bloquants: 0 })).toBe("");
   });
 });
+
+describe("refonte conversation (27/07) — le déroulé est supprimé", () => {
+  it("la passe de rédaction ne touche plus jamais le séquençage", async () => {
+    expect(SECTIONS_REDACTIBLES).not.toContain("sequencage");
+    const admis = appliquerRedaction({}, { sequencage: { blocs: [{ titre: "PIRATE" }] } });
+    expect(admis.sequencage).toBeUndefined();
+  });
+
+  it("le catalogue relègue les lectures en annexe, après la zone grise, avant les sources", async () => {
+    const { sectionPosition, FICHE_SECTIONS } = await import("../src/lib/fiche/sections");
+    expect(sectionPosition("a_lire")).toBeGreaterThan(sectionPosition("zone_grise"));
+    expect(sectionPosition("a_lire")).toBeLessThan(sectionPosition("sources"));
+    expect(FICHE_SECTIONS.find((s) => s.id === "a_lire")?.titre).toBe("À lire la veille");
+    expect(FICHE_SECTIONS.find((s) => s.id === "sequencage")?.role).toContain("RETIRÉ");
+    expect(FICHE_SECTIONS.find((s) => s.id === "dix_questions")?.titre).toBe("Les questions");
+  });
+});

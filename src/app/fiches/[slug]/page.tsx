@@ -17,7 +17,7 @@ import {
   type LienDate,
 } from "@/lib/fiche/schema";
 import { SECTIONS_OBLIGATOIRES } from "@/lib/fiche/sections";
-import FicheView, { type FicheViewData, type FicheBloc, type FicheQuestion, type ALireLien } from "./FicheView";
+import FicheView, { type FicheViewData, type FicheQuestion, type ALireLien } from "./FicheView";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,24 +98,12 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const entete = get("entete");
   const sticky = get("sticky_header");
   const titreLignes = asStringArray(entete.titre_lignes);
-  const enBlocs: FicheBloc[] = asArray(get("sequencage").blocs, (x) => {
-    const titre = asString(x.titre);
-    if (!titre) return null;
-    return {
-      debut_min: asNumber(x.debut_min) ?? 0,
-      fin_min: asNumber(x.fin_min) ?? 150,
-      court: asString(x.court) ?? titre,
-      titre,
-      intention: asString(x.intention),
-      mode: asString(x.mode),
-      rappel_label: asString(x.rappel_label),
-      rappel: asString(x.rappel),
-    };
-  });
+  // Refonte conversation (27/07) : le déroulé minuté n'est plus rendu, la
+  // section sequencage stockée est ignorée. Les questions vivent à plat.
   const questions: FicheQuestion[] = asArray(get("dix_questions").questions, (x) => {
     const texte = asString(x.texte) ?? asString(x.question);
     if (!texte) return null;
-    return { num: asString(x.num) ?? "", bloc: asNumber(x.bloc) ?? -1, texte, note: asString(x.note) };
+    return { num: asString(x.num) ?? "", texte, note: asString(x.note) };
   }).map((q, i) => ({ ...q, num: q.num || pad2(i + 1) }));
 
   const univers = get("univers");
@@ -299,7 +287,6 @@ export default async function FichePage({ params }: { params: { slug: string } }
         [asString(x.ressort)?.replace("_", "-").toUpperCase(), asString(x.clip)].filter(Boolean).join(" · ");
       return { question, meta: meta || undefined };
     }),
-    blocs: enBlocs,
     questions,
     zone_grise: asArray(get("zone_grise").items, (x) => {
       const texte = asString(x.texte);
