@@ -39,6 +39,26 @@
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 
+### Intégration du schéma de référence (GO Matthieu du 28/07) : à appliquer DANS CET ORDRE
+1. `0044_ref_statuts.sql` : table des valeurs de statut (valeurs exactes de
+   Louis, 28/07 : 14 statuts contact, 5 statuts production et médias, genre,
+   priorité). Isolée, sans risque.
+2. `0045_cibles_reference.sql` : 10 colonnes sur cibles (toutes nullable ou
+   avec défaut), 2 natures d'appui (rp, dir_comm_assistante), mapping stage
+   vers statut + trigger de synchronisation à sens unique + pose initiale du
+   statut de référence sur le stock. Additif, aucun champ existant touché.
+3. `0046_episodes_publication.sql` : ~40 colonnes du domaine publication sur
+   episodes (nullable ou défaut), index unique partiel sur numero (les
+   épisodes sans numéro passent), verrou published_locked_at, statut_prod
+   marqué DEPRECATED en commentaire (conservé). Additif.
+4. `0028_view_explicite.sql` (RÉGÉNÉRÉE le 28/07, à réappliquer) : la vue
+   cibles_enrichies étendue des 10 colonnes et des projections de référence
+   (email, telephone, linkedin, allies, rp, dir_comm_assistante,
+   date_enregistrement, alias entreprise / notes_prepa / niveau_priorite).
+   DOIT passer après 0045 et 0046.
+   Après application : spot check de 10 cibles et 5 épisodes avec Louis,
+   AVANT tout rebranchement applicatif.
+
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
 > comportement contredisant le registre, vérifier la contrainte réelle en base

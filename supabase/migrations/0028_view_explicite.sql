@@ -3,8 +3,11 @@
 -- la main : modifier CIBLE_COLUMNS dans le script puis régénérer. Un test de
 -- dérive (test/view.test.ts) garantit que ce fichier reste synchrone.
 --
--- Recréation à l'identique fonctionnel de 0027 (mêmes colonnes calculées, même
--- décompte nb_relais_actionnables), colonnes de la cible désormais énumérées.
+-- Colonnes calculées de 0027 (stage, signal, watchlists, appuis) plus les
+-- PROJECTIONS du schéma de référence (28/07) : email, telephone, linkedin,
+-- allies, rp, dir_comm_assistante, date_enregistrement et les alias
+-- entreprise, notes_prepa, niveau_priorite. Écriture toujours par les tables
+-- sources. À réappliquer APRÈS 0045 et 0046 (colonnes et natures d'appui).
 
 drop view if exists public.cibles_enrichies;
 create view public.cibles_enrichies
@@ -41,6 +44,16 @@ select
   c.google_etag,
   c.note,
   c.note_priorite,
+  c.prenom,
+  c.genre,
+  c.categorie,
+  c.serie_speciale,
+  c.premiere_neige,
+  c.tag_investisseur,
+  c.social_score,
+  c.statut_ref,
+  c.date_relance,
+  c.date_contact,
   st.key   as stage_key,
   st.label as stage_label,
   st.position as stage_position,
@@ -67,7 +80,42 @@ select
          select 1 from public.contacts ct
           where ct.appui_id = a.id
             and ct.kind::text in ('email', 'telephone', 'reseau', 'portier', 'agence')
-       )) as nb_relais_actionnables
+       )) as nb_relais_actionnables,
+  -- Schéma de référence (28/07) : PROJECTIONS en lecture. L'écriture passe
+  -- toujours par les tables sources (contacts, appuis, episodes) ; ces
+  -- colonnes donnent au schéma de Louis exactement ses attributs, alimentés
+  -- par le modèle normalisé (coordonnée principale : vérifiée d'abord, puis
+  -- confiance, puis récence).
+  (select ct.valeur from public.contacts ct
+    where ct.cible_id = c.id and ct.kind::text = 'email'
+    order by ct.verifie desc, ct.confiance desc, ct.created_at desc
+    limit 1) as email,
+  (select ct.valeur from public.contacts ct
+    where ct.cible_id = c.id and ct.kind::text = 'telephone'
+    order by ct.verifie desc, ct.confiance desc, ct.created_at desc
+    limit 1) as telephone,
+  (select ct.valeur from public.contacts ct
+    where ct.cible_id = c.id and ct.kind::text = 'reseau'
+      and ct.valeur ilike '%linkedin%'
+    order by ct.verifie desc, ct.confiance desc, ct.created_at desc
+    limit 1) as linkedin,
+  (select string_agg(a.nom, ', ' order by a.est_relais desc, a.created_at)
+     from public.appuis a
+    where a.cible_id = c.id
+      and a.type::text not in ('rp', 'dir_comm_assistante')) as allies,
+  (select string_agg(a.nom, ', ' order by a.created_at)
+     from public.appuis a
+    where a.cible_id = c.id and a.type::text = 'rp') as rp,
+  (select string_agg(a.nom, ', ' order by a.created_at)
+     from public.appuis a
+    where a.cible_id = c.id and a.type::text = 'dir_comm_assistante') as dir_comm_assistante,
+  (select e.date_enregistrement from public.episodes e
+    where e.cible_id = c.id
+    order by e.created_at desc
+    limit 1) as date_enregistrement,
+  c.organisation as entreprise,
+  c.note as notes_prepa,
+  c.priorite::text as niveau_priorite
 from public.cibles c
 left join public.stages st on st.id = c.stage_id
 left join lateral (
