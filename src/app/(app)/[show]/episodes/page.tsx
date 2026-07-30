@@ -113,6 +113,11 @@ export default async function EpisodesPage({ params }: { params: { show: string 
                         {e.lieu && ` · ${e.lieu}`}
                       </p>
                     )}
+                    {e.episode_id && (
+                      <Link href={`/${show.slug}/episodes/${e.episode_id}`} className="mt-2 inline-block text-xs font-medium hover:underline" style={{ color: "#1FB46A" }}>
+                        Publication →
+                      </Link>
+                    )}
                   </div>
                 ))}
               </div>

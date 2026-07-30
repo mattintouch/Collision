@@ -17,6 +17,7 @@ import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cou
 import { stripCiteTags } from "../ai/websearch";
 import { motifIneligibleGeneration, cibleEstTest } from "../qualification";
 import { lintFiche } from "../fiche/lint";
+import { majPublication, CHAMPS_PUBLICATION } from "../episodes/publication";
 import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -80,6 +81,25 @@ async function resolveCible(sb: SB, sid: string, ref: string) {
     .limit(2);
   const rows = (data ?? []) as { id: string; nom: string }[];
   return rows.length === 1 ? rows[0] : null;
+}
+
+/** Résout un épisode pour le domaine publication : id, numéro, ou nom
+ *  d'invité (dernier épisode de la cible résolue). */
+async function resolveEpisodePublication(sb: SB, ref: string, show?: string): Promise<Record<string, unknown> | null> {
+  const COLS = `id, cible_id, show_id, nom, date_enregistrement, published_locked_at, ${CHAMPS_PUBLICATION.join(", ")}`;
+  if (UUID_RE.test(ref)) {
+    const { data } = await sb.from("episodes").select(COLS).eq("id", ref).maybeSingle();
+    if (data) return data as unknown as Record<string, unknown>;
+  }
+  if (/^\d+$/.test(ref.trim())) {
+    const { data } = await sb.from("episodes").select(COLS).eq("numero", Number(ref.trim())).maybeSingle();
+    if (data) return data as unknown as Record<string, unknown>;
+  }
+  const sid = show ? await showId(sb, show) : null;
+  let q = sb.from("episodes").select(COLS).ilike("nom", `%${ref}%`).order("created_at", { ascending: false }).limit(1);
+  if (sid) q = q.eq("show_id", sid);
+  const { data } = await q.maybeSingle();
+  return (data as unknown as Record<string, unknown>) ?? null;
 }
 
 async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom: string) {
@@ -203,7 +223,7 @@ async function autoAttachAppuiContacts(
 }
 
 /** Outils destructifs : exigent le scope admin (décision #6). */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override"]);
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -1833,6 +1853,58 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const r = await writeSection(sb, f.id, sectionId, a.content, author);
       if (!r) return text({ error: `Section inconnue : ${a.section_id}.` });
       return text({ ok: true, fiche: f.slug, section_id: sectionId, titre: def.titre, version: r.version, avertissements_budget: r.avertissements });
+    }
+  );
+
+  RT(
+    "get_episode",
+    "Lit le domaine PUBLICATION d'un épisode (schéma de référence) : numéro, titre, descriptions, visuels, liens plateformes, statuts de production (script, montage, illustration), médias courts, verrou. `episode` : id d'épisode, numéro, ou nom d'invité (dernier épisode de la cible).",
+    { episode: z.string().describe("id, numéro, ou nom d'invité"), show: z.string().optional() },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const ep = await resolveEpisodePublication(sb, a.episode, a.show);
+      if (!ep) return text({ error: `Épisode « ${a.episode} » introuvable (id, numéro ou nom d'invité).` });
+      return text({ ok: true, episode: ep, champs_editables: CHAMPS_PUBLICATION });
+    }
+  );
+
+  W(
+    "update_episode",
+    "Écrit le domaine PUBLICATION d'un épisode (liste blanche : numéro, titre, descriptions, visuels, liens plateformes, listes, chapitres, médias courts, statuts script/montage/illustration). REFUSÉ si l'épisode est verrouillé (published_locked_at) : demander à un admin de lever le verrou via set_episode_lock. Les statuts valides vivent dans ref_statuts.",
+    {
+      episode: z.string().describe("id, numéro, ou nom d'invité"),
+      patch: z.record(z.any()).describe("champs du domaine publication à écrire (les autres sont refusés avec la liste)"),
+      show: z.string().optional(),
+    },
+    { destructiveHint: false, idempotentHint: false },
+    async (a) => {
+      const sb = createServiceClient();
+      const ep = await resolveEpisodePublication(sb, a.episode, a.show);
+      if (!ep) return text({ error: `Épisode « ${a.episode} » introuvable.` });
+      // Le verrou s'applique à tous les appels MCP d'écriture : lever le
+      // verrou (admin, set_episode_lock) avant d'écrire un épisode verrouillé.
+      const r = await majPublication(sb, ep.id as string, a.patch, { estAdmin: false });
+      if (!r.ok) return text({ error: r.erreur, champs_refuses: r.champs_refuses, champs_editables: CHAMPS_PUBLICATION });
+      return text({ ok: true, episode_id: ep.id, champs_ecrits: r.champs });
+    }
+  );
+
+  W(
+    "set_episode_lock",
+    "Pose ou lève le VERROU DE PUBLICATION d'un épisode (admin). Verrouillé, les champs de publication sont en lecture seule pour la console et le MCP. À poser une fois l'épisode publié et vérifié.",
+    { episode: z.string(), locked: z.boolean(), show: z.string().optional() },
+    { destructiveHint: true, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const ep = await resolveEpisodePublication(sb, a.episode, a.show);
+      if (!ep) return text({ error: `Épisode « ${a.episode} » introuvable.` });
+      const { error } = await sb
+        .from("episodes")
+        .update({ published_locked_at: a.locked ? new Date().toISOString() : null })
+        .eq("id", ep.id as string);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, episode_id: ep.id, verrouille: a.locked });
     }
   );
 
