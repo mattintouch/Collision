@@ -81,6 +81,21 @@ describe("budgets serveur (règle 2) — clampBudgets", () => {
     expect((recit.content.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_paragraphes);
   });
 
+  it("refonte du 30/07 : le TL;DR tient en 5 puces de 200, les polémiques en 4 items de 300", () => {
+    const tldr = clampBudgets("tldr", { items: Array.from({ length: 8 }, () => "y".repeat(250)) });
+    const items = tldr.content.items as string[];
+    expect(items.length).toBe(BUDGETS_V3.tldr_items);
+    for (const t of items) expect(t.length).toBeLessThanOrEqual(BUDGETS_V3.tldr_item_chars);
+    expect(tldr.avertissements.length).toBeGreaterThan(0);
+    const pol = clampBudgets("polemiques", { items: Array.from({ length: 6 }, () => ({ texte: "z".repeat(400), question: "q".repeat(400) })) });
+    const pItems = pol.content.items as { texte: string; question: string }[];
+    expect(pItems.length).toBe(BUDGETS_V3.polemiques_items);
+    for (const p of pItems) {
+      expect(p.texte.length).toBeLessThanOrEqual(BUDGETS_V3.polemiques_item_chars);
+      expect(p.question.length).toBeLessThanOrEqual(BUDGETS_V3.polemiques_item_chars);
+    }
+  });
+
   it("ne touche pas un contenu dans les budgets et ne mute pas l'entrée", () => {
     const entree = { texte: "court", lecon: "brève" };
     const { content, avertissements } = clampBudgets("enjeu", entree);
@@ -126,5 +141,50 @@ describe("lint — bruit structurel écarté (mesuré sur Gobert v60/v74)", () =
       dix_questions: { questions: [{ texte: "q", note: "ZG: gautier, ne pas dire 250 000" }] },
     });
     expect(rapport.chiffres_repetes).toEqual([]);
+  });
+});
+
+describe("lint — questions en double entre sections (refonte du 30/07, cas Gobert)", () => {
+  it("détecte la même question posée dans dix_questions ET questions_reseaux", () => {
+    const rapport = lintFiche({
+      dix_questions: { questions: [{ texte: "Raconte le moment précis où tu t'es dit j'étais pas bon" }] },
+      questions_reseaux: { questions: [{ question: "Raconte le moment précis où tu t'es dit j'étais pas bon", ressort: "echec" }] },
+    });
+    expect(rapport.questions_doublons.length).toBe(1);
+    expect(rapport.questions_doublons[0].endroits.sort()).toEqual(["dix_questions[0]", "questions_reseaux[0]"]);
+    expect(rapport.bloquants).toBeGreaterThanOrEqual(1);
+  });
+
+  it("détecte une paraphrase à fort recouvrement, pas les thèmes voisins", () => {
+    const rapport = lintFiche({
+      dix_questions: { questions: [
+        { texte: "Comment tu décides de couper un produit qui perd de l'argent" },
+        { texte: "Comment tu recrutes ton premier commercial" },
+      ] },
+      questions_recurrentes: { items: [
+        { question: "Comment tu décides de couper un produit qui perd de l'argent depuis six mois" },
+        { question: "Comment tu choisis tes investisseurs" },
+      ] },
+    });
+    expect(rapport.questions_doublons.length).toBe(1);
+    expect(rapport.questions_doublons[0].endroits).toContain("dix_questions[0]");
+    expect(rapport.questions_doublons[0].endroits).toContain("questions_recurrentes[0]");
+  });
+
+  it("les questions de playbook et de polémiques entrent dans le contrôle", () => {
+    const rapport = lintFiche({
+      playbook: { items: [{ titre: "pricing", question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
+      polemiques: { items: [{ texte: "fait", source: "src", question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
+    });
+    expect(rapport.questions_doublons.length).toBe(1);
+  });
+
+  it("aucun faux positif sur une fiche aux questions toutes distinctes", () => {
+    const rapport = lintFiche({
+      dix_questions: { questions: [{ texte: "Comment tu prépares une saison sans blessure" }] },
+      questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui" }] },
+      questions_recurrentes: { items: [{ question: "Pourquoi tu es parti du Jazz" }] },
+    });
+    expect(rapport.questions_doublons).toEqual([]);
   });
 });

@@ -41,9 +41,9 @@ const REDACTION_MODEL = () => process.env.REDACTION_MODEL ?? "claude-sonnet-4-6"
  *  depuis v3.1 mais SEULS leurs champs de titre sont modifiables (cf.
  *  CHAMPS_TITRE) : jamais le numéro, les pilules ni les liens. */
 export const SECTIONS_REDACTIBLES = [
-  "enjeu", "recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire",
+  "tldr", "enjeu", "recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire",
   "trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes",
-  "tensions", "questions_recurrentes", "dix_questions", "zone_grise",
+  "tensions", "polemiques", "questions_recurrentes", "dix_questions", "zone_grise",
   "entete", "sticky_header",
 ] as const; // sequencage retiré (refonte du 27/07) : plus généré, plus rédigé
 
@@ -66,9 +66,10 @@ export interface RapportRedaction {
   balisage_nettoye?: string[];
   /** Correctif anti-répétition (règle 3) : méta narratif retiré du contenu. */
   meta_narratif_nettoye?: string[];
-  /** Règle 5 : verdict du lint APRÈS la passe (doublons et chiffres répétés
-   *  résiduels = bloquants restants ; zéro attendu sur une fiche fraîche). */
-  lint_residuel?: Pick<LintRapport, "doublons" | "chiffres_repetes" | "meta_narratif" | "bloquants">;
+  /** Règle 5 : verdict du lint APRÈS la passe (doublons, chiffres répétés et
+   *  questions en double résiduels = bloquants restants ; zéro attendu sur une
+   *  fiche fraîche). */
+  lint_residuel?: Pick<LintRapport, "doublons" | "chiffres_repetes" | "meta_narratif" | "questions_doublons" | "bloquants">;
 }
 
 /** Cible du lint injectée dans le prompt de la passe (règle 5) : les doublons
@@ -89,6 +90,12 @@ export function consignesLint(lint: LintRapport): string {
   }
   if (lint.meta_narratif.length) {
     morceaux.push(`MÉTA NARRATIF À RETIRER :\n${lint.meta_narratif.slice(0, 10).map((m) => `- ${m.section} : « ${m.extrait} »`).join("\n")}`);
+  }
+  if (lint.questions_doublons.length) {
+    morceaux.push(`QUESTIONS EN DOUBLE (refonte du 30/07 : une question ne vit qu'à UN endroit ; garder la version la mieux placée, retirer les autres de dix_questions ou de playbook, JAMAIS des questions_reseaux qui ne sont pas modifiables ; remplacer chaque question retirée par une question neuve plus profonde) :\n${lint.questions_doublons
+      .slice(0, 10)
+      .map((q) => `- « ${q.question.slice(0, 90)} » présente dans : ${q.endroits.join(", ")}`)
+      .join("\n")}`);
   }
   if (lint.hors_budget.length) {
     morceaux.push(`HORS BUDGET (à réécrire sous le budget, pas à tronquer bêtement) :\n${lint.hors_budget.slice(0, 15).map((h) => `- ${h}`).join("\n")}`);
@@ -124,6 +131,12 @@ const SYSTEM = [
     "CONTRÔLE DU BALISAGE (chantier du 27/07) : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
     "CONTRÔLE DU MÉTA NARRATIF (correctif du 27/07) : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU 27/07 », « la version précédente de cette section », « BLOC NEUF, DEMANDÉ PAR... »), ni qui a demandé quoi et quand, ni de commentaire sur la génération. Retire ces mentions en conservant le fait éditorial s'il y en a un, et signale chaque retrait dans le rapport (meta_narratif_nettoye). Ce méta contenu vit dans les commentaires et le versioning.",
     "POINTEURS DE ZONE GRISE (correctif du 27/07, règle 6) : chaque item de zone_grise porte un identifiant court et stable (champ id, format zg_motcle) ; s'il manque, attribue le. Toute note de question qui recopie le texte d'un item de zone grise devient un POINTEUR : « ZG: motcle, consigne essentielle en moins de 90 caractères ». Exemple : « Gautier est vendéen, pas choletais ; il sponsorisait... redressement judiciaire... ticket non public : ne pas avancer 250 000 euros » (270 caractères recopiés 3 fois) devient « ZG: gautier, ticket non public, ne pas dire 250 k€. » Signale chaque conversion dans dedoublonnages.",
+  ].join("\n"),
+  [
+    "SECTION TL;DR (refonte du 30/07) : écris ou réécris la section tldr, tout en haut de la fiche : 5 puces MAXIMUM de 200 caractères chacune, l'essentiel si la fiche n'est lue que 3 minutes (qui il est, le fait d'armes, la mécanique centrale, l'angle de l'épisode, le piège à éviter). C'est une SYNTHÈSE de la fiche consolidée : chaque puce s'appuie sur un fait présent ailleurs dans la fiche, rien de neuf. Format : {\"items\": [\"...\"]}.",
+    "CONTRÔLE DES QUESTIONS (refonte du 30/07) : une question ne vit qu'à UN endroit de la fiche (dix_questions, questions_reseaux, questions_recurrentes, playbook, polemiques). En cas de doublon ou de paraphrase, garde la version la mieux placée et retire l'autre de dix_questions ou de playbook (questions_reseaux n'est PAS modifiable) ; remplace chaque question retirée par une question NEUVE plus profonde. Signale chaque résorption dans dedoublonnages.",
+    "PROFONDEUR DES QUESTIONS (refonte du 30/07) : chaque question en comment de dix_questions exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à demander). Une question dont la réponse attendue tiendrait dans un article publié est FAIBLE : reformule la jusqu'à extraire un apprentissage que seul l'invité peut donner.",
+    "SECTION POLÉMIQUES : 4 items maximum, chacun avec le fait public sourcé et daté (300 caractères max) et la question qui fâche, frontale mais adossée au fait, jamais une insinuation. Un item sans source publique bascule en zone_grise.",
   ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
@@ -179,6 +192,8 @@ function clampContenu(id: string, content: Content): Content {
   if (id === "playbook") clampArr("items", BUDGETS_V3.playbook_items);
   if (id === "univers") clampArr("intro", BUDGETS_V3.univers_points);
   if (id === "a_lire") clampArr("liens", BUDGETS_V3.a_lire_sources);
+  if (id === "tldr") clampArr("items", BUDGETS_V3.tldr_items);
+  if (id === "polemiques") clampArr("items", BUDGETS_V3.polemiques_items);
   return c;
 }
 
@@ -234,11 +249,14 @@ export async function processRedaction(
 ): Promise<{ sections: string[]; sources: number; rapport: RapportRedaction }> {
   if (!hasAnthropicKey()) throw new Error("Clé Anthropic absente : rédaction impossible (poser ANTHROPIC_API_KEY).");
 
+  // questions_reseaux est lue en PLUS des sections rédactibles : le contrôle
+  // des questions en double (refonte du 30/07) doit voir les clips, même si la
+  // passe n'a jamais le droit de les réécrire (appliquerRedaction filtre).
   const { data } = await sb
     .from("fiche_sections")
     .select("section_id, content")
     .eq("fiche_id", fiche.id)
-    .in("section_id", [...SECTIONS_REDACTIBLES]);
+    .in("section_id", [...SECTIONS_REDACTIBLES, "questions_reseaux"]);
   const actuel: Record<string, Content> = {};
   for (const s of ((data ?? []) as { section_id: string; content: Content }[])) {
     if (!isEmptyContent(s.content)) actuel[s.section_id] = s.content ?? {};
@@ -297,6 +315,7 @@ export async function processRedaction(
       doublons: lintApres.doublons.slice(0, 10),
       chiffres_repetes: lintApres.chiffres_repetes.slice(0, 10),
       meta_narratif: lintApres.meta_narratif.slice(0, 10),
+      questions_doublons: lintApres.questions_doublons.slice(0, 10),
       bloquants: lintApres.bloquants,
     },
   };

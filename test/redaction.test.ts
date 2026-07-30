@@ -125,18 +125,21 @@ describe("règle 5 en pipeline — consignes du lint pour la passe", () => {
       chiffres_repetes: [{ valeur: "238 M$", occurrences: 4, sections: ["enjeu", "playbook", "recit_canonique"] }],
       hors_budget: ["sequencage.blocs[2].rappel : 270 caractères, budget 140"],
       meta_narratif: [{ section: "sequencage", extrait: "RECADRAGE DU 27/07" }],
-      bloquants: 3,
+      questions_doublons: [{ question: "Raconte le moment où tu t'es dit j'étais pas bon", endroits: ["dix_questions[4]", "questions_reseaux[1]"] }],
+      bloquants: 4,
     });
     expect(consignes).toContain("DOUBLONS DÉTECTÉS PAR LE LINT");
     expect(consignes).toContain("propriétaire : zone_grise");
     expect(consignes).toContain("238 M$ : 4 occurrences");
     expect(consignes).toContain("MÉTA NARRATIF À RETIRER");
     expect(consignes).toContain("budget 140");
+    expect(consignes).toContain("QUESTIONS EN DOUBLE");
+    expect(consignes).toContain("dix_questions[4], questions_reseaux[1]");
   });
 
   it("aucune consigne quand le lint est propre", async () => {
     const { consignesLint } = await import("../src/lib/fiche/redaction");
-    expect(consignesLint({ doublons: [], chiffres_repetes: [], hors_budget: [], meta_narratif: [], bloquants: 0 })).toBe("");
+    expect(consignesLint({ doublons: [], chiffres_repetes: [], hors_budget: [], meta_narratif: [], questions_doublons: [], bloquants: 0 })).toBe("");
   });
 });
 
@@ -154,5 +157,30 @@ describe("refonte conversation (27/07) — le déroulé est supprimé", () => {
     expect(FICHE_SECTIONS.find((s) => s.id === "a_lire")?.titre).toBe("À lire la veille");
     expect(FICHE_SECTIONS.find((s) => s.id === "sequencage")?.role).toContain("RETIRÉ");
     expect(FICHE_SECTIONS.find((s) => s.id === "dix_questions")?.titre).toBe("Les questions");
+  });
+});
+
+describe("refonte du 30/07 — TL;DR et polémiques dans la passe", () => {
+  it("la passe peut écrire tldr et polemiques, jamais les clips", () => {
+    expect(SECTIONS_REDACTIBLES).toContain("tldr");
+    expect(SECTIONS_REDACTIBLES).toContain("polemiques");
+    expect(SECTIONS_REDACTIBLES).not.toContain("questions_reseaux");
+    const admis = appliquerRedaction({}, {
+      tldr: { items: ["l'essentiel en une ligne"] },
+      polemiques: { items: [{ texte: "fait public daté", source: "presse 2024", question: "la question frontale" }] },
+      questions_reseaux: { questions: [{ question: "PIRATE" }] },
+    });
+    expect(admis.tldr).toEqual({ items: ["l'essentiel en une ligne"] });
+    expect((admis.polemiques.items as unknown[]).length).toBe(1);
+    expect(admis.questions_reseaux).toBeUndefined();
+  });
+
+  it("les comptes du TL;DR et des polémiques sont re-clampés", () => {
+    const admis = appliquerRedaction({}, {
+      tldr: { items: Array.from({ length: 9 }, () => "x") },
+      polemiques: { items: Array.from({ length: 7 }, () => ({ texte: "t" })) },
+    });
+    expect((admis.tldr.items as unknown[]).length).toBe(5);
+    expect((admis.polemiques.items as unknown[]).length).toBe(4);
   });
 });

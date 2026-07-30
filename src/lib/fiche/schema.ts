@@ -21,6 +21,9 @@ export interface EnteteContent {
 }
 
 export interface ChecklistContent { items?: string[] }
+/** A1 TL;DR (refonte du 30/07) : l'essentiel en 5 puces max, écrit par la
+ *  passe de rédaction (synthèse de la fiche entière, jamais une recherche). */
+export interface TldrContent { items?: string[] }
 /** A1 Enjeu : promesse de dynamique + risque, ET la leçon transférable
  *  explicitement nommée (doctrine de profondeur, couche C). */
 export interface EnjeuContent { texte?: string; lecon?: string }
@@ -94,6 +97,11 @@ export interface PlaybookContent {
 }
 export interface EntourageContent { personnes?: { nom: string; role?: string; texte?: string }[] }
 export interface TensionsContent { cartes?: { a: string; b: string; angle?: string }[] }
+/** B13 Polémiques (refonte du 30/07) : le fait public sourcé et la question
+ *  qui fâche, frontale mais adossée au fait. */
+export interface PolemiquesContent {
+  items?: { texte: string; source?: string; question?: string }[];
+}
 export interface RecurrentesContent {
   intro?: string;
   items?: { question: string; reponse?: string }[];
@@ -170,6 +178,11 @@ export const BUDGETS_V3 = {
   chiffres_kpis: 16,
   tensions_cartes: 3,
   zg_pointeur_chars: 90, // pointeur « ZG: <mot-clé> » hors zone grise
+  // Refonte du 30/07 : TL;DR en tête, polémiques vers le bas.
+  tldr_items: 5,
+  tldr_item_chars: 200,
+  polemiques_items: 4,
+  polemiques_item_chars: 300,
 } as const;
 
 /** Identifiant court et stable d'un item de zone grise (règle 6) : dérivé du
@@ -271,6 +284,26 @@ export function clampBudgets(
     case "a_lire":
       listeMax("liens", BUDGETS_V3.a_lire_sources);
       break;
+    case "tldr":
+      listeMax("items", BUDGETS_V3.tldr_items);
+      {
+        const v = c.items;
+        if (Array.isArray(v)) {
+          c.items = v.map((p, i) => {
+            if (typeof p === "string" && p.length > BUDGETS_V3.tldr_item_chars) {
+              avertissements.push(`tldr.items[${i}] : ${p.length} caractères, budget ${BUDGETS_V3.tldr_item_chars}, tronqué`);
+              return tronque(p, BUDGETS_V3.tldr_item_chars);
+            }
+            return p;
+          });
+        }
+      }
+      break;
+    case "polemiques":
+      listeMax("items", BUDGETS_V3.polemiques_items);
+      chaqueItem("items", "texte", BUDGETS_V3.polemiques_item_chars);
+      chaqueItem("items", "question", BUDGETS_V3.polemiques_item_chars);
+      break;
   }
   return { content: c, avertissements };
 }
@@ -286,6 +319,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     liens: [{ label: "LinkedIn", url: "https://www.linkedin.com/in/..." }],
   },
   checklist_prerec: { items: DEFAULT_CHECKLIST },
+  tldr: { items: ["5 puces MAXIMUM de 200 caractères : l'essentiel si la fiche n'est lue que 3 minutes (qui, fait d'armes, mécanique centrale, angle de l'épisode, piège à éviter). Écrit par la passe de rédaction, synthèse de la fiche entière."] },
   enjeu: {
     texte: "La promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif). 5 lignes max.",
     lecon: "La leçon transférable à un auditeur étranger au domaine, explicite, une à deux phrases.",
@@ -321,6 +355,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   entourage: { personnes: [{ nom: "Cyril Poidatz", role: "cofondateur iliad", texte: "pourquoi il compte" }] },
   anecdotes: { items: [{ texte: "Anecdote sourcée sur l'invité.", source: "livre 2023, ch. 4", cachee: false }, { texte: "Anecdote bien cachée, jamais racontée en interview.", source: "podcast confidentiel 2019", cachee: true }] },
   tensions: { cartes: [{ a: "Discours : ...", b: "Fait : ...", angle: "comment l'aborder sans agressivité" }] },
+  polemiques: { items: [{ texte: "La controverse PUBLIQUE documentée, factuelle et datée (4 items max, 300 caractères).", source: "source publique datée, obligatoire", question: "la question qui fâche, frontale mais adossée au fait, tutoiement, sans point final" }] },
   questions_recurrentes: { items: [{ question: "Le forfait à 2 euros, comment vous avez fait", reponse: "réponse rodée en une ligne" }] },
   questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui ?", ressort: "argent", clip: "le chiffre lâché fait l'extrait" }] },
   // sequencage RETIRÉ (refonte du 27/07) : la conversation n'est plus scriptée.

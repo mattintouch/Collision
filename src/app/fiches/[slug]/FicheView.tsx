@@ -84,6 +84,7 @@ export interface FicheViewData {
     liens: { label: string; url: string }[];
   };
   checklist: string[];
+  tldr: string[];
   enjeu?: string;
   lecon?: string;
   recit: string[];
@@ -110,6 +111,7 @@ export interface FicheViewData {
   playbook: { intro?: string; items: { titre: string; connu?: string; manque?: string; question?: string }[] };
   entourage: { nom: string; role?: string; texte?: string }[];
   tensions: { a: string; b: string; angle?: string }[];
+  polemiques: { texte: string; source?: string; question?: string }[];
   recurrentes: { intro?: string; items: { question: string; reponse?: string }[] };
   reseaux: { question: string; meta?: string }[];
   questions: FicheQuestion[];
@@ -440,6 +442,23 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
   const renderSection = (id: string): React.ReactNode => {
     switch (id) {
+      case "tldr":
+        // Refonte du 30/07 : l'essentiel en tête, 5 puces max, écrit par la
+        // passe de rédaction (synthèse de la fiche entière).
+        return data.tldr.length ? (
+          <section key={id} style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF" }}>
+            <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>TL;DR</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              {data.tldr.map((t, i) => (
+                <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 22, lineHeight: 1, color: "#BFBFB9", flexShrink: 0, minWidth: 24 }}>{pad2(i + 1)}</span>
+                  <span style={{ fontSize: 16, lineHeight: 1.45, fontWeight: 600 }}>{t}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null;
+
       case "enjeu":
         return data.enjeu || data.lecon ? (
           <section key={id} style={sectionStyle}>
@@ -825,6 +844,31 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         // Refonte conversation (27/07) : le déroulé minuté est supprimé, la
         // section stockée des anciennes fiches n'est plus affichée.
         return null;
+
+      case "polemiques":
+        // Refonte du 30/07 : le fait public sourcé et la question qui fâche.
+        return data.polemiques.length ? (
+          <section key={id} style={sectionStyle}>
+            <h2 style={h2Style}>Polémiques</h2>
+            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Controverses publiques documentées. La question se pose sur le fait, jamais sur la rumeur.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
+              {data.polemiques.map((p, i) => (
+                <div key={i} style={{ border: "1px solid #000", borderLeft: "4px solid #000", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#6B6B65" }}>POLÉMIQUE {pad2(i + 1)}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.5 }}>
+                    {p.texte} {p.source && <span style={monoSrc}>({p.source})</span>}
+                  </span>
+                  {p.question && (
+                    <div style={{ borderTop: "1px solid #D9D9D4", paddingTop: 10 }}>
+                      <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.14em", fontWeight: 700 }}>LA QUESTION QUI FÂCHE</span>
+                      <p style={{ fontSize: 16, lineHeight: 1.45, margin: "4px 0 0 0", fontWeight: 600 }}>{p.question}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null;
 
       case "dix_questions":
         // Des PROPOSITIONS à plat, jamais un script : la conversation les
