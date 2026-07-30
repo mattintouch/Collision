@@ -21,9 +21,12 @@ import { TargetCard } from "./TargetCard";
 import { ConfirmEpisodeModal } from "./ConfirmEpisodeModal";
 
 const ALL_ARCH = ["big_fish", "quick_win", "pepite", "none"];
-// Étapes « produites » : un invité enregistré/publié n'est plus une cible du
-// pipeline → masqué par défaut du board prospect (sauf en groupant par étape).
-const DONE_STAGES = ["enregistre", "publie", "produit"];
+// Étapes AVAL (décision Matthieu du 30/07) : le board est un outil de
+// conquête, il n'affiche par défaut que identifié / qualifié / contacté.
+// Confirmé et au delà vivent sur la page Épisodes et la fiche de publication ;
+// le bouton « Tout afficher » les ramène à la demande (et la vue par étape
+// les montre toujours, ses colonnes sont les étapes elles-mêmes).
+const DONE_STAGES = ["confirme", "programme", "enregistre", "publie", "produit"];
 function archLabel(key: string) {
   return key === "none" ? "À classer" : ARCHETYPE_LABELS[key as keyof typeof ARCHETYPE_LABELS];
 }
@@ -148,7 +151,7 @@ export function BoardDnd({
     const q = query.trim().toLowerCase();
     return cibles.filter((c) => {
       if (!showArchived && c.archive) return false;
-      // Enregistrés/publiés masqués par défaut (sauf en vue par étape).
+      // Étapes aval masquées par défaut (sauf en vue par étape).
       if (!showDone && groupBy !== "stage" && c.stage_key && DONE_STAGES.includes(c.stage_key)) return false;
       if (voie !== "all" && c.voie !== voie) return false;
       if (wlFilter.size > 0 && !(c.watchlist_keys ?? []).some((k) => wlFilter.has(k))) return false;
@@ -311,7 +314,7 @@ export function BoardDnd({
           onClick={() => setShowDone((s) => !s)}
           className={clsx("chip", showDone ? "border-transparent bg-noir-600 text-blanc" : "border-noir-600 text-blanc-muted hover:text-blanc")}
         >
-          {showDone ? "Masquer enregistrés" : "Afficher enregistrés/publiés"}
+          {showDone ? "Conquête seule" : "Tout afficher"}
         </button>
       </div>
 
