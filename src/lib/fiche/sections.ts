@@ -22,11 +22,13 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "checklist_prerec", titre: "Checklist pré-rec", role: "cases à cocher persistées : avion x2, café+eau, machine à café éteinte, clim, son+cams, brief invité, photos. TOUTE la checklist cochée pour lancer le REC" },
 
   // ── Bloc A : comprendre (lecture avant enregistrement) ───────────────────
-  { id: "enjeu", titre: "Enjeu de l'épisode", num: "A1", bloc: "A", role: "la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif), et la leçon transférable explicitement nommée (doctrine, couche C)" },
-  { id: "recit_canonique", titre: "Récit canonique", num: "A2", bloc: "A", role: "l'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés : origines, bascules, ascension, statut actuel. INTERDITS : SIREN, toque, adresses, données d'annuaire (sauf pertinence narrative). Doit permettre de reformuler la trajectoire de mémoire" },
-  { id: "mecanique_succes", titre: "Mécanique du succès", num: "A3", bloc: "A", role: "OBLIGATOIRE, cœur de la fiche : définition du « meilleur » avec métrique explicite, pairs nommés et positionnement relatif, 3 à 5 points de divergence datés (décisions structurantes), contrefactuel signalé comme raisonnement" },
-  { id: "univers", titre: "Univers / marché", num: "A4", bloc: "A", role: "adapté au profil : marché (entrepreneur), discipline et hiérarchie (sportif), écosystème professionnel (avocat, médecin). Taille, économie, acteurs, tendances multi-années, tout sourcé et daté. Visuels barres/timeline réutilisables" },
-  { id: "personnel", titre: "Personnel", num: "A5", bloc: "A", role: "situation familiale, histoires personnelles PUBLIQUES, épreuves, passions. Source publique obligatoire par élément (sinon zone grise). Bandeau d'usage : matière pour le rapport, diffusion à l'antenne à valider. Aucune inférence sur la vie privée" },
+  // Refonte du 30/07 (décision Matthieu) : la fiche s'ouvre sur un TL;DR.
+  { id: "tldr", titre: "TL;DR", num: "A1", bloc: "A", role: "l'ESSENTIEL en 5 puces maximum d'une ligne chacune : ce que Matthieu doit retenir si la fiche n'est lue que 3 minutes (qui, le fait d'armes, la mécanique centrale, l'angle de l'épisode, le piège à éviter). Écrit par la passe de rédaction : c'est une SYNTHÈSE de la fiche entière, jamais une recherche" },
+  { id: "enjeu", titre: "Enjeu de l'épisode", num: "A2", bloc: "A", role: "la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif), et la leçon transférable explicitement nommée (doctrine, couche C)" },
+  { id: "recit_canonique", titre: "Récit canonique", num: "A3", bloc: "A", role: "l'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés : origines, bascules, ascension, statut actuel. INTERDITS : SIREN, toque, adresses, données d'annuaire (sauf pertinence narrative). Doit permettre de reformuler la trajectoire de mémoire" },
+  { id: "mecanique_succes", titre: "Mécanique du succès", num: "A4", bloc: "A", role: "OBLIGATOIRE, cœur de la fiche : définition du « meilleur » avec métrique explicite, pairs nommés et positionnement relatif, 3 à 5 points de divergence datés (décisions structurantes), contrefactuel signalé comme raisonnement" },
+  { id: "univers", titre: "Univers / marché", num: "A5", bloc: "A", role: "adapté au profil : marché (entrepreneur), discipline et hiérarchie (sportif), écosystème professionnel (avocat, médecin). Taille, économie, acteurs, tendances multi-années, tout sourcé et daté. Visuels barres/timeline réutilisables" },
+  { id: "personnel", titre: "Personnel", num: "A6", bloc: "A", role: "situation familiale, histoires personnelles PUBLIQUES, épreuves, passions. Source publique obligatoire par élément (sinon zone grise). Bandeau d'usage : matière pour le rapport, diffusion à l'antenne à valider. Aucune inférence sur la vie privée" },
   // a_lire déplacé en ANNEXE de pied de fiche (refonte conversation du 27/07) :
   // c'est l'outil de recherche de la veille, pas une lecture du Bloc A.
 
@@ -47,12 +49,15 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   // SUPPRIMÉ. Plus généré, plus rendu, plus rédigé par la passe 5. Le
   // section_id reste au catalogue pour les données historiques et les ancres.
   { id: "sequencage", titre: "Séquençage (retiré)", num: "B10", bloc: "B", role: "RETIRÉ (refonte du 27/07) : la conversation n'est plus scriptée. Données historiques conservées, section ni générée ni affichée" },
-  { id: "dix_questions", titre: "Les questions", num: "B11", bloc: "B", role: "des PROPOSITIONS à plat, jamais un script : courtes, directes, tutoiement, sans guillemets, majorité en 'comment'. Rayées d'un tap avec timecode pendant le REC" },
+  { id: "dix_questions", titre: "Les questions", num: "B11", bloc: "B", role: "des PROPOSITIONS à plat, jamais un script : courtes, directes, tutoiement, sans guillemets, majorité en 'comment'. Refonte du 30/07 : chaque comment va au fond, il exige le mode opératoire (critère, seuil, arbitrage, cas précis, chiffre demandé), jamais une réponse d'article. AUCUNE question ne double un clip, une récurrente ou une question de playbook. Rayées d'un tap avec timecode pendant le REC" },
   { id: "zone_grise", titre: "Zone grise", num: "B12", bloc: "B", role: "bandeau alerte : notes internes non vérifiées et données non sourçables, à faire confirmer par l'invité" },
+  // Refonte du 30/07 (décision Matthieu) : les polémiques ont leur section,
+  // vers le bas de la console, avec la question frontale prête à poser.
+  { id: "polemiques", titre: "Polémiques", num: "B13", bloc: "B", role: "controverses et critiques PUBLIQUES documentées (procès, échecs contestés, prises de position clivantes), 4 items max : le fait sourcé et daté, puis la QUESTION QUI FÂCHE, frontale mais adossée au fait, jamais une insinuation. Une rumeur non sourçable va en zone grise, pas ici" },
 
   // ── annexe : la recherche de la veille ────────────────────────────────────
-  { id: "a_lire", titre: "À lire la veille", num: "B13", bloc: "B", role: "ANNEXE de préparation : 3 sources curées (indispensable / utile / optionnel) avec titre, date, temps de lecture, apport en une phrase. URLs vérifiées à la génération, jamais reconstruites" },
-  { id: "sources", titre: "Sources", num: "B14", bloc: "B", role: "liste exhaustive, liens datés avec l'apport de chacun, URLs vérifiées" },
+  { id: "a_lire", titre: "À lire la veille", num: "B14", bloc: "B", role: "ANNEXE de préparation : 3 sources curées (indispensable / utile / optionnel) avec titre, date, temps de lecture, apport en une phrase. URLs vérifiées à la génération, jamais reconstruites" },
+  { id: "sources", titre: "Sources", num: "B15", bloc: "B", role: "liste exhaustive, liens datés avec l'apport de chacun, URLs vérifiées" },
 
   // ── chrome ────────────────────────────────────────────────────────────────
   { id: "footer", titre: "Pied de page", role: "mono, rappel post-rec : photos + mémo vocal (ressenti, accroche LinkedIn, titre, potentiel)" },

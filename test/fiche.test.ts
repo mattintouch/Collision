@@ -19,13 +19,26 @@ describe("catalogue des sections (brief GDIY)", () => {
     expect(sectionPosition("sources")).toBeLessThan(sectionPosition("footer"));
   });
   it("couvre le contrat v2 : Bloc A + Bloc B + chrome", () => {
-    expect(FICHE_SECTIONS.length).toBe(23);
+    expect(FICHE_SECTIONS.length).toBe(25);
     for (const id of ["recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire", "anecdotes"]) {
       expect(FICHE_SECTION_IDS).toContain(id);
     }
     // Le playbook reste (critère d'acceptation du brief), en Bloc B.
     expect(FICHE_SECTIONS.find((s) => s.id === "playbook")?.bloc).toBe("B");
     expect(FICHE_SECTIONS.find((s) => s.id === "mecanique_succes")?.bloc).toBe("A");
+  });
+  it("refonte du 30/07 : TL;DR ouvre le Bloc A, les polémiques vivent vers le bas", () => {
+    const tldr = FICHE_SECTIONS.find((s) => s.id === "tldr");
+    expect(tldr?.bloc).toBe("A");
+    expect(tldr?.num).toBe("A1");
+    // Tout en haut : première section de contenu, avant l'enjeu.
+    expect(sectionPosition("tldr")).toBeLessThan(sectionPosition("enjeu"));
+    expect(sectionPosition("checklist_prerec")).toBeLessThan(sectionPosition("tldr"));
+    const pol = FICHE_SECTIONS.find((s) => s.id === "polemiques");
+    expect(pol?.bloc).toBe("B");
+    // Vers le bas : après les questions et la zone grise, avant les annexes.
+    expect(sectionPosition("polemiques")).toBeGreaterThan(sectionPosition("zone_grise"));
+    expect(sectionPosition("polemiques")).toBeLessThan(sectionPosition("a_lire"));
   });
   it("alias hérités : presentation, entreprise, sources_rapides mappés", () => {
     expect(canonicalSectionId("presentation")).toBe("recit_canonique");

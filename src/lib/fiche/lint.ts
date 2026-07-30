@@ -32,11 +32,20 @@ export interface ChiffreRepete {
   sections: string[];
 }
 
+export interface QuestionDoublon {
+  question: string;       // la formulation retenue (la première rencontrée)
+  endroits: string[];     // ex. dix_questions[3], questions_reseaux[1]
+}
+
 export interface LintRapport {
   doublons: DoublonSequence[];
   chiffres_repetes: ChiffreRepete[];      // > 2 occurrences hors chiffres = bloquant
   hors_budget: string[];                  // avertissements de clampBudgets à blanc
   meta_narratif: { section: string; extrait: string }[];
+  /** Refonte du 30/07 : une même question ne vit qu'à UN endroit de la fiche
+   *  (dix_questions, clips, récurrentes, playbook, polémiques). Cas Gobert :
+   *  « j'étais pas bon » posée dans dix_questions ET questions_reseaux. */
+  questions_doublons: QuestionDoublon[];
   bloquants: number;
 }
 
@@ -100,11 +109,59 @@ function chiffresRemarquables(texte: string): string[] {
  *  formulations interdites (« ne pas dire 250 k€ » n'est pas une répétition). */
 const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["chiffres", "sources", "a_lire", "zone_grise"]);
 
+/** Où vivent les questions de la fiche : section → chemin d'extraction. */
+const CHAMPS_QUESTIONS: Record<string, { liste: string; champ: string }> = {
+  dix_questions: { liste: "questions", champ: "texte" },
+  questions_reseaux: { liste: "questions", champ: "question" },
+  questions_recurrentes: { liste: "items", champ: "question" },
+  playbook: { liste: "items", champ: "question" },
+  polemiques: { liste: "items", champ: "question" },
+};
+
+/** Similarité de deux questions normalisées : identiques, incluses l'une dans
+ *  l'autre, ou fort recouvrement de mots (Jaccard). Seuil volontairement haut :
+ *  le lint signale des reprises, pas des thèmes voisins. */
+function questionsProches(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length >= 12 && b.length >= 12 && (a.includes(b) || b.includes(a))) return true;
+  const ma = new Set(a.split(" ").filter((m) => m.length >= 3));
+  const mb = new Set(b.split(" ").filter((m) => m.length >= 3));
+  if (ma.size < 3 || mb.size < 3) return false;
+  let commun = 0;
+  for (const m of ma) if (mb.has(m)) commun++;
+  return commun / (ma.size + mb.size - commun) >= 0.75;
+}
+
+/** Questions en double entre les sections porteuses (refonte du 30/07). */
+export function doublonsQuestions(sections: Record<string, Content>): QuestionDoublon[] {
+  const toutes: { endroit: string; brute: string; norm: string }[] = [];
+  for (const [sectionId, spec] of Object.entries(CHAMPS_QUESTIONS)) {
+    const content = sections[sectionId];
+    if (!content) continue;
+    const liste = content[spec.liste];
+    if (!Array.isArray(liste)) continue;
+    liste.forEach((item, i) => {
+      const v = item && typeof item === "object" ? (item as Content)[spec.champ] : undefined;
+      if (typeof v === "string" && v.trim()) {
+        toutes.push({ endroit: `${sectionId}[${i}]`, brute: v.trim(), norm: normalise(v) });
+      }
+    });
+  }
+  const groupes: { question: string; endroits: string[]; norm: string }[] = [];
+  for (const q of toutes) {
+    const g = groupes.find((x) => questionsProches(x.norm, q.norm));
+    if (g) g.endroits.push(q.endroit);
+    else groupes.push({ question: q.brute, endroits: [q.endroit], norm: q.norm });
+  }
+  return groupes.filter((g) => g.endroits.length >= 2).map(({ question, endroits }) => ({ question, endroits }));
+}
+
 /**
  * Lint d'une fiche assemblée : sections → contenu. Règle 5 :
  * 1. séquences de 12 mots présentes dans 2 sections ou plus ;
  * 2. chiffres remarquables à plus de 2 occurrences hors section chiffres ;
- * 3. budgets (règle 2) ; 4. méta narratif (règle 3).
+ * 3. budgets (règle 2) ; 4. méta narratif (règle 3) ;
+ * 5. questions en double entre sections porteuses (refonte du 30/07).
  */
 export function lintFiche(sections: Record<string, Content>): LintRapport {
   const parSequence = new Map<string, { extrait: string; sections: Set<string> }>();
@@ -201,9 +258,12 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
       if (sectionId === "enjeu" && chemin === "texte") controleTexte(sectionId, chemin, texte, BUDGETS_V3.enjeu_texte_chars);
       if (sectionId === "enjeu" && chemin === "lecon") controleTexte(sectionId, chemin, texte, BUDGETS_V3.enjeu_lecon_chars);
       if (sectionId === "recit_canonique" && chemin.startsWith("paragraphes[")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.recit_paragraphe_chars);
+      if (sectionId === "tldr" && chemin.startsWith("items[")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.tldr_item_chars);
+      if (sectionId === "polemiques" && (chemin.endsWith(".texte") || chemin.endsWith(".question"))) controleTexte(sectionId, chemin, texte, BUDGETS_V3.polemiques_item_chars);
     }
   }
 
-  const bloquants = doublons.length + chiffres_repetes.length + meta_narratif.length;
-  return { doublons, chiffres_repetes, hors_budget, meta_narratif, bloquants };
+  const questions_doublons = doublonsQuestions(sections);
+  const bloquants = doublons.length + chiffres_repetes.length + meta_narratif.length + questions_doublons.length;
+  return { doublons, chiffres_repetes, hors_budget, meta_narratif, questions_doublons, bloquants };
 }

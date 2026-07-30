@@ -10,7 +10,7 @@ import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { kickQueue } from "@/lib/enrichment/jobs";
 import type { ConsoleEvent, RecSession } from "@/lib/fiche/console";
 import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
-import { resolveFiche, ficheSections } from "@/lib/fiche/store";
+import { resolveFiche, ficheSections, seedSections } from "@/lib/fiche/store";
 import {
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
   DEFAULT_CHECKLIST, DEFAULT_FOOTER, DEFAULT_PERSONNEL_BANDEAU,
@@ -67,6 +67,9 @@ export default async function FichePage({ params }: { params: { slug: string } }
   const { data: auth } = await createAuthClient().auth.getUser();
   const viewerEmail = auth.user?.email ?? "";
 
+  // Semis idempotent : les sections ajoutées au catalogue depuis la création
+  // de la fiche (tldr, polemiques...) existent et l'ordre suit le catalogue.
+  await seedSections(sb, fiche.id);
   const sections = await ficheSections(sb, fiche.id);
   const c = new Map<string, Content>(sections.map((s) => [s.section_id, (s.content ?? {}) as Content]));
   const get = (id: string): Content => c.get(id) ?? {};
@@ -142,6 +145,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
       const items = asStringArray(get("checklist_prerec").items);
       return items.length ? items : DEFAULT_CHECKLIST;
     })(),
+    tldr: asStringArray(get("tldr").items),
     enjeu: asString(get("enjeu").texte),
     lecon: asString(get("enjeu").lecon),
     recit: asStringArray(get("recit_canonique").paragraphes),
@@ -271,6 +275,10 @@ export default async function FichePage({ params }: { params: { slug: string } }
       const a = asString(x.a);
       const b = asString(x.b);
       return a && b ? { a, b, angle: asString(x.angle) } : null;
+    }),
+    polemiques: asArray(get("polemiques").items, (x) => {
+      const texte = asString(x.texte);
+      return texte ? { texte, source: asString(x.source), question: asString(x.question) } : null;
     }),
     recurrentes: {
       intro: asString(get("questions_recurrentes").intro),

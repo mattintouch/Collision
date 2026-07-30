@@ -7,7 +7,7 @@
 //
 //   portrait → entête, récit canonique (A2), 30 secondes (B1), parcours (B3), à lire (A6)
 //   chiffres → mécanique du succès (A3), univers/marché (A4), en chiffres (B2)
-//   angles   → entourage, anecdotes, tensions, questions récurrentes, personnel (A5)
+//   angles   → entourage, anecdotes, tensions, polémiques, questions récurrentes, personnel (A6)
 //   deroule  → enjeu (A1), séquençage, 10 questions, zone grise
 //
 // Règles transverses (contrat §3) : filtre « surface vs mécanisme » ; interdits
@@ -167,6 +167,7 @@ interface AnglesJson {
   entourage?: { nom?: string; role?: string; texte?: string }[];
   anecdotes?: { texte?: string; source?: string; cachee?: boolean }[];
   tensions?: { a?: string; b?: string; angle?: string }[];
+  polemiques?: { texte?: string; source?: string; question?: string }[];
   questions_recurrentes?: { question?: string; reponse?: string }[];
   personnel?: { texte?: string; source?: string }[];
   sources?: LienJson[];
@@ -382,8 +383,8 @@ export async function processFicheGroupe(
       : "";
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<AnglesJson>(
-      systemFor("Mission : la matière éditoriale de l'interview, format SCANNABLE (Bloc B, lu en studio : listes courtes, jamais de pavés, aucun item de plus de 3 lignes). Le PLAYBOOK est la section reine : 6 LEVIERS MAXIMUM, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Pour chaque levier, trois puces COURTES de 2 lignes maximum chacune : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Plus l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
-      `${intro}${dejaPose}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [6 MAXIMUM, couvrant action, réflexion ET innovation : {"titre": "le levier", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer, 3 lignes max"}],\n  "anecdotes": [3 à 6 : {"texte": "3 lignes max", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : la matière éditoriale de l'interview, format SCANNABLE (Bloc B, lu en studio : listes courtes, jamais de pavés, aucun item de plus de 3 lignes). Le PLAYBOOK est la section reine : 6 LEVIERS MAXIMUM, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Pour chaque levier, trois puces COURTES de 2 lignes maximum chacune : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Plus l'entourage professionnel (mentors, associés, rencontres pivots), les anecdotes publiques peu connues (à faire raconter de vive voix), les axes de conversation qui mettent en regard deux faits publics vérifiés, les POLÉMIQUES publiques documentées (procès, échecs contestés, prises de position clivantes : le fait sourcé et daté, puis la question qui fâche, frontale mais adossée au fait, jamais une insinuation ; une rumeur non sourçable n'y entre pas), les questions qu'il a déjà eues partout (pour ne pas les reposer), et le PERSONNEL : situation familiale, épreuves, passions, UNIQUEMENT si publiquement raconté, avec la source publique pour CHAQUE élément (élément sans source = exclu)."),
+      `${intro}${dejaPose}${notesTxt}\n\nRenvoie un objet JSON : {\n  "playbook": [6 MAXIMUM, couvrant action, réflexion ET innovation : {"titre": "le levier", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 5 : {"nom", "role", "texte": "pourquoi il compte, la question à en tirer, 3 lignes max"}],\n  "anecdotes": [3 à 6 : {"texte": "3 lignes max", "source": "où elle a été racontée, datée", "cachee": true si peu connue}],\n  "tensions": [2 à 4 : {"a": "Position exprimée : ...", "b": "Fait public : ...", "angle": "comment mettre les deux en regard avec bienveillance"}],\n  "polemiques": [0 à 4 : {"texte": "la controverse publique, factuelle et datée, 300 caractères max", "source": "source publique datée, OBLIGATOIRE (sans source, l'item est exclu)", "question": "la question qui fâche, frontale mais adossée au fait, tutoiement, sans point final"}],\n  "questions_recurrentes": [4 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse habituelle en une ligne"}],\n  "personnel": [0 à 5 : {"texte": "élément personnel PUBLIC (famille, épreuve, passion)", "source": "source publique datée, OBLIGATOIRE"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -405,6 +406,11 @@ export async function processFicheGroupe(
       const a = asString(x.a); const b = asString(x.b);
       return a && b ? { a, b, angle: asString(x.angle) } : null;
     });
+    // Polémiques (refonte du 30/07) : source publique OBLIGATOIRE par item.
+    const polemiques = asArray(raw.polemiques, (x) => {
+      const texte = asString(x.texte); const source = asString(x.source);
+      return texte && source ? { texte, source, question: asString(x.question) } : null;
+    }).slice(0, BUDGETS_V3.polemiques_items);
     const recurrentes = asArray(raw.questions_recurrentes, (x) => {
       const question = asString(x.question);
       return question ? { question, reponse: asString(x.reponse) } : null;
@@ -418,6 +424,7 @@ export async function processFicheGroupe(
     await put("entourage", { personnes: entourage }, entourage.length > 0);
     await put("anecdotes", { items: anecdotes }, anecdotes.length > 0);
     await put("tensions", { cartes: tensions }, tensions.length > 0);
+    await put("polemiques", { items: polemiques }, polemiques.length > 0);
     await put("questions_recurrentes", { items: recurrentes }, recurrentes.length > 0);
     await put("personnel", { bandeau: DEFAULT_PERSONNEL_BANDEAU, items: personnel }, personnel.length > 0);
     const all = lienList(raw.sources);
@@ -431,12 +438,29 @@ export async function processFicheGroupe(
       ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notes.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
       : "";
     const { data: pbRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "playbook").maybeSingle();
-    const pb = (((pbRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string }[] }).items ?? [];
+    const pb = (((pbRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string; question?: string }[] }).items ?? [];
     const pbTxt = pb.length ? `\n\nPlaybook déjà identifié (à faire vivre dans le déroulé) : ${pb.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
+    // Anti-doublon de questions (refonte du 30/07) : les questions déjà posées
+    // ailleurs dans la fiche sont interdites de reprise dans dix_questions.
+    const { data: qRows } = await sb
+      .from("fiche_sections")
+      .select("section_id, content")
+      .eq("fiche_id", fiche.id)
+      .in("section_id", ["questions_reseaux", "questions_recurrentes"]);
+    const dejaQuestions: string[] = pb.map((p) => p.question).filter((q): q is string => !!q);
+    for (const row of ((qRows ?? []) as { section_id: string; content: Content }[])) {
+      dejaQuestions.push(
+        ...asArray((row.content ?? {}).questions, (x) => asString(x.question) ?? null),
+        ...asArray((row.content ?? {}).items, (x) => asString(x.question) ?? null)
+      );
+    }
+    const dejaQTxt = dejaQuestions.length
+      ? `\n\nQuestions DÉJÀ posées ailleurs dans la fiche (clips, récurrentes, playbook) : INTERDICTION de les reprendre ou de les paraphraser dans dix_questions :\n${dejaQuestions.map((q) => `- ${q}`).join("\n")}`
+      : "";
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<DerouleJson>(
-      systemFor("Mission : le CARBURANT DE CONVERSATION de l'épisode (refonte du 27/07 : la discussion est NATURELLE, jamais scriptée ni minutée ; la fiche fournit des points d'appui sous les yeux de l'intervieweur, pas un déroulé). L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Les questions : des PROPOSITIONS à plat, à dégainer quand la conversation les amène ; majorité en comment ; AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité) ; adossées aux FAITS (un chiffre, une décision, une anecdote) plutôt qu'à des thèmes. La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix ; chaque item porte un identifiant court zg_motcle, et les notes des questions POINTENT cet identifiant (« ZG: motcle, consigne en moins de 90 caractères »), elles ne recopient JAMAIS le texte complet de l'item."),
-      `${intro}${dejaPose}${pbTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "texte": "question courte, tutoiement, sans point final, adossée à un fait précis", "note": "200 caractères max : RELANCE : ... · CHIFFRE À DEMANDER : ... ; pour la zone grise, pointer ZG: motcle"}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : le CARBURANT DE CONVERSATION de l'épisode (refonte du 27/07 : la discussion est NATURELLE, jamais scriptée ni minutée ; la fiche fournit des points d'appui sous les yeux de l'intervieweur, pas un déroulé). L'enjeu : la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (souvent le jargon ou le pitch défensif), et la LEÇON TRANSFÉRABLE explicitement nommée (ce qu'un auditeur étranger au domaine emporte et applique). Les questions : des PROPOSITIONS à plat, à dégainer quand la conversation les amène ; majorité en comment, et chaque comment va AU FOND (refonte du 30/07) : il exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à demander), jamais une réponse qui tiendrait dans un article ; une question dont la réponse attendue est une opinion ou un récit déjà publié est à REFORMULER jusqu'à extraire un apprentissage. AU PLUS 3 sur 10 portent sur le domaine, les autres sur la personne (arbitrage de densité) ; adossées aux FAITS (un chiffre, une décision, une anecdote) plutôt qu'à des thèmes ; AUCUNE ne reprend ni ne paraphrase une question déjà posée ailleurs dans la fiche (clips, récurrentes, playbook, polémiques). La zone grise : les éléments issus des notes internes, à faire confirmer de vive voix ; chaque item porte un identifiant court zg_motcle, et les notes des questions POINTENT cet identifiant (« ZG: motcle, consigne en moins de 90 caractères »), elles ne recopient JAMAIS le texte complet de l'item."),
+      `${intro}${dejaPose}${pbTxt}${dejaQTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "enjeu": "5 lignes max : la promesse de dynamique, le risque principal",\n  "lecon": "la leçon transférable, une à deux phrases, explicite",\n  "dix_questions": [10, au plus 3 sur le domaine : {"num": "01", "texte": "question courte, tutoiement, sans point final, adossée à un fait précis, le comment qui extrait le mode opératoire (critère, seuil, arbitrage, cas précis)", "note": "200 caractères max : RELANCE : ... · CHIFFRE À DEMANDER : ... ; pour la zone grise, pointer ZG: motcle"}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
