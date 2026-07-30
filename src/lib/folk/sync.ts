@@ -148,8 +148,11 @@ async function trouverPersonneFolk(
   return { personne: null, ambigu: ids.length > 1 };
 }
 
-/** Synchronise UNE cible vers Folk (upsert non destructif). Best-effort. */
-export async function syncCibleToFolk(sb: SB, cibleId: string): Promise<ResultatSync> {
+/** Synchronise UNE cible vers Folk (upsert non destructif). Best-effort.
+ *  `dry: true` (backfill) : calcule et rapporte exactement ce qui serait
+ *  écrit (création ou champs mis à jour) sans AUCUNE écriture, ni vers Folk
+ *  ni sur folk_id. */
+export async function syncCibleToFolk(sb: SB, cibleId: string, opts: { dry?: boolean } = {}): Promise<ResultatSync> {
   try {
     if (!hasFolkKey()) return { ok: false, detail: "Pas de clé Folk." };
     const { data: row } = await sb.from("cibles_enrichies").select("*").eq("id", cibleId).maybeSingle();
@@ -168,6 +171,9 @@ export async function syncCibleToFolk(sb: SB, cibleId: string): Promise<Resultat
 
     if (!personne) {
       const { patch } = construirePatchFolk(cible, { emails, telephones }, {});
+      if (opts.dry) {
+        return { ok: true, detail: `Création prévue pour ${cible.nom}.`, champs: Object.keys(patch) };
+      }
       const cree = await folkCreatePerson({ fullName: cible.nom, ...patch });
       if (!cree) return { ok: false, detail: "Création Folk impossible." };
       await sb.from("cibles").update({ folk_id: cree.id }).eq("id", cibleId);
@@ -175,6 +181,14 @@ export async function syncCibleToFolk(sb: SB, cibleId: string): Promise<Resultat
     }
 
     const { patch, champs } = construirePatchFolk(cible, { emails, telephones }, personne);
+    if (opts.dry) {
+      return {
+        ok: true,
+        folk_id: personne.id,
+        detail: champs.length ? `Mise à jour prévue pour ${cible.nom} (${champs.join(", ")}).` : "Folk déjà à jour.",
+        champs,
+      };
+    }
     if (!cible.folk_id) await sb.from("cibles").update({ folk_id: personne.id }).eq("id", cibleId);
     if (!champs.length) return { ok: true, folk_id: personne.id, detail: "Folk déjà à jour.", champs: [] };
     const ok = await folkUpdatePerson(personne.id, patch);
