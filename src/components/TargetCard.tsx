@@ -107,6 +107,17 @@ export function TargetCard({
             <span style={{ color: "#FFD200" }}>★ P{cible.note_priorite}</span>
           )}
           {cible.stage_label && <span>{cible.stage_label}</span>}
+          {/* Statut de référence (0045) : affiché seulement quand il porte une
+              valeur fine posée à la main, différente du libellé d'étape. */}
+          {cible.statut_ref && cible.statut_ref !== cible.stage_label && (
+            <span style={{ color: "#5DB4FF" }}>{cible.statut_ref}</span>
+          )}
+          {(cible.social_score ?? 0) > 0 && (
+            <span className="mono" title="Score social (schéma de référence)" style={{ color: "#9aa0ac" }}>
+              <span style={{ fontSize: "8.5px", letterSpacing: ".12em", opacity: 0.7 }}>SOCIAL </span>
+              <span style={{ fontWeight: 700 }}>{cible.social_score}</span>
+            </span>
+          )}
           {lienFiche && (
             // La carte entière est déjà un lien : navigation programmée pour
             // éviter une ancre imbriquée.
@@ -134,6 +145,8 @@ export function TargetCard({
           {(cible.watchlist_keys ?? []).map((w) => (
             <span key={w} style={{ color: "#FFD200" }}>{w.toUpperCase()}</span>
           ))}
+          {cible.premiere_neige && <span style={{ color: "#5DB4FF" }}>PREMIÈRE NEIGE</span>}
+          {cible.tag_investisseur && <span style={{ color: "#1FB46A" }}>INVESTISSEUR</span>}
         </div>
 
         {/* Badges du score (fenêtre de relance, estival, relais…) */}
