@@ -22,9 +22,34 @@ import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
   timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus,
-  saisiesEnCours, SAISIE_FRAICHEUR_MS,
+  saisiesEnCours, SAISIE_FRAICHEUR_MS, segmentsAvecLiens,
   type ConsoleEvent, type RecSession, type PresenceOperateur,
 } from "@/lib/fiche/console";
+
+/** Texte de régie ou de carnet avec URLs cliquables (incident du 30/07 :
+ *  les liens collés par Clémence étaient du texte mort). */
+function TexteLie({ texte }: { texte: string }) {
+  return (
+    <>
+      {segmentsAvecLiens(texte).map((s, i) =>
+        s.type === "lien" ? (
+          <a
+            key={i}
+            href={s.valeur}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(ev) => ev.stopPropagation()}
+            style={{ color: "inherit", textDecoration: "underline", textUnderlineOffset: 3, wordBreak: "break-all" }}
+          >
+            {s.valeur}
+          </a>
+        ) : (
+          <span key={i}>{s.valeur}</span>
+        )
+      )}
+    </>
+  );
+}
 
 // Refonte conversation (27/07) : le déroulé minuté est supprimé. Les questions
 // sont des propositions à plat, rayées d'un tap avec timecode pendant le REC.
@@ -131,6 +156,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const [renvoiEnCours, setRenvoiEnCours] = useState(false);
   const [copie, setCopie] = useState<string | null>(null);
   const [presences, setPresences] = useState<PresenceOperateur[]>([]);
+  const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
   const [syncMode, setSyncMode] = useState<"realtime" | "polling">("realtime");
   const sb = useMemo(() => createClient(), []);
   const sessionsRef = useRef(sessions);
@@ -237,12 +263,24 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       payload,
     };
     setEvents((prev) => mergeEvent(prev, e));
-    void sb
-      .from("fiche_console_events")
-      .insert({ id: e.id, fiche_id: data.fiche_id, session_id: e.session_id, kind, timecode: e.timecode, payload })
-      .then(({ error }) => {
-        if (error) setEvents((prev) => prev.filter((x) => x.id !== e.id));
-      });
+    const ligne = { id: e.id, fiche_id: data.fiche_id, session_id: e.session_id, kind, timecode: e.timecode, payload };
+    void (async () => {
+      let { error } = await sb.from("fiche_console_events").insert(ligne);
+      if (error) {
+        // Incident du 30/07 (enregistrement Chiche) : un onglet resté ouvert
+        // longtemps porte une session périmée, l'écriture est refusée et le
+        // message disparaissait EN SILENCE. Rafraîchir la session et
+        // réessayer UNE fois, puis dire franchement l'échec.
+        await sb.auth.refreshSession();
+        ({ error } = await sb.from("fiche_console_events").insert(ligne));
+      }
+      if (error) {
+        setEvents((prev) => prev.filter((x) => x.id !== e.id));
+        setErreurEnvoi(`Écriture refusée (${error.message}). Recharge la page puis renvoie ; si ça persiste, reconnecte toi.`);
+      } else {
+        setErreurEnvoi(null);
+      }
+    })();
   }, [sb, data.fiche_id, data.viewer_email]);
 
   /* État réduit du flux d'événements (dernier événement gagne). */
@@ -1078,7 +1116,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               {[...carnet].sort((a, b) => (a.tag === b.tag ? 0 : a.tag === "CLIP" ? -1 : 1)).map((item, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #D9D9D4" }}>
                   <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: item.tag === "CLIP" ? "#E63946" : "#000", flexShrink: 0 }}>{item.tag} {item.time}</span>
-                  <span style={{ fontSize: 15, lineHeight: 1.5, flex: 1, userSelect: "text" }}>{item.text}</span>
+                  <span style={{ fontSize: 15, lineHeight: 1.5, flex: 1, userSelect: "text" }}><TexteLie texte={item.text} /></span>
                   <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", flexShrink: 0 }}>{item.who}</span>
                   {item.tag === "CLIP" && (
                     <button
@@ -1099,7 +1137,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                   {chat.map((m, i) => (
                     <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid #ECECE8" }}>
                       <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", flexShrink: 0 }}>{m.who} · {m.time}</span>
-                      <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{m.text}</span>
+                      <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}><TexteLie texte={m.text} /></span>
                     </div>
                   ))}
                 </div>
@@ -1135,7 +1173,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               {carnet.map((item, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", borderBottom: "1px solid #ECECE8", paddingBottom: 8 }}>
                   <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: item.tag === "CLIP" ? "#E63946" : "#000", flexShrink: 0 }}>{item.tag} {item.time}</span>
-                  <span style={{ fontSize: 14, lineHeight: 1.5, flex: 1 }}>{item.text}</span>
+                  <span style={{ fontSize: 14, lineHeight: 1.5, flex: 1 }}><TexteLie texte={item.text} /></span>
                   <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", flexShrink: 0 }}>{item.who}</span>
                 </div>
               ))}
@@ -1187,7 +1225,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                   )}
                   <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: m.me ? "flex-end" : "flex-start" }}>
                     <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", color: "#8F8F88" }}>{m.who} · {m.time}</span>
-                    <span style={{ fontSize: 14, lineHeight: 1.5, background: m.me ? "#000" : "#ECECE8", color: m.me ? "#FFF" : "#0A0A0A", padding: "8px 12px", maxWidth: "85%" }}>{m.text}</span>
+                    <span style={{ fontSize: 14, lineHeight: 1.5, background: m.me ? "#000" : "#ECECE8", color: m.me ? "#FFF" : "#0A0A0A", padding: "8px 12px", maxWidth: "85%" }}><TexteLie texte={m.text} /></span>
                   </div>
                 </div>
               ))}
@@ -1213,6 +1251,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </div>
         ) : null;
       })()}
+
+      {/* Échec d'écriture (incident du 30/07) : dit franchement, plus jamais
+          un message qui disparaît en silence. */}
+      {erreurEnvoi && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 64, zIndex: 85, background: "#E63946", color: "#FFF", padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, justifyContent: "center" }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>{erreurEnvoi}</span>
+          <button onClick={() => setErreurEnvoi(null)} style={{ border: "1px solid #FFF", background: "none", color: "#FFF", cursor: "pointer", fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em", padding: "3px 10px" }}>OK</button>
+        </div>
+      )}
 
       {/* Barre d'actions fixe */}
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 80, background: "#000", borderTop: "1px solid #000", display: "flex", height: 64 }}>
