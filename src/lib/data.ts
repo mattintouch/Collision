@@ -34,6 +34,7 @@ export interface EpisodeListItem {
   stage_position: number | null;
   date_enregistrement: string | null;
   lieu: string | null;
+  episode_id: string | null; // lien vers la fiche de publication
 }
 
 const PRODUCED_STAGES = ["programme", "enregistre", "publie", "produit"];
@@ -51,17 +52,18 @@ export async function getEpisodesForShow(showId: string): Promise<EpisodeListIte
   const ids = rows.map((r) => r.id);
   const { data: eps } = await supabase
     .from("episodes")
-    .select("cible_id, date_enregistrement, lieu, created_at")
+    .select("id, cible_id, date_enregistrement, lieu, created_at")
     .in("cible_id", ids)
     .order("created_at", { ascending: false });
-  const byCible = new Map<string, { date_enregistrement: string | null; lieu: string | null }>();
-  for (const e of (eps ?? []) as { cible_id: string; date_enregistrement: string | null; lieu: string | null }[]) {
-    if (!byCible.has(e.cible_id)) byCible.set(e.cible_id, { date_enregistrement: e.date_enregistrement, lieu: e.lieu });
+  const byCible = new Map<string, { id: string; date_enregistrement: string | null; lieu: string | null }>();
+  for (const e of (eps ?? []) as { id: string; cible_id: string; date_enregistrement: string | null; lieu: string | null }[]) {
+    if (!byCible.has(e.cible_id)) byCible.set(e.cible_id, { id: e.id, date_enregistrement: e.date_enregistrement, lieu: e.lieu });
   }
   return rows.map((r) => ({
     ...r,
     date_enregistrement: byCible.get(r.id)?.date_enregistrement ?? null,
     lieu: byCible.get(r.id)?.lieu ?? null,
+    episode_id: byCible.get(r.id)?.id ?? null,
   }));
 }
 

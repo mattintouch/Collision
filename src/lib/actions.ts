@@ -12,6 +12,7 @@ import { mapPerson, type MappedTarget } from "./folk/map";
 import { folkLogTouche } from "./folk/write";
 import { createCalendarEvent, deleteCalendarEvent, updateCalendarEventTimes } from "./calendar";
 import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "./google/contacts";
+import { estAdmin, majPublication } from "./episodes/publication";
 
 export interface ActionResult {
   ok: boolean;
@@ -883,6 +884,47 @@ export async function archiverCible(input: {
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/${input.show_slug}/qualifier`);
   revalidatePath(`/${input.show_slug}/board`);
+  return { ok: true };
+}
+
+/** Domaine publication (schéma de référence, rebranchement 1) : écrit un
+ *  patch de publication sur un épisode, verrou respecté (admin seul écrit
+ *  verrouillé). Liste blanche des champs dans lib/episodes/publication. */
+export async function updateEpisodePublication(input: {
+  episode_id: string;
+  patch: Record<string, unknown>;
+  show_slug: string;
+}): Promise<ActionResult> {
+  const supabase = createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  const admin = await estAdmin(supabase, auth.user?.id);
+  const r = await majPublication(supabase, input.episode_id, input.patch, { estAdmin: admin });
+  if (!r.ok) return { ok: false, error: r.erreur };
+  revalidatePath(`/${input.show_slug}/episodes`);
+  revalidatePath(`/${input.show_slug}/episodes/${input.episode_id}`);
+  return { ok: true, detail: `${r.champs.length} champ(s) écrit(s).` };
+}
+
+/** Verrou de publication : le poser est un geste d'équipe, le lever exige
+ *  le rôle admin. */
+export async function setEpisodeLock(input: {
+  episode_id: string;
+  locked: boolean;
+  show_slug: string;
+}): Promise<ActionResult> {
+  const supabase = createClient();
+  if (!input.locked) {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!(await estAdmin(supabase, auth.user?.id))) {
+      return { ok: false, error: "Seul un profil admin peut lever le verrou de publication." };
+    }
+  }
+  const { error } = await supabase
+    .from("episodes")
+    .update({ published_locked_at: input.locked ? new Date().toISOString() : null })
+    .eq("id", input.episode_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/${input.show_slug}/episodes/${input.episode_id}`);
   return { ok: true };
 }
 
