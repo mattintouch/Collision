@@ -121,6 +121,33 @@ export function chatNonLus(events: ConsoleEvent[], email: string): ConsoleEvent[
   return chatOf(events).filter((e) => e.author_email !== email && e.created_at > borne);
 }
 
+/* ── Liens cliquables dans la régie et le carnet (incident du 30/07,
+   enregistrement Raphaël Chiche : Clémence collait des URLs, texte mort). */
+
+export type SegmentTexte = { type: "texte"; valeur: string } | { type: "lien"; valeur: string };
+
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
+
+/** Découpe un texte en segments texte / lien. La ponctuation finale collée à
+ *  l'URL (point, virgule, parenthèse fermante) reste du texte : « vois
+ *  https://x.fr. » ne casse pas le lien. Fonction pure, le rendu décide de
+ *  la présentation. */
+export function segmentsAvecLiens(texte: string): SegmentTexte[] {
+  const out: SegmentTexte[] = [];
+  let cursor = 0;
+  for (const m of texte.matchAll(URL_RE)) {
+    let url = m[0];
+    const ponctuation = url.match(/[.,;:!?…]+$/);
+    if (ponctuation) url = url.slice(0, -ponctuation[0].length);
+    const debut = m.index ?? 0;
+    if (debut > cursor) out.push({ type: "texte", valeur: texte.slice(cursor, debut) });
+    out.push({ type: "lien", valeur: url });
+    cursor = debut + url.length;
+  }
+  if (cursor < texte.length) out.push({ type: "texte", valeur: texte.slice(cursor) });
+  return out.length ? out : [{ type: "texte", valeur: texte }];
+}
+
 /* ── Alerte de saisie pendant le REC (demande produit C2 du récap du 27/07).
    Le payload de présence Realtime (PR 7) est étendu d'un champ typing_at
    (ISO 8601, null au repos). Rien n'est persisté : le signal vit en mémoire

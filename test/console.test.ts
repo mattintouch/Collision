@@ -160,3 +160,29 @@ describe("alerte de saisie pendant le REC (demande C2 du 27/07)", () => {
     expect(saisiesEnCours(presences, "matt@stefani.fr", true, now)).toEqual([]);
   });
 });
+
+describe("liens cliquables dans la régie et le carnet (incident du 30/07)", () => {
+  it("découpe un message en segments texte et lien", async () => {
+    const { segmentsAvecLiens } = await import("../src/lib/fiche/console");
+    const segments = segmentsAvecLiens("regarde https://gdiy.fr/episode-450 avant la question");
+    expect(segments).toEqual([
+      { type: "texte", valeur: "regarde " },
+      { type: "lien", valeur: "https://gdiy.fr/episode-450" },
+      { type: "texte", valeur: " avant la question" },
+    ]);
+  });
+
+  it("la ponctuation finale collée à l'URL reste du texte", async () => {
+    const { segmentsAvecLiens } = await import("../src/lib/fiche/console");
+    const segments = segmentsAvecLiens("vois https://x.fr/page.");
+    expect(segments[1]).toEqual({ type: "lien", valeur: "https://x.fr/page" });
+    expect(segments[2]).toEqual({ type: "texte", valeur: "." });
+  });
+
+  it("un message sans URL reste un seul segment texte, deux URLs donnent deux liens", async () => {
+    const { segmentsAvecLiens } = await import("../src/lib/fiche/console");
+    expect(segmentsAvecLiens("monte le son")).toEqual([{ type: "texte", valeur: "monte le son" }]);
+    const deux = segmentsAvecLiens("https://a.fr et https://b.fr");
+    expect(deux.filter((s) => s.type === "lien").map((s) => s.valeur)).toEqual(["https://a.fr", "https://b.fr"]);
+  });
+});
