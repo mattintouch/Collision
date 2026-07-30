@@ -116,6 +116,23 @@ export default async function CiblePage({
                 {ARCHETYPE_LABELS[cible.archetype]} — {ARCHETYPE_HINTS[cible.archetype]}
               </span>
             )}
+            {/* Schéma de référence (0045) : statut fin quand il diffère de
+                l'étape, score social, tags et catégories de Louis. */}
+            {cible.statut_ref && cible.statut_ref !== cible.stage_label && (
+              <span className="chip border-sky-400/40 text-sky-300">Réf : {cible.statut_ref}</span>
+            )}
+            {(cible.social_score ?? 0) > 0 && (
+              <span className="chip border-noir-600 text-blanc-muted">Social {cible.social_score}/3</span>
+            )}
+            {cible.premiere_neige && (
+              <span className="chip border-sky-400/40 text-sky-300">Première neige</span>
+            )}
+            {cible.tag_investisseur && (
+              <span className="chip border-emerald-400/40 text-emerald-300">Investisseur</span>
+            )}
+            {(cible.categorie ?? []).map((cat) => (
+              <span key={cat} className="chip border-noir-600 text-blanc-muted">{cat}</span>
+            ))}
           </div>
           </div>
         </div>
@@ -165,6 +182,7 @@ export default async function CiblePage({
                 ` (il y a ${cible.jours_depuis_touche} j)`}
               {cible.canal_reel && ` · Canal : ${cible.canal_reel}`}
               {cible.via_qui && ` · Via : ${cible.via_qui}`}
+              {cible.date_relance && ` · Relance prévue : ${fmt(cible.date_relance)}`}
             </p>
           </section>
 
