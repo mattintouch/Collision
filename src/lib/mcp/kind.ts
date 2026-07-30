@@ -3,15 +3,20 @@
 // champs refusés (illégaux pour ce kind) — pour une erreur lisible plutôt qu'une
 // violation de contrainte Postgres brute.
 
-// Seuls role / organisation / archetype restent réservés aux personnes (une
-// entreprise n'a ni archétype ni rôle perso — contrainte cible_entreprise_fields).
-export const PERSONNE_ONLY = ["role", "organisation", "archetype"] as const;
+// Réservés aux personnes : role / organisation / archetype (contrainte
+// cible_entreprise_fields) plus les attributs de personne du schéma de
+// référence (0045) : prénom et genre n'ont pas de sens pour une entreprise.
+export const PERSONNE_ONLY = ["role", "organisation", "archetype", "prenom", "genre"] as const;
 // Plus aucun champ réservé aux entreprises : secteur/pays/ville/envergure et
 // raison_de_selection/etat_recherche sont partagés (migrations 0020 + 0021).
 export const ENTREPRISE_ONLY = [] as const;
 export const SHARED_FIELDS = [
   "nom", "priorite", "voie", "sujets", "note", "note_priorite", "canal_reel", "via_qui",
   "ville", "photo_url", "playbook", "secteur", "pays", "envergure", "raison_de_selection", "etat_recherche",
+  // Schéma de référence (0045) : attributs partagés, la validation des valeurs
+  // (genre, statut_ref vs ref_statuts, social_score 0-3) est applicative.
+  "categorie", "serie_speciale", "premiere_neige", "tag_investisseur", "social_score",
+  "statut_ref", "date_relance", "date_contact",
 ] as const;
 
 export function kindAwarePatch(

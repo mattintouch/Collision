@@ -12,7 +12,8 @@ import { mapPerson, type MappedTarget } from "./folk/map";
 import { folkLogTouche } from "./folk/write";
 import { createCalendarEvent, deleteCalendarEvent, updateCalendarEventTimes } from "./calendar";
 import { googleAccessToken, searchGoogleContact, hasGoogleSync } from "./google/contacts";
-import { estAdmin, majPublication } from "./episodes/publication";
+import { estAdmin, majPublication, valeursStatut } from "./episodes/publication";
+import { patchReference, type ReferenceInput } from "./qualification";
 
 export interface ActionResult {
   ok: boolean;
@@ -862,10 +863,18 @@ export async function qualifierCible(input: {
   archetype: "big_fish" | "pepite" | "quick_win";
   priorite?: "haute" | "moyenne" | "basse";
   show_slug: string;
+  /** Attributs de référence (rebranchement 2) : posés au même geste. */
+  reference?: ReferenceInput;
 }): Promise<ActionResult> {
   const supabase = createClient();
   const patch: Record<string, unknown> = { archetype: input.archetype };
   if (input.priorite) patch.priorite = input.priorite;
+  if (input.reference) {
+    const genres = input.reference.genre ? await valeursStatut(supabase, "genre") : [];
+    const r = patchReference(input.reference, genres);
+    if (r.refuses.length) return { ok: false, error: `Valeurs refusées : ${r.refuses.join(" ; ")}.` };
+    Object.assign(patch, r.patch);
+  }
   const { error } = await supabase.from("cibles").update(patch).eq("id", input.cible_id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/${input.show_slug}/qualifier`);

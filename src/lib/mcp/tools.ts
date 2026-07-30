@@ -17,7 +17,7 @@ import { etatBudgetLecture, setBudgetOverride, ventilationMois } from "../ai/cou
 import { stripCiteTags } from "../ai/websearch";
 import { motifIneligibleGeneration, cibleEstTest } from "../qualification";
 import { lintFiche } from "../fiche/lint";
-import { majPublication, CHAMPS_PUBLICATION } from "../episodes/publication";
+import { majPublication, CHAMPS_PUBLICATION, valeursStatut } from "../episodes/publication";
 import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
@@ -979,7 +979,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "update_cible",
-    "Met à jour les champs d'une cible (rôle, organisation, secteur, priorité, voie, archétype, sujets…). Ne touche que les champs fournis.",
+    "Met à jour les champs d'une cible (rôle, organisation, secteur, priorité, voie, archétype, sujets…) et les attributs du schéma de référence (prenom, genre, categorie, serie_speciale, premiere_neige, tag_investisseur, social_score, statut_ref, date_relance, date_contact). Ne touche que les champs fournis. Aucun de ces attributs de référence ne part vers Folk.",
     {
       show: z.string(),
       cible: z.string().describe("nom ou id de la cible"),
@@ -1004,6 +1004,16 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       stage: z.string().optional().describe("clé d'étape (ex. identifie, qualifie, contacte, confirme, programme, enregistre, publie) — publie = déjà invité"),
       watchlist: z.array(z.string()).optional().describe("remplace les watchlists (clés/libellés)"),
       is_test: z.boolean().optional().describe("marque/démarque une cible de test (exclue des stats/score/sélection)"),
+      prenom: z.string().optional().describe("prénom (schéma de référence)"),
+      genre: z.string().optional().describe("genre (valeurs de ref_statuts, domaine genre : homme, femme, autre)"),
+      categorie: z.array(z.string()).optional().describe("catégories (schéma de référence, remplace la liste)"),
+      serie_speciale: z.array(z.string()).optional().describe("séries spéciales (remplace la liste)"),
+      premiere_neige: z.boolean().optional().describe("tag première neige"),
+      tag_investisseur: z.boolean().optional().describe("tag investisseur"),
+      social_score: z.number().int().min(0).max(3).optional().describe("score social 0 à 3"),
+      statut_ref: z.string().optional().describe("statut de référence fin (valeurs de ref_statuts, domaine contact_statut) ; attention : un changement de stage le resynchronise"),
+      date_relance: z.string().optional().describe("date de relance (ISO, AAAA-MM-JJ)"),
+      date_contact: z.string().optional().describe("date de contact (ISO, AAAA-MM-JJ)"),
     },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
@@ -1039,6 +1049,17 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         patch.stage_id = (st as { id: string }).id;
       }
       if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
+      // Schéma de référence : genre et statut_ref se valident contre la table
+      // ref_statuts (liste vide = contrôle désactivé, la table fait foi).
+      for (const [champ, domaine] of [["genre", "genre"], ["statut_ref", "contact_statut"]] as const) {
+        const v = patch[champ];
+        if (typeof v === "string" && v) {
+          const valides = await valeursStatut(sb, domaine);
+          if (valides.length && !valides.includes(v)) {
+            return text({ error: `Valeur « ${v} » inconnue pour ${champ}. Valeurs (ref_statuts, ${domaine}) : ${valides.join(", ")}.` });
+          }
+        }
+      }
       if (Object.keys(patch).length === 0 && a.watchlist === undefined) {
         return text({ error: "Aucun champ à mettre à jour." });
       }

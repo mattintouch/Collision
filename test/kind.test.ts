@@ -21,6 +21,23 @@ describe("kindAwarePatch", () => {
     expect(patch).toHaveProperty("nom");
     expect(patch).not.toHaveProperty("champ_bidon");
   });
+
+  it("schéma de référence : tout passe sur une personne, prenom/genre refusés sur une entreprise", () => {
+    const reference = {
+      prenom: "Jean", genre: "homme", categorie: ["tech"], serie_speciale: ["première neige"],
+      premiere_neige: true, tag_investisseur: true, social_score: 2, statut_ref: "À suivre",
+      date_relance: "2026-08-15", date_contact: "2026-07-01",
+    };
+    const perso = kindAwarePatch("personne", reference);
+    expect(perso.rejected).toEqual([]);
+    expect(perso.patch).toMatchObject(reference);
+
+    const ent = kindAwarePatch("entreprise", reference);
+    expect(ent.rejected).toContain("prenom");
+    expect(ent.rejected).toContain("genre");
+    // Les attributs partagés restent permis sur une entreprise.
+    expect(ent.patch).toMatchObject({ statut_ref: "À suivre", social_score: 2 });
+  });
 });
 
 describe("mapKindConstraintError (régressions 17/07)", () => {
