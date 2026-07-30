@@ -39,6 +39,53 @@ export function motifIneligibleGeneration(
   return null;
 }
 
+// Qualification enrichie (schéma de référence, rebranchement 2) : les
+// attributs de Louis se posent au même geste que l'archétype. Helper PUR,
+// testable : construit le patch et signale les valeurs refusées au lieu de
+// laisser Postgres répondre par une violation de contrainte brute.
+
+export interface ReferenceInput {
+  genre?: string | null;
+  categorie?: string[];
+  social_score?: number;
+  premiere_neige?: boolean;
+  tag_investisseur?: boolean;
+}
+
+/**
+ * Patch des attributs de référence d'une cible. Ne pose que les champs
+ * fournis. `genresValides` vient de ref_statuts (domaine genre) : une liste
+ * vide désactive le contrôle (la table de référence fait foi, pas le code).
+ */
+export function patchReference(
+  input: ReferenceInput,
+  genresValides: string[] = []
+): { patch: Record<string, unknown>; refuses: string[] } {
+  const patch: Record<string, unknown> = {};
+  const refuses: string[] = [];
+  if (input.genre !== undefined) {
+    if (input.genre && genresValides.length && !genresValides.includes(input.genre)) {
+      refuses.push(`genre « ${input.genre} » (valeurs : ${genresValides.join(", ")})`);
+    } else {
+      patch.genre = input.genre || null;
+    }
+  }
+  if (input.categorie !== undefined) {
+    // Nettoyage : entrées vides retirées, doublons fusionnés, ordre conservé.
+    patch.categorie = [...new Set(input.categorie.map((c) => c.trim()).filter(Boolean))];
+  }
+  if (input.social_score !== undefined) {
+    if (!Number.isInteger(input.social_score) || input.social_score < 0 || input.social_score > 3) {
+      refuses.push(`social_score ${input.social_score} (entier de 0 à 3)`);
+    } else {
+      patch.social_score = input.social_score;
+    }
+  }
+  if (input.premiere_neige !== undefined) patch.premiere_neige = input.premiere_neige;
+  if (input.tag_investisseur !== undefined) patch.tag_investisseur = input.tag_investisseur;
+  return { patch, refuses };
+}
+
 /** La cible est-elle marquée de test ? Défensif : colonne is_test absente
  *  (migration 0032 dormante) → false, aucune régression. */
 export async function cibleEstTest(sb: SB, cibleId: string): Promise<boolean> {

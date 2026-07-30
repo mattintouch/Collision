@@ -105,6 +105,19 @@ export interface Cible {
   // Playbook d'approche (S5) : comment engager concrètement cette cible.
   playbook: Playbook | null;
 
+  // Schéma de référence (migration 0045) : attributs de la table contacts
+  // de Louis portés par cibles. Nullable ou avec défaut, jamais requis.
+  prenom: string | null;
+  genre: string | null;
+  categorie: string[];
+  serie_speciale: string[];
+  premiere_neige: boolean;
+  tag_investisseur: boolean;
+  social_score: number;
+  statut_ref: string | null;
+  date_relance: string | null;
+  date_contact: string | null;
+
   // Lien Folk (source de vérité coordonnées + interactions)
   folk_id: string | null;
 

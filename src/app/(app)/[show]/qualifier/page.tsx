@@ -6,6 +6,8 @@
 
 import { notFound } from "next/navigation";
 import { getCibles, getShow } from "@/lib/data";
+import { createClient } from "@/lib/supabase/server";
+import { valeursStatut } from "@/lib/episodes/publication";
 import { QualifierQueue } from "@/components/QualifierQueue";
 
 export default async function QualifierPage({
@@ -19,6 +21,9 @@ export default async function QualifierPage({
   // getCibles exclut déjà les cibles de test (A6, défensif sur is_test).
   const cibles = await getCibles(show.id);
   const aQualifier = cibles.filter((c) => !c.archive && !c.archetype);
+  // Genres depuis ref_statuts (repli sur les valeurs de Louis si table vide).
+  const genresRef = await valeursStatut(createClient(), "genre");
+  const genres = genresRef.length ? genresRef : ["homme", "femme", "autre"];
 
   return (
     <div>
@@ -32,7 +37,7 @@ export default async function QualifierPage({
             : `${aQualifier.length} cible${aQualifier.length > 1 ? "s" : ""} sans archétype. Deux gestes par cible : qualifier (archétype et priorité) ou archiver. Une cible non qualifiée ne déclenche pas de génération de fiche.`}
         </p>
       </div>
-      <QualifierQueue show={show} cibles={aQualifier} />
+      <QualifierQueue show={show} cibles={aQualifier} genres={genres} />
     </div>
   );
 }
