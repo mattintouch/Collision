@@ -35,22 +35,22 @@ const REDACTION_AUTHOR = "vadim (rédaction)";
  *  web. Recalibrable par l'env (décision Haiku/Sonnet sur données, §4.4). */
 const REDACTION_MODEL = () => process.env.REDACTION_MODEL ?? "claude-sonnet-4-6";
 
-/** Sections que la passe a le droit de réécrire. Hors périmètre : la
- *  checklist, le footer, les questions réseaux (challengées par l'équipe) et
- *  les sources (liste de liens vérifiés). L'entête et le bandeau sont admis
- *  depuis v3.1 mais SEULS leurs champs de titre sont modifiables (cf.
- *  CHAMPS_TITRE) : jamais le numéro, les pilules ni les liens. */
+/** Sections que la passe a le droit de réécrire (contrat v3.1). Hors
+ *  périmètre : la checklist, le footer, les clips (challengés par l'équipe,
+ *  lus en contexte pour le contrôle des doublons) et les sources (liste de
+ *  liens vérifiés). L'identité et le bandeau sont admis mais SEULS leurs
+ *  champs de titre sont modifiables (cf. CHAMPS_TITRE) : jamais le numéro,
+ *  les pilules, les liens, la date de naissance, les accompagnants ni la
+ *  mise en relation (saisis à la main). */
 export const SECTIONS_REDACTIBLES = [
-  "tldr", "enjeu", "recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire",
-  "trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes",
-  "tensions", "polemiques", "questions_recurrentes", "dix_questions", "zone_grise",
-  "entete", "sticky_header",
-] as const; // sequencage retiré (refonte du 27/07) : plus généré, plus rédigé
+  "tldr", "data", "apprentissages", "topics", "personnel", "revue_de_presse",
+  "identite", "sticky_header",
+] as const;
 
-/** v3.1 item 3 : sur les sections de titre, la passe ne peut corriger QUE ces
- *  champs (cohérence titres contre corps), le reste est préservé tel quel. */
+/** Sur les sections de titre, la passe ne peut corriger QUE ces champs
+ *  (cohérence titres contre corps), le reste est préservé tel quel. */
 export const CHAMPS_TITRE: Record<string, readonly string[]> = {
-  entete: ["sous_titre", "societe"],
+  identite: ["sous_titre", "societe"],
   sticky_header: ["societe"],
 };
 
@@ -92,7 +92,7 @@ export function consignesLint(lint: LintRapport): string {
     morceaux.push(`MÉTA NARRATIF À RETIRER :\n${lint.meta_narratif.slice(0, 10).map((m) => `- ${m.section} : « ${m.extrait} »`).join("\n")}`);
   }
   if (lint.questions_doublons.length) {
-    morceaux.push(`QUESTIONS EN DOUBLE (refonte du 30/07 : une question ne vit qu'à UN endroit ; garder la version la mieux placée, retirer les autres de dix_questions ou de playbook, JAMAIS des questions_reseaux qui ne sont pas modifiables ; remplacer chaque question retirée par une question neuve plus profonde) :\n${lint.questions_doublons
+    morceaux.push(`QUESTIONS EN DOUBLE (une question ne vit qu'à UN endroit ; garder la version la mieux placée, retirer les autres de topics ou d'apprentissages, JAMAIS des clips qui ne sont pas modifiables ; remplacer chaque question retirée par une question neuve plus profonde) :\n${lint.questions_doublons
       .slice(0, 10)
       .map((q) => `- « ${q.question.slice(0, 90)} » présente dans : ${q.endroits.join(", ")}`)
       .join("\n")}`);
@@ -107,49 +107,48 @@ const SYSTEM = [
   "Tu es le RÉDACTEUR EN CHEF des fiches de préparation GDIY (Collision Productions). Quatre rédacteurs exhaustifs ont écrit la fiche en parallèle : ton travail est la passe de consolidation que personne n'a faite. Tu reçois la fiche entière en JSON, tu renvoies les sections CORRIGÉES.",
   "Objectif : à information constante, réduire le volume de 40 à 50 pour cent, rendre la fiche scannable en fragments pendant l'enregistrement, supprimer toute contradiction chiffrée. Aucune perte de fait vérifié : tu condenses et tu déplaces, tu n'inventes rien et tu ne supprimes un fait que s'il est répété ailleurs.",
   [
-    "RÈGLE 1, propriété unique des faits :",
-    "- La chronologie datée vit dans parcours (12 lignes max) et NULLE PART ailleurs. Toute frise ou liste de jalons datés hors parcours est à supprimer ou à réduire en renvoi court.",
-    "- recit_canonique : 5 paragraphes maximum de 300 caractères chacun (correctif du 27/07). Il raconte, il ne re-liste ni dates ni stats.",
-    "- Données chiffrées sourcées : propriété de chiffres. Ailleurs, UN chiffre inline maximum si le propos l'exige, sans re-citer la source. Au delà de 2 occurrences d'une même valeur hors chiffres, c'est un défaut à résorber.",
-    "- Statuts de vérification et chiffres non tranchés : propriété de zone_grise. Ailleurs, un POINTEUR court « ZG: <mot-clé> » (90 caractères max), JAMAIS le texte complet recopié.",
-    "- Cadrage éditorial : propriété d'enjeu ; aucune autre section ne re-justifie le fil rouge. Personnes de l'écosystème : propriété d'entourage ; une question cite un nom, pas la bio.",
-    "- univers : marché, fédérations, économie, distinctions uniquement, 4 points max hors graphiques. Retire toute timeline ou biographie. Les graphiques (barres, comparaison, rentabilite) restent tels quels.",
-    "- mecanique_succes : les divergences sont des DÉCISIONS, pas un récit biographique.",
-    "- Un fait n'apparaît qu'UNE fois en version longue dans toute la fiche. Les reprises deviennent un renvoi court (« cf. parcours 2015 ») ou disparaissent.",
+    "RÈGLE 1, propriété unique des faits (contrat v3.1) :",
+    "- Palmarès et jalons datés (titres, exits, récompenses, records) : propriété de revue_de_presse.palmares. Toute frise ou liste de jalons datés ailleurs est à supprimer ou à réduire en renvoi court.",
+    "- Données chiffrées sourcées : propriété de data. Ailleurs, UN chiffre inline maximum si le propos l'exige, sans re-citer la source. Au delà de 2 occurrences d'une même valeur hors data, c'est un défaut à résorber. Un KPI non confirmé porte un pointeur zg, JAMAIS de chiffre orphelin.",
+    "- Statuts de vérification et chiffres non tranchés : propriété de personnel.zone_grise (identifiants stables zg_motcle). Ailleurs, un POINTEUR court « ZG: <mot-clé> » (90 caractères max), JAMAIS le texte complet recopié.",
+    "- Cadrage d'attaque : propriété du tldr ; aucune autre section ne re-justifie le fil rouge. Personnes de l'écosystème : propriété de personnel.entourage ; une question cite un nom, pas la bio.",
+    "- data.marche : le marché en UN paragraphe plus une ligne par comparable. Retire toute biographie. Les graphiques (barres, comparaison) restent tels quels, 2 maximum.",
+    "- apprentissages : des SYSTÈMES et des DÉCISIONS, pas un récit biographique. Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin.",
+    "- Un fait n'apparaît qu'UNE fois en version longue dans toute la fiche. Les reprises deviennent un renvoi court ou disparaissent.",
   ].join("\n"),
   [
-    "RÈGLE 2, budgets durs (imposés aussi par le serveur au stockage, avec troncature) : recit = 5 paragraphes de 300 caractères ; parcours = 12 lignes max ; playbook = 6 leviers max, champs connu/manque/question en 2 lignes max chacun ; univers = 4 points max ; a_lire = 3 sources max (garde les meilleures) ; enjeu.texte = 1200 caractères, enjeu.lecon = 600 ; note de question = 200 ; zone_grise = 12 items de 400 caractères ; chiffres = 16 KPI ; tensions = 3 cartes.",
-    "RÈGLE 3, format scannable : le Bloc B (trente_secondes, chiffres, parcours, playbook, entourage, anecdotes, tensions, questions_recurrentes, dix_questions, zone_grise) est lu en studio. AUCUN item de plus de 3 lignes (environ 240 caractères) : découpe ou raccourcis.",
+    "RÈGLE 2, budgets durs (imposés aussi par le serveur au stockage, avec troncature) : tldr = 1200 caractères au TOTAL, neuf labels ; intention de topic = 200 caractères ; note tactique = 200 ; apport d'une lecture = 120 ; data.marche.texte = UN paragraphe de 900 ; zone grise = 12 items de 400 ; 16 KPI ; 5 à 8 apprentissages, champs connu/manque/question en 2 lignes chacun ; à lire = 3 à 5 entrées justifiées. AUCUN plafond sur le NOMBRE de questions : tu n'en retires jamais une pour un quota, uniquement pour un doublon ou une faiblesse.",
+    "RÈGLE 3, format scannable : la console (data, apprentissages, clips, topics, personnel) est lue en studio. AUCUN item de plus de 3 lignes (environ 240 caractères) : découpe ou raccourcis.",
   ].join("\n"),
   [
     "RÈGLE DES CHIFFRES : construis mentalement la liste des valeurs chiffrées de la fiche. Pour chaque fait cité avec des valeurs divergentes, impose UNE valeur avec sa source (la mieux sourcée), partout. Si tu ne peux pas trancher, retire les valeurs divergentes des sections et ajoute un item en zone_grise : « {fait} : valeurs divergentes ({valeurs}), ne pas citer un chiffre unique à l'antenne », origine « rédaction (chiffre non tranché) ».",
     "zone_grise : conserve les items existants, ajoute les tiens.",
   ].join("\n"),
   [
-    "CONTRÔLE DES TITRES (v3.1) : vérifie les champs de titre (sticky_header.societe, entete.sous_titre, entete.societe) contre les faits consolidés du corps. Toute divergence numérique ou qualificatif contredit par le corps (exemple : « Septuple champion » dans le sous-titre quand le corps établit 8 titres) se corrige SUR LE CHAMP DE TITRE, aligné sur la valeur retenue dans le corps. Tu ne peux modifier QUE sous_titre et societe : jamais le numéro, les titre_lignes, les pilules ni les liens.",
-    "CONTRÔLE DES NOMS PROPRES (v3.1) : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
-    "CONTRÔLE DU BALISAGE (chantier du 27/07) : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
-    "CONTRÔLE DU MÉTA NARRATIF (correctif du 27/07) : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU 27/07 », « la version précédente de cette section », « BLOC NEUF, DEMANDÉ PAR... »), ni qui a demandé quoi et quand, ni de commentaire sur la génération. Retire ces mentions en conservant le fait éditorial s'il y en a un, et signale chaque retrait dans le rapport (meta_narratif_nettoye). Ce méta contenu vit dans les commentaires et le versioning.",
-    "POINTEURS DE ZONE GRISE (correctif du 27/07, règle 6) : chaque item de zone_grise porte un identifiant court et stable (champ id, format zg_motcle) ; s'il manque, attribue le. Toute note de question qui recopie le texte d'un item de zone grise devient un POINTEUR : « ZG: motcle, consigne essentielle en moins de 90 caractères ». Exemple : « Gautier est vendéen, pas choletais ; il sponsorisait... redressement judiciaire... ticket non public : ne pas avancer 250 000 euros » (270 caractères recopiés 3 fois) devient « ZG: gautier, ticket non public, ne pas dire 250 k€. » Signale chaque conversion dans dedoublonnages.",
+    "CONTRÔLE DES TITRES : vérifie les champs de titre (sticky_header.societe, identite.sous_titre, identite.societe) contre les faits consolidés du corps. Toute divergence numérique ou qualificatif contredit par le corps (exemple : « Septuple champion » dans le sous-titre quand le corps établit 8 titres) se corrige SUR LE CHAMP DE TITRE, aligné sur la valeur retenue dans le corps. Le sous-titre garde sa forme v3.1 : une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ». Tu ne peux modifier QUE sous_titre et societe : jamais le numéro, les titre_lignes, les pilules, les liens, la date de naissance, les accompagnants ni la mise en relation.",
+    "CONTRÔLE DES NOMS PROPRES : construis la liste des personnes et entités citées dans TOUTE la fiche, détecte les variantes orthographiques proches d'un même référent (exemple : Yacine Berrabah contre Yannick Berrabah), impose UNE graphie unique partout, celle des sources les plus fiables. Si le doute n'est pas tranchable, garde la graphie majoritaire et ajoute un item dans personnel.zone_grise « orthographe à vérifier : {variante A} ou {variante B} », origine « rédaction (nom à vérifier) ».",
+    "CONTRÔLE DU BALISAGE : toute fuite de balisage technique dans un texte (balise <cite ...>, fragment index=\"...\", chevrons < > orphelins, HTML ou XML résiduel) est un DÉFAUT à corriger : retire le balisage en conservant le texte intérieur, et signale chaque nettoyage dans le rapport (balisage_nettoye). Le texte destiné au lecteur ne contient jamais de balise.",
+    "CONTRÔLE DU MÉTA NARRATIF : le contenu d'une section ne contient JAMAIS l'historique de ses modifications (« RECADRAGE DU... », « la version précédente de cette section », « BLOC NEUF, DEMANDÉ PAR... »), ni qui a demandé quoi et quand, ni de commentaire sur la génération. Retire ces mentions en conservant le fait éditorial s'il y en a un, et signale chaque retrait dans le rapport (meta_narratif_nettoye). Ce méta contenu vit dans les commentaires et le versioning.",
+    "POINTEURS DE ZONE GRISE : chaque item de personnel.zone_grise porte un identifiant court et stable (champ id, format zg_motcle) ; s'il manque, attribue le. Toute note, carte KPI ou question qui recopie le texte d'un item de zone grise devient un POINTEUR : champ zg pour les structures qui le portent (kpis, questions, clips, données cachées), ou « ZG: motcle, consigne essentielle en moins de 90 caractères » dans une note. Signale chaque conversion dans dedoublonnages.",
   ].join("\n"),
   [
-    "SECTION TL;DR (refonte du 30/07) : écris ou réécris la section tldr, tout en haut de la fiche : 5 puces MAXIMUM de 200 caractères chacune, l'essentiel si la fiche n'est lue que 3 minutes (qui il est, le fait d'armes, la mécanique centrale, l'angle de l'épisode, le piège à éviter). C'est une SYNTHÈSE de la fiche consolidée : chaque puce s'appuie sur un fait présent ailleurs dans la fiche, rien de neuf. Format : {\"items\": [\"...\"]}.",
-    "CONTRÔLE DES QUESTIONS (refonte du 30/07) : une question ne vit qu'à UN endroit de la fiche (dix_questions, questions_reseaux, questions_recurrentes, playbook, polemiques). En cas de doublon ou de paraphrase, garde la version la mieux placée et retire l'autre de dix_questions ou de playbook (questions_reseaux n'est PAS modifiable) ; remplace chaque question retirée par une question NEUVE plus profonde. Signale chaque résorption dans dedoublonnages.",
-    "PROFONDEUR DES QUESTIONS (refonte du 30/07) : chaque question en comment de dix_questions exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à demander). Une question dont la réponse attendue tiendrait dans un article publié est FAIBLE : reformule la jusqu'à extraire un apprentissage que seul l'invité peut donner.",
-    "SECTION POLÉMIQUES : 4 items maximum, chacun avec le fait public sourcé et daté (300 caractères max) et la question qui fâche, frontale mais adossée au fait, jamais une insinuation. Un item sans source publique bascule en zone_grise.",
+    "SECTION TL;DR : écris ou réécris la section tldr, le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL). Neuf labels DANS CET ORDRE : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. Une idée par ligne, phrases courtes. C'est une SYNTHÈSE de la fiche consolidée : chaque ligne s'appuie sur un fait présent ailleurs, rien de neuf. La leçon transférable vit dans apprentissages, pas ici. Format : {\"items\": [{\"label\": \"Qui\", \"texte\": \"...\"}]}.",
+    "CONTRÔLE DES QUESTIONS : une question ne vit qu'à UN endroit de la fiche (topics, clips, terrain connu, apprentissages). En cas de doublon ou de paraphrase, garde la version la mieux placée et retire l'autre de topics ou d'apprentissages (les clips ne sont PAS modifiables) ; remplace chaque question retirée par une question NEUVE plus profonde. Signale chaque résorption dans dedoublonnages. Les questions cœur des topics restent NUMÉROTÉES EN CONTINU (01, 02...) après tes retouches : renumérote si nécessaire.",
+    "PROFONDEUR DES QUESTIONS : chaque question en comment des topics exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à exiger). Une question dont la réponse attendue tiendrait dans un article publié est FAIBLE : reformule la jusqu'à extraire un apprentissage que seul l'invité peut donner. Toute réponse philosophique attendue = prévoir la relance mécanisme + date en note.",
+    "GATE TIMES : les topics portent debut_min et fin_min sur un épisode d'environ 150 minutes ; vérifie qu'ils se suivent sans trou ni chevauchement grossier, corrige à la marge sans réinventer le découpage.",
   ].join("\n"),
   "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
   [
     "Réponds UNIQUEMENT en JSON : {",
     '  "sections": { "<section_id>": <contenu complet corrigé, MÊME structure que le contenu reçu> } (uniquement les sections que tu modifies ; une section déjà conforme est absente),',
     '  "rapport": {',
-    '    "dedoublonnages": ["fait X : gardé dans parcours, retiré de recit_canonique et univers", ...],',
+    '    "dedoublonnages": ["fait X : gardé dans data, retiré de tldr et topics", ...],',
     '    "chiffres_reconcilies": [{"fait": "délai défaite-reconquête", "valeur_retenue": "15 mois", "source": "...", "valeurs_ecartees": ["12 mois", "14 mois"]}, ...],',
-    '    "sections_reduites": [{"section": "playbook", "avant": "8 items, ~40 lignes", "apres": "6 items, ~18 lignes"}, ...],',
+    '    "sections_reduites": [{"section": "apprentissages", "avant": "10 items, ~40 lignes", "apres": "8 items, ~18 lignes"}, ...],',
     '    "titres_corriges": ["sous_titre : Septuple champion corrigé en Octuple champion (8 titres établis par le corps)", ...],',
     '    "noms_unifies": [{"retenu": "Yannick Berrabah", "ecartes": ["Yacine Berrabah"]}, ...],',
-    '    "balisage_nettoye": ["mecanique_succes : balise cite retirée de la définition", ...],',
-    '    "meta_narratif_nettoye": ["enjeu : mention RECADRAGE DU 27/07 retirée", ...]',
+    '    "balisage_nettoye": ["data : balise cite retirée d\'un libellé", ...],',
+    '    "meta_narratif_nettoye": ["tldr : mention RECADRAGE retirée", ...]',
     "  }",
     "}",
   ].join("\n"),
@@ -167,9 +166,10 @@ function textesDe(content: Content): string[] {
   return out;
 }
 
-const BLOC_B = new Set(["trente_secondes", "chiffres", "parcours", "playbook", "entourage", "anecdotes", "tensions", "questions_recurrentes", "dix_questions", "zone_grise"]);
+// data est exemptée : son paragraphe de marché a un budget propre (900).
+const BLOC_B = new Set(["apprentissages", "clips", "topics", "personnel"]);
 
-/** Items du Bloc B encore hors budget 3 lignes (contrôle final, règle 4.4). */
+/** Items de console encore hors budget 3 lignes (contrôle final, règle 4.4). */
 export function itemsHorsBudget(sections: Record<string, Content>): string[] {
   const res: string[] = [];
   for (const [id, content] of Object.entries(sections)) {
@@ -187,13 +187,10 @@ function clampContenu(id: string, content: Content): Content {
   const clampArr = (champ: string, max: number) => {
     if (Array.isArray(c[champ])) c[champ] = (c[champ] as unknown[]).slice(0, max);
   };
-  if (id === "recit_canonique") clampArr("paragraphes", BUDGETS_V3.recit_paragraphes);
-  if (id === "parcours") clampArr("lignes", BUDGETS_V3.parcours_lignes);
-  if (id === "playbook") clampArr("items", BUDGETS_V3.playbook_items);
-  if (id === "univers") clampArr("intro", BUDGETS_V3.univers_points);
-  if (id === "a_lire") clampArr("liens", BUDGETS_V3.a_lire_sources);
+  if (id === "apprentissages") clampArr("items", BUDGETS_V3.apprentissages_items);
   if (id === "tldr") clampArr("items", BUDGETS_V3.tldr_items);
-  if (id === "polemiques") clampArr("items", BUDGETS_V3.polemiques_items);
+  if (id === "personnel") clampArr("zone_grise", BUDGETS_V3.zone_grise_items);
+  if (id === "revue_de_presse") clampArr("a_lire", BUDGETS_V3.a_lire_max);
   return c;
 }
 
@@ -226,8 +223,7 @@ export function appliquerRedaction(
       if (change) admis[id] = base;
       continue;
     }
-    let c = clampContenu(id, contenu as Content);
-    if (id === "univers") { const { timeline: _t, ...reste } = c; c = reste; }
+    const c = clampContenu(id, contenu as Content);
     // La passe condense, elle ne vide jamais : refus si l'existant avait du contenu.
     if (isEmptyContent(c) && !isEmptyContent(actuel[id] ?? {})) continue;
     admis[id] = c;
@@ -249,14 +245,14 @@ export async function processRedaction(
 ): Promise<{ sections: string[]; sources: number; rapport: RapportRedaction }> {
   if (!hasAnthropicKey()) throw new Error("Clé Anthropic absente : rédaction impossible (poser ANTHROPIC_API_KEY).");
 
-  // questions_reseaux est lue en PLUS des sections rédactibles : le contrôle
-  // des questions en double (refonte du 30/07) doit voir les clips, même si la
-  // passe n'a jamais le droit de les réécrire (appliquerRedaction filtre).
+  // clips est lue en PLUS des sections rédactibles : le contrôle des questions
+  // en double doit voir les clips, même si la passe n'a jamais le droit de les
+  // réécrire (appliquerRedaction filtre).
   const { data } = await sb
     .from("fiche_sections")
     .select("section_id, content")
     .eq("fiche_id", fiche.id)
-    .in("section_id", [...SECTIONS_REDACTIBLES, "questions_reseaux"]);
+    .in("section_id", [...SECTIONS_REDACTIBLES, "clips"]);
   const actuel: Record<string, Content> = {};
   for (const s of ((data ?? []) as { section_id: string; content: Content }[])) {
     if (!isEmptyContent(s.content)) actuel[s.section_id] = s.content ?? {};

@@ -9,9 +9,15 @@ import { BUDGETS_V3 } from "./schema";
 
 type Content = Record<string, unknown>;
 
-/** Propriétaire canonique par type de fait (règle 1) : sert au verdict
- *  « garder ici, pointer ailleurs ». */
+/** Propriétaire canonique par type de fait (règle 1, contrat v3.1) : sert au
+ *  verdict « garder ici, pointer ailleurs ». Les clés des contrats précédents
+ *  restent : le lint mesure aussi les fiches non migrées. */
 export const PROPRIETAIRES: Record<string, string> = {
+  data: "données chiffrées sourcées et marché",
+  personnel: "zone grise, entourage et données cachées",
+  tldr: "cadrage d'attaque de l'épisode",
+  revue_de_presse: "palmarès et lectures recommandées",
+  // contrats précédents (fiches non migrées)
   chiffres: "données chiffrées sourcées",
   zone_grise: "statuts de vérification et chiffres non tranchés",
   parcours: "chronologie datée",
@@ -64,11 +70,12 @@ function textesDe(content: Content, prefix = ""): { chemin: string; texte: strin
   return out;
 }
 
-/** Un même lien vit LÉGITIMEMENT dans a_lire (curée) et sources (exhaustive) :
- *  seul le champ apport ne doit pas se dupliquer (règle 1). Le lint des
- *  séquences ignore donc titre, url et date de ces deux sections. */
-const SECTIONS_LIENS = new Set(["a_lire", "sources"]);
-const CHAMPS_LIENS_IGNORES = /(^|\.)(titre|url|date|temps_lecture|niveau)($|\[)/;
+/** Un même lien vit LÉGITIMEMENT dans la revue de presse (curée) et sources
+ *  (exhaustive en base) : seul le champ apport ne doit pas se dupliquer
+ *  (règle 1). Le lint des séquences ignore donc titre, url et date de ces
+ *  sections (et de l'ancienne a_lire pour les fiches non migrées). */
+const SECTIONS_LIENS = new Set(["a_lire", "sources", "revue_de_presse"]);
+const CHAMPS_LIENS_IGNORES = /(^|\.)(titre|url|date|temps_lecture|niveau|label)($|\[)/;
 
 /** Un pointeur de zone grise (« ZG: gautier, ne pas dire 250 k€ ») cite le
  *  chiffre interdit PAR CONSTRUCTION : ses valeurs ne comptent pas comme
@@ -103,18 +110,25 @@ function chiffresRemarquables(texte: string): string[] {
   return out;
 }
 
-/** Sections exclues du comptage des chiffres : la propriétaire (chiffres),
- *  les listes de liens (titres et URLs portent légitimement les valeurs du
- *  corps) et la zone grise, propriétaire des chiffres non tranchés et des
- *  formulations interdites (« ne pas dire 250 k€ » n'est pas une répétition). */
-const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["chiffres", "sources", "a_lire", "zone_grise"]);
+/** Sections exclues du comptage des chiffres : la propriétaire (data, ex
+ *  chiffres), les listes de liens et le palmarès (titres, dates et records
+ *  portent légitimement les valeurs du corps) et la zone grise, propriétaire
+ *  des chiffres non tranchés (« ne pas dire 250 k€ » n'est pas une
+ *  répétition). Dans personnel, seul le sous-bloc zone_grise est exclu
+ *  (exclusion par CHEMIN, cf. cheminExcluChiffres). */
+const SECTIONS_SANS_COMPTAGE_CHIFFRES = new Set(["data", "chiffres", "sources", "a_lire", "revue_de_presse", "zone_grise"]);
+const cheminExcluChiffres = (sectionId: string, chemin: string) =>
+  SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId) || (sectionId === "personnel" && chemin.startsWith("zone_grise"));
 
-/** Où vivent les questions de la fiche : section → chemin d'extraction. */
+/** Où vivent les questions plates de la fiche : section → chemin. Les topics
+ *  (imbriqués) et le terrain connu sont extraits à part. Les clés des
+ *  contrats précédents restent pour les fiches non migrées. */
 const CHAMPS_QUESTIONS: Record<string, { liste: string; champ: string }> = {
+  clips: { liste: "questions", champ: "question" },
+  apprentissages: { liste: "items", champ: "question" },
+  // contrats précédents
   dix_questions: { liste: "questions", champ: "texte" },
-  questions_reseaux: { liste: "questions", champ: "question" },
   questions_recurrentes: { liste: "items", champ: "question" },
-  playbook: { liste: "items", champ: "question" },
   polemiques: { liste: "items", champ: "question" },
 };
 
@@ -132,9 +146,13 @@ function questionsProches(a: string, b: string): boolean {
   return commun / (ma.size + mb.size - commun) >= 0.75;
 }
 
-/** Questions en double entre les sections porteuses (refonte du 30/07). */
+/** Questions en double entre les sections porteuses (refonte du 30/07,
+ *  étendue au contrat v3.1 : topics imbriqués et terrain connu compris). */
 export function doublonsQuestions(sections: Record<string, Content>): QuestionDoublon[] {
   const toutes: { endroit: string; brute: string; norm: string }[] = [];
+  const pousse = (endroit: string, v: unknown) => {
+    if (typeof v === "string" && v.trim()) toutes.push({ endroit, brute: v.trim(), norm: normalise(v) });
+  };
   for (const [sectionId, spec] of Object.entries(CHAMPS_QUESTIONS)) {
     const content = sections[sectionId];
     if (!content) continue;
@@ -142,10 +160,29 @@ export function doublonsQuestions(sections: Record<string, Content>): QuestionDo
     if (!Array.isArray(liste)) continue;
     liste.forEach((item, i) => {
       const v = item && typeof item === "object" ? (item as Content)[spec.champ] : undefined;
-      if (typeof v === "string" && v.trim()) {
-        toutes.push({ endroit: `${sectionId}[${i}]`, brute: v.trim(), norm: normalise(v) });
-      }
+      pousse(`${sectionId}[${i}]`, v);
     });
+  }
+  // topics (v3.1) : questions cœur imbriquées + terrain connu.
+  const topicsContent = sections.topics;
+  if (topicsContent) {
+    const terrain = topicsContent.terrain_connu;
+    if (Array.isArray(terrain)) {
+      terrain.forEach((item, i) => {
+        if (item && typeof item === "object") pousse(`topics.terrain_connu[${i}]`, (item as Content).question);
+      });
+    }
+    const liste = topicsContent.topics;
+    if (Array.isArray(liste)) {
+      liste.forEach((topic, i) => {
+        if (!topic || typeof topic !== "object") return;
+        const questions = (topic as Content).questions;
+        if (!Array.isArray(questions)) return;
+        questions.forEach((q, j) => {
+          if (q && typeof q === "object") pousse(`topics[${i}].questions[${j}]`, (q as Content).texte);
+        });
+      });
+    }
   }
   const groupes: { question: string; endroits: string[]; norm: string }[] = [];
   for (const q of toutes) {
@@ -177,7 +214,7 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
       }
       const lienIgnore = SECTIONS_LIENS.has(sectionId) && CHAMPS_LIENS_IGNORES.test(chemin);
       if (!lienIgnore) motsSection.push(...normalise(texte).split(" ").filter(Boolean));
-      if (!SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId) && !estPointeurZg(texte)) {
+      if (!cheminExcluChiffres(sectionId, chemin) && !estPointeurZg(texte)) {
         for (const valeur of chiffresRemarquables(texte)) {
           const cle = valeur.replace(/\s/g, "");
           const cur = parChiffre.get(cle) ?? { valeur, sections: [] };
@@ -258,9 +295,30 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
       if (sectionId === "enjeu" && chemin === "texte") controleTexte(sectionId, chemin, texte, BUDGETS_V3.enjeu_texte_chars);
       if (sectionId === "enjeu" && chemin === "lecon") controleTexte(sectionId, chemin, texte, BUDGETS_V3.enjeu_lecon_chars);
       if (sectionId === "recit_canonique" && chemin.startsWith("paragraphes[")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.recit_paragraphe_chars);
-      if (sectionId === "tldr" && chemin.startsWith("items[")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.tldr_item_chars);
       if (sectionId === "polemiques" && (chemin.endsWith(".texte") || chemin.endsWith(".question"))) controleTexte(sectionId, chemin, texte, BUDGETS_V3.polemiques_item_chars);
+      // Contrat v3.1
+      if (sectionId === "tldr" && chemin.endsWith(".texte")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.tldr_item_chars);
+      if (sectionId === "topics" && chemin.endsWith(".intention")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.topic_intention_chars);
+      if (sectionId === "topics" && chemin.endsWith(".note")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.topic_note_chars);
+      if (sectionId === "personnel" && chemin.startsWith("zone_grise") && chemin.endsWith(".texte")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.zone_grise_item_chars);
+      if (sectionId === "revue_de_presse" && chemin.endsWith(".apport")) controleTexte(sectionId, chemin, texte, BUDGETS_V3.a_lire_apport_chars);
+      if (sectionId === "data" && chemin === "marche.texte") controleTexte(sectionId, chemin, texte, BUDGETS_V3.marche_texte_chars);
     }
+  }
+
+  // Comptes structurels v3.1 (avertissements, pas de troncature ici).
+  const tldrItems = sections.tldr?.items;
+  if (Array.isArray(tldrItems)) {
+    const total = JSON.stringify(tldrItems).length;
+    if (total > BUDGETS_V3.tldr_total_chars + 200) hors_budget.push(`tldr : environ ${total} caractères au total, budget ${BUDGETS_V3.tldr_total_chars}`);
+  }
+  const topicsListe = sections.topics?.topics;
+  if (Array.isArray(topicsListe) && topicsListe.length > BUDGETS_V3.topics_max) {
+    hors_budget.push(`topics : ${topicsListe.length} topics, cible 5 à ${BUDGETS_V3.topics_max}`);
+  }
+  const aLireListe = sections.revue_de_presse?.a_lire;
+  if (Array.isArray(aLireListe) && aLireListe.length > 0 && aLireListe.length < BUDGETS_V3.a_lire_min) {
+    hors_budget.push(`revue_de_presse.a_lire : ${aLireListe.length} entrée(s), minimum ${BUDGETS_V3.a_lire_min}`);
   }
 
   const questions_doublons = doublonsQuestions(sections);

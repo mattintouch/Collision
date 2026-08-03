@@ -72,28 +72,35 @@ describe("budgets serveur (règle 2) — clampBudgets", () => {
     expect(avertissements[0]).toContain("budget 140");
   });
 
-  it("plafonne les comptes : 12 items de zone grise, 16 KPI, 3 tensions, 5 paragraphes de récit", () => {
-    const zg = clampBudgets("zone_grise", { items: Array.from({ length: 15 }, (_, i) => ({ texte: `item ${i}` })) });
-    expect((zg.content.items as unknown[]).length).toBe(BUDGETS_V3.zone_grise_items);
-    const kpis = clampBudgets("chiffres", { kpis: Array.from({ length: 20 }, (_, i) => ({ valeur: String(i), libelle: "x" })) });
+  it("plafonne les comptes : zone grise de personnel, 16 KPI de data, 8 apprentissages", () => {
+    const perso = clampBudgets("personnel", { zone_grise: Array.from({ length: 15 }, (_, i) => ({ id: `zg_${i}`, texte: `item ${i}` })) });
+    expect((perso.content.zone_grise as unknown[]).length).toBe(BUDGETS_V3.zone_grise_items);
+    const kpis = clampBudgets("data", { kpis: Array.from({ length: 20 }, (_, i) => ({ valeur: String(i), libelle: "x" })) });
     expect((kpis.content.kpis as unknown[]).length).toBe(BUDGETS_V3.chiffres_kpis);
+    const app = clampBudgets("apprentissages", { items: Array.from({ length: 12 }, (_, i) => ({ titre: `s${i}` })) });
+    expect((app.content.items as unknown[]).length).toBe(BUDGETS_V3.apprentissages_items);
+    // Sections retirées : les budgets restent appliqués aux rollbacks.
     const recit = clampBudgets("recit_canonique", { paragraphes: Array.from({ length: 8 }, () => "p") });
     expect((recit.content.paragraphes as unknown[]).length).toBe(BUDGETS_V3.recit_paragraphes);
   });
 
-  it("refonte du 30/07 : le TL;DR tient en 5 puces de 200, les polémiques en 4 items de 300", () => {
-    const tldr = clampBudgets("tldr", { items: Array.from({ length: 8 }, () => "y".repeat(250)) });
-    const items = tldr.content.items as string[];
-    expect(items.length).toBe(BUDGETS_V3.tldr_items);
-    for (const t of items) expect(t.length).toBeLessThanOrEqual(BUDGETS_V3.tldr_item_chars);
-    expect(tldr.avertissements.length).toBeGreaterThan(0);
-    const pol = clampBudgets("polemiques", { items: Array.from({ length: 6 }, () => ({ texte: "z".repeat(400), question: "q".repeat(400) })) });
-    const pItems = pol.content.items as { texte: string; question: string }[];
-    expect(pItems.length).toBe(BUDGETS_V3.polemiques_items);
-    for (const p of pItems) {
-      expect(p.texte.length).toBeLessThanOrEqual(BUDGETS_V3.polemiques_item_chars);
-      expect(p.question.length).toBeLessThanOrEqual(BUDGETS_V3.polemiques_item_chars);
-    }
+  it("contrat v3.1 : lignes du TL;DR tronquées, budget total signalé sans troncature, graphiques de data plafonnés", () => {
+    const tldr = clampBudgets("tldr", { items: Array.from({ length: 9 }, (_, i) => ({ label: "Qui", texte: "y".repeat(300) })) });
+    const items = tldr.content.items as { texte: string }[];
+    for (const t of items) expect(t.texte.length).toBeLessThanOrEqual(BUDGETS_V3.tldr_item_chars);
+    expect(tldr.avertissements.some((a) => a.includes("au total"))).toBe(true);
+    const graphe = { titre: "t", valeurs: [{ label: "24", affiche: "9", valeur: 9 }] };
+    const data = clampBudgets("data", { barres: graphe, comparaison: graphe, rentabilite: graphe });
+    expect(data.content.rentabilite).toBeUndefined();
+    expect(data.avertissements.some((a) => a.includes("graphiques"))).toBe(true);
+    const topics = clampBudgets("topics", { topics: [{ titre: "t", intention: "i".repeat(300), questions: [{ texte: "q", note: "n".repeat(300) }] }] });
+    const t0 = (topics.content.topics as { intention: string; questions: { note: string }[] }[])[0];
+    expect(t0.intention.length).toBeLessThanOrEqual(BUDGETS_V3.topic_intention_chars);
+    expect(t0.questions[0].note.length).toBeLessThanOrEqual(BUDGETS_V3.topic_note_chars);
+    const rdp = clampBudgets("revue_de_presse", { a_lire: Array.from({ length: 8 }, (_, i) => ({ titre: `l${i}`, apport: "a".repeat(200) })) });
+    const aLire = rdp.content.a_lire as { apport: string }[];
+    expect(aLire.length).toBe(BUDGETS_V3.a_lire_max);
+    for (const l of aLire) expect(l.apport.length).toBeLessThanOrEqual(BUDGETS_V3.a_lire_apport_chars);
   });
 
   it("ne touche pas un contenu dans les budgets et ne mute pas l'entrée", () => {
@@ -144,15 +151,27 @@ describe("lint — bruit structurel écarté (mesuré sur Gobert v60/v74)", () =
   });
 });
 
-describe("lint — questions en double entre sections (refonte du 30/07, cas Gobert)", () => {
-  it("détecte la même question posée dans dix_questions ET questions_reseaux", () => {
+describe("lint — questions en double entre sections (cas Gobert, étendu v3.1)", () => {
+  it("détecte la même question posée dans dix_questions (legacy) ET clips", () => {
     const rapport = lintFiche({
       dix_questions: { questions: [{ texte: "Raconte le moment précis où tu t'es dit j'étais pas bon" }] },
-      questions_reseaux: { questions: [{ question: "Raconte le moment précis où tu t'es dit j'étais pas bon", ressort: "echec" }] },
+      clips: { questions: [{ question: "Raconte le moment précis où tu t'es dit j'étais pas bon", ressort: "echec" }] },
     });
     expect(rapport.questions_doublons.length).toBe(1);
-    expect(rapport.questions_doublons[0].endroits.sort()).toEqual(["dix_questions[0]", "questions_reseaux[0]"]);
+    expect(rapport.questions_doublons[0].endroits.sort()).toEqual(["clips[0]", "dix_questions[0]"]);
     expect(rapport.bloquants).toBeGreaterThanOrEqual(1);
+  });
+
+  it("v3.1 : les questions des topics (imbriquées) et du terrain connu entrent dans le contrôle", () => {
+    const rapport = lintFiche({
+      topics: {
+        terrain_connu: [{ question: "Le forfait à deux euros, comment vous avez fait" }],
+        topics: [{ titre: "Pricing", questions: [{ num: "01", texte: "Le forfait à deux euros, comment vous avez fait" }] }],
+      },
+    });
+    expect(rapport.questions_doublons.length).toBe(1);
+    expect(rapport.questions_doublons[0].endroits).toContain("topics.terrain_connu[0]");
+    expect(rapport.questions_doublons[0].endroits).toContain("topics[0].questions[0]");
   });
 
   it("détecte une paraphrase à fort recouvrement, pas les thèmes voisins", () => {
@@ -171,18 +190,18 @@ describe("lint — questions en double entre sections (refonte du 30/07, cas Gob
     expect(rapport.questions_doublons[0].endroits).toContain("questions_recurrentes[0]");
   });
 
-  it("les questions de playbook et de polémiques entrent dans le contrôle", () => {
+  it("les questions des apprentissages et des clips entrent dans le contrôle", () => {
     const rapport = lintFiche({
-      playbook: { items: [{ titre: "pricing", question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
-      polemiques: { items: [{ texte: "fait", source: "src", question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
+      apprentissages: { items: [{ titre: "pricing", question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
+      clips: { questions: [{ question: "Comment tu fixes le prix d'un forfait à deux euros" }] },
     });
     expect(rapport.questions_doublons.length).toBe(1);
   });
 
   it("aucun faux positif sur une fiche aux questions toutes distinctes", () => {
     const rapport = lintFiche({
-      dix_questions: { questions: [{ texte: "Comment tu prépares une saison sans blessure" }] },
-      questions_reseaux: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui" }] },
+      topics: { topics: [{ titre: "t", questions: [{ num: "01", texte: "Comment tu prépares une saison sans blessure" }] }] },
+      clips: { questions: [{ question: "Combien tu gagnes vraiment aujourd'hui" }] },
       questions_recurrentes: { items: [{ question: "Pourquoi tu es parti du Jazz" }] },
     });
     expect(rapport.questions_doublons).toEqual([]);

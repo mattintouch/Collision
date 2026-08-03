@@ -51,9 +51,9 @@ function TexteLie({ texte }: { texte: string }) {
   );
 }
 
-// Refonte conversation (27/07) : le déroulé minuté est supprimé. Les questions
-// sont des propositions à plat, rayées d'un tap avec timecode pendant le REC.
-export interface FicheQuestion { num: string; texte: string; note?: string }
+// Les questions se rayent d'un tap avec timecode pendant le REC (état partagé
+// indexé par num, numérotation continue sur toute la fiche en v3.1).
+export interface FicheQuestion { num: string; texte: string; note?: string; zg?: string }
 export interface ALireLien {
   niveau?: "indispensable" | "utile" | "optionnel";
   titre: string;
@@ -75,16 +75,42 @@ export interface FicheViewData {
   ordre: string[]; // ordre des sections par fiche (réordonnable)
   generation: { groupe: string; statut: string; error?: string; quand?: string }[];
   incompletes: string[]; // sections obligatoires vides (gate anti fiche vide)
-  entete: {
+  // ── contrat v3.1 ──
+  identite: {
     numero?: string;
     titre_lignes: string[];
     societe?: string;
     sous_titre?: string;
     pilules: string[];
     liens: { label: string; url: string }[];
+    date_naissance?: string;
+    age?: number; // calculé à la date d'enregistrement
+    accompagnants: { nom: string; fonction?: string }[];
+    mise_en_relation?: { qui?: string; canal?: string };
   };
   checklist: string[];
-  tldr: string[];
+  tldr: { label: string; texte: string }[];
+  tldr_legacy: string[]; // forme du 30/07 (puces sans label), fiches non migrées
+  kpis: KpiCard[];
+  marche: { texte?: string; comparables: { nom: string; position?: string }[] } | null;
+  apprentissages: { intro?: string; items: { titre: string; connu?: string; manque?: string; question?: string }[] };
+  clips: { question: string; meta?: string; zg?: string; fache?: boolean }[];
+  terrain_connu: { question: string; reponse?: string; depassement?: string }[];
+  topics: { titre: string; debut_min?: number; fin_min?: number; intention?: string; questions: FicheQuestion[] }[];
+  personnel: {
+    bandeau: string;
+    entourage: { nom: string; role?: string; eclaire?: string; preconfirmer?: string }[];
+    donnees_cachees: { texte: string; source?: string; zg?: string }[];
+    zone_grise: { id?: string; texte: string; origine?: string }[];
+    items_legacy: { texte: string; source: string }[];
+  };
+  revue_de_presse: {
+    reseaux: { label: string; url: string }[];
+    palmares: { date?: string; texte: string }[];
+    a_lire: ALireLien[];
+    sources_total: number;
+  };
+  // ── contrats précédents (fallback des fiches non migrées) ──
   enjeu?: string;
   lecon?: string;
   recit: string[];
@@ -96,11 +122,9 @@ export interface FicheViewData {
   } | null;
   univers_intro: string[];
   distinctions: string[];
-  personnel: { bandeau: string; items: { texte: string; source: string }[] } | null;
   a_lire: ALireLien[];
   trente_secondes: { label: string; texte: string }[];
   anecdotes: { texte: string; source?: string; cachee?: boolean }[];
-  kpis: KpiCard[];
   visuels: {
     barres?: { titre: string; note?: string; source?: string; valeurs: { label: string; affiche: string; valeur: number; plein?: boolean }[] };
     comparaison?: { titre?: string; source?: string; valeurs: { nom: string; affiche: string; pct: number; hero?: boolean }[] };
@@ -108,12 +132,10 @@ export interface FicheViewData {
     timeline?: { titre: string; jalons: { annee: string; titre: string; texte?: string; cle?: boolean }[] };
   };
   parcours: { annee: string; texte: string }[];
-  playbook: { intro?: string; items: { titre: string; connu?: string; manque?: string; question?: string }[] };
-  entourage: { nom: string; role?: string; texte?: string }[];
+  entourage_legacy: { nom: string; role?: string; texte?: string }[];
   tensions: { a: string; b: string; angle?: string }[];
   polemiques: { texte: string; source?: string; question?: string }[];
   recurrentes: { intro?: string; items: { question: string; reponse?: string }[] };
-  reseaux: { question: string; meta?: string }[];
   questions: FicheQuestion[];
   zone_grise: { id?: string; texte: string; origine?: string }[];
   sources: LienDate[];
@@ -132,8 +154,12 @@ const monoSrc: React.CSSProperties = { fontFamily: MONO, fontSize: 11, color: "#
 /* Bloc A : mode lecture, prose, interligne généreux, largeur limitée. */
 const proseStyle: React.CSSProperties = { fontSize: 17, lineHeight: 1.65, maxWidth: 680 };
 
-const BLOC_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.bloc]));
 const TITRE_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.titre]));
+// Zone étude (avant le bandeau console) : v3.1 (tldr, data, apprentissages)
+// plus les sections de lecture des contrats précédents (fiches non migrées).
+const ZONE_ETUDE = new Set(["tldr", "enjeu", "recit_canonique", "mecanique_succes", "univers", "data", "apprentissages"]);
+// Chrome rendu en dur (hors registre de sections).
+const CHROME = new Set(["sticky_header", "identite", "checklist_prerec", "footer"]);
 const NIVEAUX: Record<string, string> = { indispensable: "INDISPENSABLE", utile: "UTILE", optionnel: "OPTIONNEL" };
 
 function fmt(sec: number): string {
@@ -354,7 +380,9 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const doneCount = data.checklist.filter((_, i) => checked[i]).length;
   const checklistComplete = doneCount === data.checklist.length;
 
-  const askedTotal = data.questions.filter((q) => asked[q.num]).length;
+  const questionsTopics = data.topics.flatMap((t) => t.questions);
+  const totalQuestionsTopics = questionsTopics.length;
+  const askedTotal = (totalQuestionsTopics ? questionsTopics : data.questions).filter((q) => asked[q.num]).length;
 
   const toggleQuestion = (num: string) => { signalerSaisie(); sendEvent("question", { num, asked: !asked[num] }); };
   const toggleCheck = (index: number) => { signalerSaisie(); sendEvent("check", { index, checked: !checked[index] }); };
@@ -433,7 +461,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     } catch { /* clipboard indisponible : la sélection manuelle reste possible */ }
   };
 
-  const numero = data.entete.numero ? `GDIY #${data.entete.numero}` : "GDIY";
+  const numero = data.identite.numero ? `GDIY #${data.identite.numero}` : "GDIY";
   const v = data.visuels;
   const echecs = data.generation.filter((g) => g.statut === "failed");
   const enCours = data.generation.filter((g) => g.statut === "pending" || g.statut === "running");
@@ -443,13 +471,28 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const renderSection = (id: string): React.ReactNode => {
     switch (id) {
       case "tldr":
-        // Refonte du 30/07 : l'essentiel en tête, 5 puces max, écrit par la
-        // passe de rédaction (synthèse de la fiche entière).
-        return data.tldr.length ? (
-          <section key={id} style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF" }}>
+        // 03 TL;DR (v3.1) : le brief d'attaque en 60 secondes, neuf labels.
+        // Fallback : la forme du 30/07 (puces sans label) des fiches non migrées.
+        if (data.tldr.length) {
+          return (
+            <section key={id} id="tldr" style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF", scrollMarginTop: 64 }}>
+              <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>TL;DR · 60 SECONDES</div>
+              <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+                {data.tldr.map((t, i) => (
+                  <div key={i} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "8px 0", borderBottom: i < data.tldr.length - 1 ? "1px solid #ECECE8" : "none" }}>
+                    <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", fontWeight: 700, color: "#6B6B65", flexShrink: 0, minWidth: 130, textTransform: "uppercase" }}>{t.label}</span>
+                    <span style={{ fontSize: 16, lineHeight: 1.45, fontWeight: 600 }}>{t.texte}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        }
+        return data.tldr_legacy.length ? (
+          <section key={id} id="tldr" style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF", scrollMarginTop: 64 }}>
             <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>TL;DR</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-              {data.tldr.map((t, i) => (
+              {data.tldr_legacy.map((t, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
                   <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 22, lineHeight: 1, color: "#BFBFB9", flexShrink: 0, minWidth: 24 }}>{pad2(i + 1)}</span>
                   <span style={{ fontSize: 16, lineHeight: 1.45, fontWeight: 600 }}>{t}</span>
@@ -530,8 +573,9 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       }
 
       case "univers": {
-        const hasVisuels = !!(v.barres || v.comparaison || v.rentabilite || v.timeline);
-        if (!data.univers_intro.length && !hasVisuels && !data.distinctions.length) return null;
+        // Legacy (fiches non migrées) : intro + distinctions + timeline. Les
+        // graphiques chiffrés se rendent dans data (section propriétaire v3.1).
+        if (!data.univers_intro.length && !data.distinctions.length && !v.timeline) return null;
         return (
           <section key={id} style={sectionStyle}>
             <h2 style={h2Style}>Univers / marché</h2>
@@ -546,6 +590,183 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                     <span key={i} style={{ fontSize: 15, lineHeight: 1.5 }}>{d}</span>
                   ))}
                 </div>
+              </div>
+            )}
+            {v.timeline && v.timeline.jalons.length > 0 && (
+              <div style={{ marginTop: 36 }}>
+                <h3 style={h3Style}>{v.timeline.titre}</h3>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 18 }}>
+                  {v.timeline.jalons.map((tl, i) => (
+                    <div key={i} style={{ display: "grid", gridTemplateColumns: "64px 20px 1fr", gap: 0 }}>
+                      <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 34, lineHeight: 1, textAlign: "right", paddingRight: 14 }}>{tl.annee}</span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <span style={{ width: 11, height: 11, background: tl.cle ? "#000" : "#FFF", border: "1px solid #000", flexShrink: 0, marginTop: 6 }} />
+                        <span style={{ width: 1, flex: 1, background: "#000" }} />
+                      </div>
+                      <div style={{ padding: "0 0 24px 14px", display: "flex", flexDirection: "column", gap: 3 }}>
+                        <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 22, textTransform: "uppercase", lineHeight: 1 }}>{tl.titre}</span>
+                        {tl.texte && <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{tl.texte}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      }
+
+      case "personnel": {
+        const p = data.personnel;
+        const vide = !p.entourage.length && !p.donnees_cachees.length && !p.zone_grise.length && !p.items_legacy.length;
+        if (vide) return null;
+        return (
+          <section key={id} style={sectionStyle}>
+            <h2 style={h2Style}>Personnel</h2>
+            <div style={{ marginTop: 14, borderLeft: "3px solid #F4C435", padding: "10px 14px", background: "#F6F4EF" }}>
+              <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>USAGE</span>
+              <p style={{ fontSize: 14, lineHeight: 1.5, margin: "6px 0 0 0" }}>{p.bandeau}</p>
+            </div>
+            {p.entourage.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <h3 style={h3Style}>Entourage</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, marginTop: 12 }}>
+                  {p.entourage.map((e, i) => (
+                    <div key={i} style={{ border: "1px solid #000", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 24, textTransform: "uppercase", lineHeight: 1 }}>{e.nom}</span>
+                      {e.role && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{e.role.toUpperCase()}</span>}
+                      {e.eclaire && <span style={{ fontSize: 14, lineHeight: 1.5 }}>{e.eclaire}</span>}
+                      {e.preconfirmer && (
+                        <span style={{ fontSize: 13, lineHeight: 1.5, borderTop: "1px solid #D9D9D4", paddingTop: 8 }}>
+                          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700 }}>PRÉ-CONFIRMER · </span>
+                          {e.preconfirmer}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(p.donnees_cachees.length > 0 || p.items_legacy.length > 0) && (
+              <div style={{ marginTop: 22 }}>
+                <h3 style={h3Style}>Données cachées</h3>
+                <p style={{ fontSize: 14, color: "#6B6B65", margin: "6px 0 0 0", maxWidth: 620 }}>Vieux dossiers, anecdotes introuvables dans les interviews récentes, archives. En bien ou en mal.</p>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
+                  {p.donnees_cachees.map((it, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
+                      <span style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</span>
+                      {it.source && <span style={monoSrc}>{it.source}</span>}
+                      {!it.source && it.zg && (
+                        <a href={`#zg_${it.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", alignSelf: "flex-start", textDecoration: "none" }}>
+                          ZG: {it.zg.replace(/^zg_/, "")}
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                  {p.items_legacy.map((it, i) => (
+                    <div key={`l${i}`} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
+                      <span style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</span>
+                      <span style={monoSrc}>{it.source}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {p.zone_grise.length > 0 && (
+              <div style={{ marginTop: 22, background: "#EFE9DC", border: "1px solid #000", padding: "20px 22px" }}>
+                <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>ZONE GRISE : À FAIRE DIRE PAR L&apos;INVITÉ</div>
+                <p style={{ fontSize: 13, lineHeight: 1.5, margin: "6px 0 0 0", color: "#464641" }}>Source unique de vérité des statuts de vérification. Les autres sections pointent (ZG: xxx), aucune ne recopie.</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                  {p.zone_grise.map((z, i) => (
+                    <div key={i} id={z.id || undefined} style={{ fontSize: 15, lineHeight: 1.5, borderLeft: "2px solid #000", paddingLeft: 12, scrollMarginTop: 64 }}>
+                      {z.id && (
+                        <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "1px 6px", marginRight: 8, verticalAlign: "middle" }}>
+                          ZG: {z.id.replace(/^zg_/, "")}
+                        </span>
+                      )}
+                      {z.texte} {z.origine && <span style={monoSrc}>({z.origine})</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        );
+      }
+
+      case "a_lire": {
+        if (!data.a_lire.length) return null;
+        const groupes: ("indispensable" | "utile" | "optionnel")[] = ["indispensable", "utile", "optionnel"];
+        const sans = data.a_lire.filter((l) => !l.niveau);
+        return (
+          <section key={id} style={sectionStyle}>
+            <h2 style={h2Style}>À lire la veille</h2>
+            {[...groupes.map((n) => ({ label: NIVEAUX[n], items: data.a_lire.filter((l) => l.niveau === n) })), { label: "", items: sans }]
+              .filter((g) => g.items.length)
+              .map((g, gi) => (
+                <div key={gi} style={{ marginTop: gi === 0 ? 14 : 20 }}>
+                  {g.label && <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.16em", fontWeight: 700 }}>{g.label}</div>}
+                  <div style={{ display: "flex", flexDirection: "column", marginTop: 6, borderTop: "1px solid #000" }}>
+                    {g.items.map((s, i) => {
+                      const inner = (
+                        <>
+                          {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
+                          <span style={{ fontSize: 15, fontWeight: 600, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
+                          {s.temps_lecture && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{s.temps_lecture.toUpperCase()}</span>}
+                          {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
+                        </>
+                      );
+                      const style: React.CSSProperties = { display: "flex", alignItems: "baseline", gap: 14, padding: "14px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" };
+                      return s.url ? (
+                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
+                      ) : (
+                        <div key={i} style={style}>{inner}</div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+          </section>
+        );
+      }
+
+      case "trente_secondes":
+        return data.trente_secondes.length ? (
+          <section key={id} style={{ marginTop: 52, background: "#000", color: "#FFF", padding: "24px 24px 28px 24px" }}>
+            <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", color: "#8F8F88" }}>30 SECONDES AVANT D&apos;ENTRER</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20, marginTop: 16 }}>
+              {data.trente_secondes.map((t, i) => (
+                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 24, textTransform: "uppercase", lineHeight: 1 }}>{t.label}</span>
+                  <span style={{ fontSize: 14, lineHeight: 1.5, color: "#D9D9D4" }}>{t.texte}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null;
+
+      case "data": {
+        const aMarche = !!(data.marche && (data.marche.texte || data.marche.comparables.length));
+        const aGraphes = !!((v.barres && v.barres.valeurs.length) || (v.comparaison && v.comparaison.valeurs.length) || (v.rentabilite && v.rentabilite.valeurs.length));
+        if (!data.kpis.length && !aMarche && !aGraphes) return null;
+        return (
+          <section key={id} style={sectionStyle}>
+            <h2 style={h2Style}>Data</h2>
+            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Données vérifiées et datées, chaque carte porte sa source. Un chiffre non tranché pointe la zone grise.</p>
+            {data.kpis.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 1, background: "#000", border: "1px solid #000", marginTop: 14 }}>
+                {data.kpis.map((k, i) => (
+                  <div key={i} style={{ background: "#FFF", padding: "16px 16px 14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 52, lineHeight: 0.9 }}>{k.valeur}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>{k.libelle}</span>
+                    {k.source && <span style={{ ...monoSrc, marginTop: 4 }}>{k.source}</span>}
+                    {!k.source && k.zg && (
+                      <a href={`#zg_${k.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", marginTop: 4, alignSelf: "flex-start", textDecoration: "none" }}>
+                        ZG: {k.zg.replace(/^zg_/, "")}
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
             {v.barres && v.barres.valeurs.length > 0 && (
@@ -608,119 +829,25 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 ))}
               </div>
             )}
-            {v.timeline && v.timeline.jalons.length > 0 && (
-              <div style={{ marginTop: 36 }}>
-                <h3 style={h3Style}>{v.timeline.titre}</h3>
-                <div style={{ display: "flex", flexDirection: "column", marginTop: 18 }}>
-                  {v.timeline.jalons.map((tl, i) => (
-                    <div key={i} style={{ display: "grid", gridTemplateColumns: "64px 20px 1fr", gap: 0 }}>
-                      <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 34, lineHeight: 1, textAlign: "right", paddingRight: 14 }}>{tl.annee}</span>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                        <span style={{ width: 11, height: 11, background: tl.cle ? "#000" : "#FFF", border: "1px solid #000", flexShrink: 0, marginTop: 6 }} />
-                        <span style={{ width: 1, flex: 1, background: "#000" }} />
+            {aMarche && (
+              <div style={{ marginTop: 32 }}>
+                <h3 style={h3Style}>Marché et comparables</h3>
+                {data.marche!.texte && <p style={{ ...proseStyle, margin: "12px 0 0 0" }}>{data.marche!.texte}</p>}
+                {data.marche!.comparables.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
+                    {data.marche!.comparables.map((p, i) => (
+                      <div key={i} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "10px 4px", borderBottom: "1px solid #D9D9D4", flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 20, textTransform: "uppercase", lineHeight: 1 }}>{p.nom}</span>
+                        {p.position && <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{p.position}</span>}
                       </div>
-                      <div style={{ padding: "0 0 24px 14px", display: "flex", flexDirection: "column", gap: 3 }}>
-                        <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 22, textTransform: "uppercase", lineHeight: 1 }}>{tl.titre}</span>
-                        {tl.texte && <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{tl.texte}</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
         );
       }
-
-      case "personnel": {
-        const p = data.personnel;
-        if (!p) return null;
-        return (
-          <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Personnel</h2>
-            <div style={{ marginTop: 14, borderLeft: "3px solid #F4C435", padding: "10px 14px", background: "#F6F4EF" }}>
-              <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>USAGE</span>
-              <p style={{ fontSize: 14, lineHeight: 1.5, margin: "6px 0 0 0" }}>{p.bandeau}</p>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
-              {p.items.map((it, i) => (
-                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
-                  <span style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</span>
-                  <span style={monoSrc}>{it.source}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      }
-
-      case "a_lire": {
-        if (!data.a_lire.length) return null;
-        const groupes: ("indispensable" | "utile" | "optionnel")[] = ["indispensable", "utile", "optionnel"];
-        const sans = data.a_lire.filter((l) => !l.niveau);
-        return (
-          <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>À lire la veille</h2>
-            {[...groupes.map((n) => ({ label: NIVEAUX[n], items: data.a_lire.filter((l) => l.niveau === n) })), { label: "", items: sans }]
-              .filter((g) => g.items.length)
-              .map((g, gi) => (
-                <div key={gi} style={{ marginTop: gi === 0 ? 14 : 20 }}>
-                  {g.label && <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.16em", fontWeight: 700 }}>{g.label}</div>}
-                  <div style={{ display: "flex", flexDirection: "column", marginTop: 6, borderTop: "1px solid #000" }}>
-                    {g.items.map((s, i) => {
-                      const inner = (
-                        <>
-                          {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
-                          <span style={{ fontSize: 15, fontWeight: 600, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
-                          {s.temps_lecture && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{s.temps_lecture.toUpperCase()}</span>}
-                          {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
-                        </>
-                      );
-                      const style: React.CSSProperties = { display: "flex", alignItems: "baseline", gap: 14, padding: "14px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" };
-                      return s.url ? (
-                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
-                      ) : (
-                        <div key={i} style={style}>{inner}</div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-          </section>
-        );
-      }
-
-      case "trente_secondes":
-        return data.trente_secondes.length ? (
-          <section key={id} style={{ marginTop: 52, background: "#000", color: "#FFF", padding: "24px 24px 28px 24px" }}>
-            <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", color: "#8F8F88" }}>30 SECONDES AVANT D&apos;ENTRER</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20, marginTop: 16 }}>
-              {data.trente_secondes.map((t, i) => (
-                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 24, textTransform: "uppercase", lineHeight: 1 }}>{t.label}</span>
-                  <span style={{ fontSize: 14, lineHeight: 1.5, color: "#D9D9D4" }}>{t.texte}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null;
-
-      case "chiffres":
-        return data.kpis.length ? (
-          <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>En chiffres</h2>
-            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Données vérifiées et datées, mélange invité + univers, chaque carte porte sa source.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 1, background: "#000", border: "1px solid #000", marginTop: 14 }}>
-              {data.kpis.map((k, i) => (
-                <div key={i} style={{ background: "#FFF", padding: "16px 16px 14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 52, lineHeight: 0.9 }}>{k.valeur}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>{k.libelle}</span>
-                  {k.source && <span style={{ ...monoSrc, marginTop: 4 }}>{k.source}</span>}
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null;
 
       case "parcours":
         return data.parcours.length ? (
@@ -737,13 +864,13 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </section>
         ) : null;
 
-      case "playbook":
-        return data.playbook.items.length ? (
+      case "apprentissages":
+        return data.apprentissages.items.length ? (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Playbook à extraire</h2>
-            {data.playbook.intro && <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>{data.playbook.intro}</p>}
+            <h2 style={h2Style}>Apprentissages</h2>
+            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>{data.apprentissages.intro ?? "Des systèmes au format connu / manque / question. Test : la réponse change la façon de travailler d'un auditeur dès lundi matin."}</p>
             <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
-              {data.playbook.items.map((pb, i) => (
+              {data.apprentissages.items.map((pb, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "44px 1fr", gap: 12, padding: "18px 0", borderBottom: "1px solid #D9D9D4" }}>
                   <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 44, lineHeight: 0.9, color: "#BFBFB9" }}>{pad2(i + 1)}</span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -759,11 +886,11 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         ) : null;
 
       case "entourage":
-        return data.entourage.length ? (
+        return data.entourage_legacy.length ? (
           <section key={id} style={sectionStyle}>
             <h2 style={h2Style}>Entourage</h2>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16, marginTop: 14 }}>
-              {data.entourage.map((e, i) => (
+              {data.entourage_legacy.map((e, i) => (
                 <div key={i} style={{ border: "1px solid #000", padding: "14px 16px" }}>
                   <div style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 22, textTransform: "uppercase", lineHeight: 1 }}>{e.nom}</div>
                   {e.role && <div style={{ ...monoSrc, marginTop: 4 }}>{e.role.toUpperCase()}</div>}
@@ -824,21 +951,150 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </section>
         ) : null;
 
-      case "questions_reseaux":
-        return data.reseaux.length ? (
-          <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Questions clips</h2>
-            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>À dégainer sur un moment de mou ou pour relancer : la réponse courte fait le short. Proposées par Vadim, à challenger.</p>
+      case "clips":
+        // 06 Clips (v3.1) : les questions qui fâchent ferment la liste.
+        return data.clips.length ? (
+          <section key={id} id="clips" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
+            <h2 style={h2Style}>Clips</h2>
+            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>À dégainer sur un moment de mou ou pour relancer : la réponse courte fait le short. Proposées par Vadim, à challenger. Les questions qui fâchent ferment la liste.</p>
             <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
-              {data.reseaux.map((rs, i) => (
+              {data.clips.map((rs, i) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
                   <span style={{ fontSize: 15, fontWeight: 600 }}>{rs.question}</span>
-                  {rs.meta && <span style={monoSrc}>{rs.meta}</span>}
+                  <span style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                    {rs.fache && <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700, background: "#000", color: "#FFF", padding: "1px 6px" }}>QUESTION QUI FÂCHE</span>}
+                    {rs.meta && <span style={monoSrc}>{rs.meta}</span>}
+                    {rs.zg && (
+                      <a href={`#zg_${rs.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "1px 6px", textDecoration: "none" }}>
+                        ZG: {rs.zg.replace(/^zg_/, "")}
+                      </a>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
           </section>
         ) : null;
+
+      case "topics":
+        // 07 Topics (v3.1) : terrain connu, puis topics à gate time et
+        // questions cœur numérotées en continu, rayées d'un tap avec timecode.
+        return data.terrain_connu.length || data.topics.length ? (
+          <section key={id} id="topics" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <h2 style={h2Style}>Topics</h2>
+              {totalQuestionsTopics > 0 && (
+                <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65" }}>{askedTotal} / {totalQuestionsTopics} POSÉES</span>
+              )}
+            </div>
+            {data.terrain_connu.length > 0 && (
+              <div style={{ marginTop: 14, border: "1px solid #000", padding: "14px 16px" }}>
+                <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>TERRAIN CONNU · DÉJÀ RÉPONDU PARTOUT</span>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 8 }}>
+                  {data.terrain_connu.map((r, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "10px 0", borderBottom: i < data.terrain_connu.length - 1 ? "1px solid #ECECE8" : "none" }}>
+                      <span style={{ fontSize: 15, fontWeight: 600 }}>{r.question}</span>
+                      {r.reponse && <span style={{ fontSize: 13, color: "#6B6B65" }}>Réponse rodée : {r.reponse}</span>}
+                      {r.depassement && <span style={{ fontSize: 14, lineHeight: 1.45, borderLeft: "2px solid #000", paddingLeft: 10 }}><span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700 }}>DÉPASSEMENT · </span>{r.depassement}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 26, marginTop: 20 }}>
+              {data.topics.map((t, ti) => (
+                <div key={ti}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", borderBottom: "2px solid #000", paddingBottom: 8 }}>
+                    {t.debut_min !== undefined && t.fin_min !== undefined && (
+                      <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, letterSpacing: "0.06em" }}>{t.debut_min}&apos; → {t.fin_min}&apos;</span>
+                    )}
+                    <h3 style={h3Style}>{t.titre}</h3>
+                  </div>
+                  {t.intention && <p style={{ fontSize: 14, color: "#464641", margin: "8px 0 0 0", maxWidth: 640 }}>{t.intention}</p>}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                    {t.questions.map((q) => {
+                      const isAsked = !!asked[q.num];
+                      return (
+                        <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ cursor: "pointer", border: "1px solid #000", padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start", opacity: isAsked ? 0.45 : 1, background: isAsked ? "#F7F7F5" : "#FFF" }}>
+                          <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 40, lineHeight: 0.85, color: "#BFBFB9", flexShrink: 0, minWidth: 34 }}>{q.num}</span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+                            <span style={{ fontSize: 18, lineHeight: 1.35, fontWeight: 600, textDecoration: isAsked ? "line-through" : "none" }}>{q.texte}</span>
+                            {q.note && <span style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: "#6B6B65" }}>{q.note}</span>}
+                            {q.zg && (
+                              <a href={`#zg_${q.zg.replace(/^zg_/, "")}`} onClick={(ev) => ev.stopPropagation()} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", alignSelf: "flex-start", textDecoration: "none" }}>
+                                ZG: {q.zg.replace(/^zg_/, "")}
+                              </a>
+                            )}
+                            {isAsked && <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#2FA46A", fontWeight: 700 }}>POSÉE · {askedAt[q.num]}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null;
+
+      case "revue_de_presse": {
+        const r = data.revue_de_presse;
+        if (!r.reseaux.length && !r.palmares.length && !r.a_lire.length) return null;
+        return (
+          <section key={id} style={sectionStyle}>
+            <h2 style={h2Style}>Revue de presse</h2>
+            {r.reseaux.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+                {r.reseaux.map((l, i) => (
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" style={{ border: "1px solid #000", background: "#000", color: "#FFF", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em", textDecoration: "none" }}>{l.label.toUpperCase()} »</a>
+                ))}
+              </div>
+            )}
+            {r.palmares.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <h3 style={h3Style}>Palmarès</h3>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
+                  {r.palmares.map((p, i) => (
+                    <div key={i} style={{ display: "flex", gap: 16, padding: "8px 0", borderBottom: "1px solid #ECECE8", alignItems: "baseline" }}>
+                      <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, flexShrink: 0, width: 44 }}>{p.date ?? ""}</span>
+                      <span style={{ fontSize: 15, lineHeight: 1.5 }}>{p.texte}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {r.a_lire.length > 0 && (
+              <div style={{ marginTop: 22 }}>
+                <h3 style={h3Style}>À lire la veille</h3>
+                <div style={{ display: "flex", flexDirection: "column", marginTop: 10, borderTop: "1px solid #000" }}>
+                  {r.a_lire.map((s, i) => {
+                    const inner = (
+                      <>
+                        {s.niveau && <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700, border: "1px solid #000", padding: "1px 6px", flexShrink: 0 }}>{(NIVEAUX[s.niveau] ?? s.niveau).toUpperCase()}</span>}
+                        {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
+                        <span style={{ fontSize: 15, fontWeight: 600, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
+                        {s.temps_lecture && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{s.temps_lecture.toUpperCase()}</span>}
+                        {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
+                      </>
+                    );
+                    const style: React.CSSProperties = { display: "flex", alignItems: "baseline", gap: 14, padding: "14px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" };
+                    return s.url ? (
+                      <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
+                    ) : (
+                      <div key={i} style={style}>{inner}</div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {r.sources_total > 0 && (
+              <p style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", margin: "18px 0 0 0", letterSpacing: "0.06em" }}>
+                SOURCES COMPLÈTES : {r.sources_total} EN BASE · DEMANDER À CLAUDE « get_section sources » DANS MAGELLAN
+              </p>
+            )}
+          </section>
+        );
+      }
 
       case "sequencage":
         // Refonte conversation (27/07) : le déroulé minuté est supprimé, la
@@ -919,48 +1175,22 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         ) : null;
 
       case "sources":
-        return data.sources.length ? (
-          <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Sources</h2>
-            <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
-              {data.sources.map((s, i) => {
-                const inner = (
-                  <>
-                    {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
-                    <span style={{ fontSize: 14, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
-                    {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
-                  </>
-                );
-                const style: React.CSSProperties = { display: "flex", gap: 14, alignItems: "baseline", padding: "10px 0", borderBottom: "1px solid #ECECE8", textDecoration: "none", flexWrap: "wrap" };
-                // v3.1 item 2 : titre cliquable si url, texte simple sinon (pas de lien mort).
-                return s.url ? (
-                  <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
-                ) : (
-                  <div key={i} style={style}>{inner}</div>
-                );
-              })}
-            </div>
-          </section>
-        ) : null;
+        // v3.1 : la liste exhaustive reste en base ; la revue de presse
+        // affiche les indispensables et renvoie vers Magellan pour le reste.
+        return null;
 
       default:
         return null;
     }
   };
 
-  // Ordre par fiche : le bloc d'appartenance vient du catalogue, l'ordre interne
-  // de la fiche (colonne position). Défaut au catalogue.
-  const ordreA = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "A");
-  let ordreB = data.ordre.filter((idSec) => BLOC_OF.get(idSec) === "B");
-  // v3.1 item 1 : les questions clips vivent juste après les chiffres, en tête
-  // du Bloc B. Le catalogue porte désormais cet ordre (fiches neuves) ; ce
-  // déplacement d'AFFICHAGE couvre les fiches existantes dont les positions
-  // stockées datent de l'ancien ordre. Aucun section_id modifié.
-  if (ordreB.includes("questions_reseaux")) {
-    const sans = ordreB.filter((idSec) => idSec !== "questions_reseaux");
-    const apres = Math.max(sans.indexOf("chiffres"), sans.indexOf("trente_secondes"));
-    ordreB = [...sans.slice(0, apres + 1), "questions_reseaux", ...sans.slice(apres + 1)];
-  }
+  // Ordre par fiche (colonne position, défaut au catalogue). Zone étude avant
+  // le bandeau console (tldr, data, apprentissages + lecture des contrats
+  // précédents), console ensuite (clips, topics, personnel, revue de presse
+  // + fallback des fiches non migrées). Le chrome se rend en dur.
+  const ordreContenu = data.ordre.filter((idSec) => !CHROME.has(idSec));
+  const ordreA = ordreContenu.filter((idSec) => ZONE_ETUDE.has(idSec));
+  const ordreB = ordreContenu.filter((idSec) => !ZONE_ETUDE.has(idSec));
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 120, background: "#FFF", paddingRight: estDesktop && panneauOuvert ? 376 : undefined }}>
@@ -969,10 +1199,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "0 16px", alignSelf: "center", minWidth: 0, flex: 1 }}>
           <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.01em", whiteSpace: "nowrap", textTransform: "uppercase" }}>{data.invite_nom}</span>
           <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {data.entete.societe ? `${data.entete.societe} · ${numero}` : numero}
+            {data.identite.societe ? `${data.identite.societe} · ${numero}` : numero}
           </span>
         </div>
-        <a href="#console" style={{ display: "flex", alignItems: "center", padding: "0 14px", borderLeft: "1px solid #2B2B27", fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#8F8F88", textDecoration: "none" }}>CONSOLE »</a>
+        {/* v3.1 : trois ancres d'accès direct (H-1 mobile), masquées sous 560 px via la classe globale. */}
+        <nav className="fiche-ancres" style={{ display: "flex", alignItems: "stretch" }}>
+          {[["#tldr", "TL;DR"], ["#clips", "CLIPS"], ["#topics", "QUESTIONS"]].map(([href, label]) => (
+            <a key={href} href={href} style={{ display: "flex", alignItems: "center", padding: "0 12px", borderLeft: "1px solid #2B2B27", fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#8F8F88", textDecoration: "none" }}>{label}</a>
+          ))}
+        </nav>
         {recStarted ? (
           <div style={{ display: "flex", alignItems: "stretch", borderLeft: "1px solid #2B2B27" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px" }}>
@@ -1064,22 +1299,56 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             <span>FICHE DE PRÉPARATION · {numero}</span>
             <span>STATUT : {data.statut.toUpperCase()} · V{data.version}</span>
           </div>
-          <h1 style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: "clamp(88px, 16vw, 180px)", lineHeight: 0.85, letterSpacing: "-0.01em", textTransform: "uppercase", margin: "18px 0 0 0" }}>
-            {data.entete.titre_lignes.map((l, i) => (
-              <span key={i}>{i > 0 && <br />}{l}</span>
-            ))}
-          </h1>
-          {data.entete.sous_titre && (
-            <p style={{ fontSize: 20, lineHeight: 1.45, maxWidth: 620, margin: "22px 0 0 0" }}>{data.entete.sous_titre}</p>
+          {(() => {
+            // 01 Identité (v3.1) : le titre est cliquable vers Wikipedia quand
+            // la page existe (règle systématique), sinon LinkedIn, sinon rien.
+            const lienTitre = data.identite.liens.find((l) => /wikipedia/i.test(l.url)) ?? data.identite.liens.find((l) => /linkedin/i.test(l.url)) ?? null;
+            const h1 = (
+              <h1 style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: "clamp(88px, 16vw, 180px)", lineHeight: 0.85, letterSpacing: "-0.01em", textTransform: "uppercase", margin: "18px 0 0 0" }}>
+                {data.identite.titre_lignes.map((l, i) => (
+                  <span key={i}>{i > 0 && <br />}{l}</span>
+                ))}
+              </h1>
+            );
+            return lienTitre ? (
+              <a href={lienTitre.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }} title={lienTitre.label}>{h1}</a>
+            ) : h1;
+          })()}
+          {(data.identite.societe || data.identite.date_naissance) && (
+            <p style={{ fontFamily: MONO, fontSize: 13, letterSpacing: "0.06em", color: "#464641", margin: "14px 0 0 0" }}>
+              {[
+                data.identite.societe ? data.identite.societe.toUpperCase() : null,
+                data.identite.date_naissance
+                  ? `NÉ LE ${new Date(data.identite.date_naissance).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}${data.identite.age !== undefined ? ` (${data.identite.age} ANS)` : ""}`
+                  : null,
+              ].filter(Boolean).join(" · ")}
+            </p>
           )}
-          {(data.entete.pilules.length > 0 || data.entete.liens.length > 0) && (
+          {data.identite.sous_titre && (
+            <p style={{ fontSize: 20, lineHeight: 1.45, maxWidth: 620, margin: "22px 0 0 0" }}>{data.identite.sous_titre}</p>
+          )}
+          {(data.identite.pilules.length > 0 || data.identite.liens.length > 0) && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 20 }}>
-              {data.entete.pilules.map((p, i) => (
+              {data.identite.pilules.map((p, i) => (
                 <span key={i} style={{ border: "1px solid #000", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em" }}>{p}</span>
               ))}
-              {data.entete.liens.map((l, i) => (
+              {data.identite.liens.map((l, i) => (
                 <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ border: "1px solid #000", background: "#000", color: "#FFF", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em", textDecoration: "none" }}>{l.label.toUpperCase()} »</a>
               ))}
+            </div>
+          )}
+          {(data.identite.accompagnants.length > 0 || data.identite.mise_en_relation) && (
+            <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+              <p style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.06em", color: "#464641", margin: 0 }}>
+                ACCOMPAGNANTS · {data.identite.accompagnants.length > 0
+                  ? data.identite.accompagnants.map((a) => `${a.nom}${a.fonction ? ` (${a.fonction})` : ""}`).join(", ")
+                  : "à confirmer"}
+              </p>
+              {data.identite.mise_en_relation && (
+                <p style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.06em", color: "#464641", margin: 0 }}>
+                  MISE EN RELATION · {[data.identite.mise_en_relation.qui, data.identite.mise_en_relation.canal].filter(Boolean).join(" · ")}
+                </p>
+              )}
             </div>
           )}
         </section>

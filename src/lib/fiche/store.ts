@@ -206,7 +206,9 @@ export async function seedSections(sb: SB, ficheId: string): Promise<void> {
       await sb.from("fiche_sections").update({ position: attendu }).eq("id", r.id);
     }
   }
-  const missing = FICHE_SECTIONS.filter((s) => !present.has(s.id));
+  // v3.1 : les sections retirées du contrat ne sont jamais semées (leurs
+  // lignes existantes restent lisibles pour l'historique et le rollback).
+  const missing = FICHE_SECTIONS.filter((s) => !s.retire && !present.has(s.id));
   if (!missing.length) return;
   await sb.from("fiche_sections").insert(
     missing.map((s) => ({

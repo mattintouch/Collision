@@ -1,80 +1,85 @@
-// Catalogue des sections de la fiche prépa GDIY (contrat v2, Bloc A / Bloc B).
-// Ordre et section_id STABLES : ils pilotent get_fiche / update_section (édition
-// fine) et le rendu. Ajouter/retirer une section = ici, en un seul endroit.
+// Catalogue des sections de la fiche prépa GDIY, contrat v3.1 (brief du 31/07,
+// validé sur le cas réel Rudy Gobert). Ordre et section_id STABLES : ils
+// pilotent get_fiche / update_section (édition fine) et le rendu. Ajouter ou
+// retirer une section = ici, en un seul endroit.
 //
-// Principe directeur (contrat §0) : le filtre éditorial n'est pas « connu vs
-// inconnu » mais « surface vs mécanisme ». Deux objets dans une même page :
-// Bloc A, document d'apprentissage (lu 48 h avant) ; Bloc B, console d'épisode
-// (scannée pendant l'enregistrement, à partir de l'ancre « console »).
+// Principe directeur (v3.1) : PROPRIÉTÉ UNIQUE DES FAITS. Chaque fait vit dans
+// une seule section, les autres pointent. Neuf sections de contenu, plus le
+// bandeau, les sources (conservées en base) et le pied de page. Les sections
+// des contrats précédents restent lisibles (retire: true) : données
+// historiques et rollback, mais ni semées, ni rendues, ni générées.
 
 export interface FicheSectionDef {
   id: string;         // clé stable (section_id) pour l'édition MCP
   titre: string;      // libellé affiché
-  num?: string;       // numéro affiché (A1..A6, B1..B12), absent pour le chrome
-  bloc?: "A" | "B";   // A = comprendre (lecture), B = console (enregistrement)
+  num?: string;       // numéro affiché (01..09), absent pour le chrome
   role?: string;      // note de cadrage (usage interne / génération)
+  /** Section d'un contrat précédent : lisible (historique, rollback), jamais
+   *  semée sur une fiche, jamais rendue, jamais générée. */
+  retire?: boolean;
 }
 
 export const FICHE_SECTIONS: FicheSectionDef[] = [
   // ── chrome ────────────────────────────────────────────────────────────────
-  { id: "sticky_header", titre: "Bandeau", role: "nom invité + société à gauche, GDIY à droite, collant au scroll" },
-  { id: "entete", titre: "En-tête", role: "nom (liens LinkedIn/Wikipedia), sous-titre qui/pourquoi maintenant, pilules logistiques" },
-  { id: "checklist_prerec", titre: "Checklist pré-rec", role: "cases à cocher persistées : avion x2, café+eau, machine à café éteinte, clim, son+cams, brief invité, photos. TOUTE la checklist cochée pour lancer le REC" },
+  { id: "sticky_header", titre: "Bandeau", role: "nom invité + société à gauche, GDIY en mono à droite, collant au scroll. v3.1 : trois ancres de navigation (TL;DR, Clips, Questions) pour l'accès direct à H-1 sur mobile" },
 
-  // ── Bloc A : comprendre (lecture avant enregistrement) ───────────────────
-  // Refonte du 30/07 (décision Matthieu) : la fiche s'ouvre sur un TL;DR.
-  { id: "tldr", titre: "TL;DR", num: "A1", bloc: "A", role: "l'ESSENTIEL en 5 puces maximum d'une ligne chacune : ce que Matthieu doit retenir si la fiche n'est lue que 3 minutes (qui, le fait d'armes, la mécanique centrale, l'angle de l'épisode, le piège à éviter). Écrit par la passe de rédaction : c'est une SYNTHÈSE de la fiche entière, jamais une recherche" },
-  { id: "enjeu", titre: "Enjeu de l'épisode", num: "A2", bloc: "A", role: "la promesse de DYNAMIQUE (pas le sujet de domaine), le risque principal (jargon, pitch défensif), et la leçon transférable explicitement nommée (doctrine, couche C)" },
-  { id: "recit_canonique", titre: "Récit canonique", num: "A3", bloc: "A", role: "l'histoire telle que le grand public informé la connaît, 5 à 8 paragraphes maîtrisés : origines, bascules, ascension, statut actuel. INTERDITS : SIREN, toque, adresses, données d'annuaire (sauf pertinence narrative). Doit permettre de reformuler la trajectoire de mémoire" },
-  { id: "mecanique_succes", titre: "Mécanique du succès", num: "A4", bloc: "A", role: "OBLIGATOIRE, cœur de la fiche : définition du « meilleur » avec métrique explicite, pairs nommés et positionnement relatif, 3 à 5 points de divergence datés (décisions structurantes), contrefactuel signalé comme raisonnement" },
-  { id: "univers", titre: "Univers / marché", num: "A5", bloc: "A", role: "adapté au profil : marché (entrepreneur), discipline et hiérarchie (sportif), écosystème professionnel (avocat, médecin). Taille, économie, acteurs, tendances multi-années, tout sourcé et daté. Visuels barres/timeline réutilisables" },
-  { id: "personnel", titre: "Personnel", num: "A6", bloc: "A", role: "situation familiale, histoires personnelles PUBLIQUES, épreuves, passions. Source publique obligatoire par élément (sinon zone grise). Bandeau d'usage : matière pour le rapport, diffusion à l'antenne à valider. Aucune inférence sur la vie privée" },
-  // a_lire déplacé en ANNEXE de pied de fiche (refonte conversation du 27/07) :
-  // c'est l'outil de recherche de la veille, pas une lecture du Bloc A.
+  // ── contrat v3.1, ordre imposé ────────────────────────────────────────────
+  { id: "identite", titre: "Identité", num: "01", role: "prénom nom en titre avec lien Wikipedia quand la page existe (règle systématique), sinon LinkedIn, sinon rien ; titre · société(s) ; date de naissance (l'âge se calcule au rendu à la date d'enregistrement) ; pilules logistiques ; accompagnants (noms + fonctions, à confirmer si inconnu) ; mise en relation (qui a connecté, par quel canal) ; sous-titre d'épisode : une phrase de fait d'armes vérifiable + une phrase de thèse en « le comment de »" },
+  { id: "checklist_prerec", titre: "Checklist pré-rec", num: "02", role: "cinq items fixes identiques sur toutes les fiches, vraies cases à cocher, item barré quand coché ; la checklist complète déverrouille le REC (mécanique actuelle conservée, décision du 31/07)" },
+  { id: "tldr", titre: "TL;DR", num: "03", role: "brief d'attaque lisible en 60 secondes, 1200 caractères max. Phrases courtes, une idée par ligne. Neuf labels dans cet ordre : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. La leçon transférable vit dans apprentissages, pas ici" },
+  { id: "data", titre: "Data", num: "04", role: "cartes KPI (valeur, libellé, source datée ; chiffre non confirmé = pointeur ZG, jamais de chiffre orphelin), adaptées à l'archétype (CA/marge/concurrence pour un dirigeant, ventes/streams pour un artiste, scores/titres/records pour un sportif) ; 1 à 2 graphiques maximum, seulement si une trajectoire raconte quelque chose ; sous-bloc Marché et comparables : l'essentiel du marché en un paragraphe, les pairs en une ligne chacun" },
+  { id: "apprentissages", titre: "Apprentissages", num: "05", role: "5 à 8 systèmes au format connu / manque / question, points de décision structurants inclus. Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin" },
+  { id: "clips", titre: "Clips", num: "06", role: "une dizaine de questions courtes, frontales, fun et partageables, tag ressort conservé (argent, échec, confession, contre-pied) pour équilibrer la sélection ; les questions qui fâchent (polémiques) ferment la liste ; une question dépendant d'un point non tranché porte son pointeur ZG visible. Proposées par Vadim, challengées par l'équipe" },
+  { id: "topics", titre: "Topics", num: "07", role: "ouvre sur le Terrain connu (questions récurrentes : réponse rodée ET dépassement prévu), puis 5 à 8 topics : titre, gate time (début → fin en minutes), intention en une ligne (200 caractères max), questions cœur numérotées en continu sur toute la fiche, sous-notes tactiques (relance, chiffre à exiger, terrain glissant), pointeurs ZG. Tension rattachable = intention ou relance du topic ; tension orpheline = personnel. Dosage doctrine : 60 % mécanique personnelle, 20 % domaine subordonné, 20 % leçons transférables ; max 3 questions sur 10 sur le domaine" },
+  { id: "personnel", titre: "Personnel", num: "08", role: "trois sous-blocs : Entourage (mentors, associés, coachs, pivots, ennemis utiles : rôle, ce qu'il éclaire, ce qu'il faut pré-confirmer avant plateau) ; Données cachées (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal, chaque item sourcé ou pointé ZG) ; Zone grise (bandeau, source unique de vérité des statuts de vérification, identifiants stables ZG: xxx, toutes les autres sections pointent, aucune ne recopie)" },
+  { id: "revue_de_presse", titre: "Revue de presse", num: "09", role: "quatre sous-blocs dans cet ordre : Réseaux sociaux de l'invité (liens directs selon l'archétype) ; Palmarès (liste exhaustive et datée des titres, exits, récompenses, records) ; À lire la veille (3 à 5 entrées justifiées, niveau indispensable/utile, temps de lecture, apport en une ligne de 120 caractères max, la page Wikipedia y figure systématiquement quand elle existe) ; Sources complètes (conservées en base, la fiche affiche les indispensables et renvoie vers Magellan)" },
 
-  // ── Bloc B : console (pendant l'enregistrement, ancre « console ») ───────
-  // v3.1 item 1 : les questions clips remontent en tête du Bloc B, juste après
-  // les chiffres (outil de plateau, accès immédiat). Réorganisation d'ORDRE et
-  // de NUMÉRO uniquement : les section_id sont stables, les ancres tiennent.
-  { id: "trente_secondes", titre: "30 secondes avant d'entrer", num: "B1", bloc: "B", role: "qui, fait d'armes, pourquoi maintenant, état d'esprit probable de l'invité" },
-  { id: "chiffres", titre: "En chiffres", num: "B2", bloc: "B", role: "JAMAIS VIDE : 8 à 15 données clés sourcées et datées, mélange invité + univers" },
-  { id: "questions_reseaux", titre: "Questions clips", num: "B3", bloc: "B", role: "questions clickbait à dégainer en tournage pour fabriquer un short viral (moment de mou, relance). Proposées par Vadim, challengées par l'équipe. Chaque item : question (tutoiement), ressort (argent, échec, contre-pied, confession), clip (réaction visée)" },
-  { id: "parcours", titre: "Parcours", num: "B4", bloc: "B", role: "dates en gras, sans point final, nettoyé des données d'annuaire, chaque ligne peut déclencher une question" },
-  { id: "playbook", titre: "Playbook", num: "B5", bloc: "B", role: "SECTION REINE (doctrine) : 6 leviers max couvrant les 3 familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype. Format : établi / opaque / la question qui force la mécanique (critère, seuil, arbitrage, cas précis). OBLIGATOIRE" },
-  { id: "entourage", titre: "Entourage", num: "B6", bloc: "B", role: "mentors, associés, rencontres pivots, ennemis utiles. Au moins une question dessus" },
-  { id: "anecdotes", titre: "Anecdotes sur l'invité", num: "B7", bloc: "B", role: "anecdotes sourcées, les bien cachées marquées en bonus (cachee=true) : matériau narratif exclusif" },
-  { id: "tensions", titre: "Tensions", num: "B8", bloc: "B", role: "2-4 cartes opposant deux faits vérifiés (contradictions, zones d'ombre)" },
-  { id: "questions_recurrentes", titre: "Questions récurrentes (à dépasser)", num: "B9", bloc: "B", role: "questions déjà posées 10 fois + réponse rodée en 1 ligne. À ne pas reposer telles quelles" },
-  // Refonte conversation (27/07, décision Matthieu) : le déroulé minuté est
-  // SUPPRIMÉ. Plus généré, plus rendu, plus rédigé par la passe 5. Le
-  // section_id reste au catalogue pour les données historiques et les ancres.
-  { id: "sequencage", titre: "Séquençage (retiré)", num: "B10", bloc: "B", role: "RETIRÉ (refonte du 27/07) : la conversation n'est plus scriptée. Données historiques conservées, section ni générée ni affichée" },
-  { id: "dix_questions", titre: "Les questions", num: "B11", bloc: "B", role: "des PROPOSITIONS à plat, jamais un script : courtes, directes, tutoiement, sans guillemets, majorité en 'comment'. Refonte du 30/07 : chaque comment va au fond, il exige le mode opératoire (critère, seuil, arbitrage, cas précis, chiffre demandé), jamais une réponse d'article. AUCUNE question ne double un clip, une récurrente ou une question de playbook. Rayées d'un tap avec timecode pendant le REC" },
-  { id: "zone_grise", titre: "Zone grise", num: "B12", bloc: "B", role: "bandeau alerte : notes internes non vérifiées et données non sourçables, à faire confirmer par l'invité" },
-  // Refonte du 30/07 (décision Matthieu) : les polémiques ont leur section,
-  // vers le bas de la console, avec la question frontale prête à poser.
-  { id: "polemiques", titre: "Polémiques", num: "B13", bloc: "B", role: "controverses et critiques PUBLIQUES documentées (procès, échecs contestés, prises de position clivantes), 4 items max : le fait sourcé et daté, puis la QUESTION QUI FÂCHE, frontale mais adossée au fait, jamais une insinuation. Une rumeur non sourçable va en zone grise, pas ici" },
-
-  // ── annexe : la recherche de la veille ────────────────────────────────────
-  { id: "a_lire", titre: "À lire la veille", num: "B14", bloc: "B", role: "ANNEXE de préparation : 3 sources curées (indispensable / utile / optionnel) avec titre, date, temps de lecture, apport en une phrase. URLs vérifiées à la génération, jamais reconstruites" },
-  { id: "sources", titre: "Sources", num: "B15", bloc: "B", role: "liste exhaustive, liens datés avec l'apport de chacun, URLs vérifiées" },
+  // ── base : la liste exhaustive des sources reste stockée et fusionnée ─────
+  { id: "sources", titre: "Sources", role: "liste exhaustive en BASE, liens datés avec l'apport de chacun, URLs vérifiées. La fiche ne l'affiche plus en pleine page : la revue de presse montre les indispensables et renvoie vers Magellan (get_section sources)" },
 
   // ── chrome ────────────────────────────────────────────────────────────────
-  { id: "footer", titre: "Pied de page", role: "mono, rappel post-rec : photos + mémo vocal (ressenti, accroche LinkedIn, titre, potentiel)" },
+  { id: "footer", titre: "Pied de page", role: "mono, rappel post-rec : photos (invité seul de face + avec Matthieu) + mémo vocal (ressenti, ce qui a marqué, accroches LinkedIn, titre, potentiel)" },
+
+  // ── contrats précédents (retirés le 31/07, données historiques lisibles) ──
+  { id: "enjeu", titre: "Enjeu (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par tldr (Fil rouge, Piège) et apprentissages (leçon)" },
+  { id: "recit_canonique", titre: "Récit canonique (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par tldr" },
+  { id: "trente_secondes", titre: "30 secondes (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par tldr (Qui, Fait d'armes, État d'esprit, Pourquoi maintenant)" },
+  { id: "mecanique_succes", titre: "Mécanique du succès (retiré)", retire: true, role: "RETIRÉ v3.1 : pairs absorbés par data (comparables), divergences par apprentissages" },
+  { id: "univers", titre: "Univers (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par data (Marché et comparables)" },
+  { id: "parcours", titre: "Parcours (retiré)", retire: true, role: "RETIRÉ v3.1 : les jalons à valeur de palmarès migrent vers revue_de_presse, le reste est une perte assumée (historique dans le versionnement)" },
+  { id: "anecdotes", titre: "Anecdotes (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par personnel (Données cachées)" },
+  { id: "entourage", titre: "Entourage (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par personnel (Entourage)" },
+  { id: "tensions", titre: "Tensions (retiré)", retire: true, role: "RETIRÉ v3.1 : tension rattachable = intention ou relance d'un topic ; tension orpheline = personnel" },
+  { id: "polemiques", titre: "Polémiques (retiré)", retire: true, role: "RETIRÉ v3.1 : le fait part dans personnel (Données cachées), la ligne de synthèse dans tldr (Polémique), la question frontale en fin de liste clips (décision du 31/07)" },
+  { id: "questions_recurrentes", titre: "Questions récurrentes (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par topics (Terrain connu)" },
+  { id: "sequencage", titre: "Séquençage (retiré)", retire: true, role: "RETIRÉ (27/07 puis v3.1) : seul le gate time par topic en hérite" },
+  { id: "dix_questions", titre: "Les questions (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par topics (questions cœur numérotées en continu)" },
+  { id: "zone_grise", titre: "Zone grise (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par personnel (sous-bloc Zone grise), identifiants ZG conservés" },
+  { id: "a_lire", titre: "À lire (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par revue_de_presse (À lire la veille)" },
 ];
 
 export const FICHE_SECTION_IDS = FICHE_SECTIONS.map((s) => s.id);
+/** Sections actives du contrat v3.1 (semées, rendues, générées). */
+export const FICHE_SECTIONS_ACTIVES = FICHE_SECTIONS.filter((s) => !s.retire);
+export const FICHE_SECTION_IDS_ACTIFS = FICHE_SECTIONS_ACTIVES.map((s) => s.id);
 
-/** Sections OBLIGATOIRES du contrat v2 : une fiche dont l'une d'elles est vide
- *  n'est pas présentable (gate au rendu, badge à l'index, refus en_challenge). */
-export const SECTIONS_OBLIGATOIRES = ["mecanique_succes", "univers", "chiffres"] as const;
+/** Sections OBLIGATOIRES du contrat v3.1 : une fiche dont l'une d'elles est
+ *  vide n'est pas présentable (gate au rendu, badge à l'index). */
+export const SECTIONS_OBLIGATOIRES = ["data", "apprentissages", "topics"] as const;
 
-/** Renommages du contrat v2 (§5) : les fiches existantes conservent leur
- *  contenu, mappé sur les nouvelles clés (lecture ET écriture). */
+/** Renommages : contrat v2 (§5) puis v3.1 (les sections dont la FORME de
+ *  contenu est compatible sont renommées, contenu conservé ; les autres
+ *  passent par le script de migration). Lecture ET écriture. */
 export const LEGACY_SECTION_ALIASES: Record<string, string> = {
+  // v2 (13/07)
   presentation: "recit_canonique",
   entreprise: "univers",
   sources_rapides: "a_lire",
+  // v3.1 (31/07) : formes compatibles.
+  entete: "identite",
+  questions_reseaux: "clips",
+  chiffres: "data",
+  playbook: "apprentissages",
 };
 
 /** Résout un section_id en tenant compte des alias hérités. */
@@ -82,7 +87,13 @@ export function canonicalSectionId(id: string): string {
   return LEGACY_SECTION_ALIASES[id] ?? id;
 }
 
-/** Ordre (position) d'une section par son id ; -1 si inconnue. */
+/** Une section retirée du contrat (lisible mais ni semée ni rendue) ? */
+export function sectionRetiree(id: string): boolean {
+  return FICHE_SECTIONS.find((s) => s.id === canonicalSectionId(id))?.retire === true;
+}
+
+/** Ordre (position) d'une section par son id ; -1 si inconnue. Les sections
+ *  retirées vivent en fin de catalogue : elles trient après le contenu actif. */
 export function sectionPosition(id: string): number {
   return FICHE_SECTION_IDS.indexOf(canonicalSectionId(id));
 }

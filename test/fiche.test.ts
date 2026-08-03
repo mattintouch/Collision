@@ -10,42 +10,31 @@ describe("catalogue des sections (brief GDIY)", () => {
   it("section_id uniques", () => {
     expect(new Set(FICHE_SECTION_IDS).size).toBe(FICHE_SECTION_IDS.length);
   });
-  it("contient playbook (critère d'acceptation : une fiche sans playbook est un échec)", () => {
-    expect(FICHE_SECTION_IDS).toContain("playbook");
+  it("contrat v3.1 : neuf sections actives dans l'ordre imposé", () => {
+    const actifs = FICHE_SECTIONS.filter((s) => !s.retire).map((s) => s.id);
+    expect(actifs).toEqual([
+      "sticky_header", "identite", "checklist_prerec", "tldr", "data",
+      "apprentissages", "clips", "topics", "personnel", "revue_de_presse",
+      "sources", "footer",
+    ]);
   });
-  it("ordre : en-tête avant playbook avant sources avant footer", () => {
-    expect(sectionPosition("entete")).toBeLessThan(sectionPosition("playbook"));
-    expect(sectionPosition("playbook")).toBeLessThan(sectionPosition("sources"));
-    expect(sectionPosition("sources")).toBeLessThan(sectionPosition("footer"));
-  });
-  it("couvre le contrat v2 : Bloc A + Bloc B + chrome", () => {
-    expect(FICHE_SECTIONS.length).toBe(25);
-    for (const id of ["recit_canonique", "mecanique_succes", "univers", "personnel", "a_lire", "anecdotes"]) {
-      expect(FICHE_SECTION_IDS).toContain(id);
+  it("les sections des contrats précédents restent lisibles, marquées retirées", () => {
+    for (const id of ["recit_canonique", "mecanique_succes", "univers", "parcours", "anecdotes", "enjeu", "trente_secondes", "polemiques", "questions_recurrentes", "sequencage", "dix_questions", "zone_grise", "a_lire", "entourage", "tensions"]) {
+      expect(FICHE_SECTION_IDS, `${id} doit rester au catalogue`).toContain(id);
+      expect(FICHE_SECTIONS.find((s) => s.id === id)?.retire, `${id} doit être retirée`).toBe(true);
     }
-    // Le playbook reste (critère d'acceptation du brief), en Bloc B.
-    expect(FICHE_SECTIONS.find((s) => s.id === "playbook")?.bloc).toBe("B");
-    expect(FICHE_SECTIONS.find((s) => s.id === "mecanique_succes")?.bloc).toBe("A");
+    expect(FICHE_SECTIONS.length).toBe(27);
   });
-  it("refonte du 30/07 : TL;DR ouvre le Bloc A, les polémiques vivent vers le bas", () => {
-    const tldr = FICHE_SECTIONS.find((s) => s.id === "tldr");
-    expect(tldr?.bloc).toBe("A");
-    expect(tldr?.num).toBe("A1");
-    // Tout en haut : première section de contenu, avant l'enjeu.
-    expect(sectionPosition("tldr")).toBeLessThan(sectionPosition("enjeu"));
-    expect(sectionPosition("checklist_prerec")).toBeLessThan(sectionPosition("tldr"));
-    const pol = FICHE_SECTIONS.find((s) => s.id === "polemiques");
-    expect(pol?.bloc).toBe("B");
-    // Vers le bas : après les questions et la zone grise, avant les annexes.
-    expect(sectionPosition("polemiques")).toBeGreaterThan(sectionPosition("zone_grise"));
-    expect(sectionPosition("polemiques")).toBeLessThan(sectionPosition("a_lire"));
-  });
-  it("alias hérités : presentation, entreprise, sources_rapides mappés", () => {
+  it("alias hérités : v2 (presentation, entreprise, sources_rapides) et v3.1 (entete, chiffres, playbook, questions_reseaux)", () => {
     expect(canonicalSectionId("presentation")).toBe("recit_canonique");
     expect(canonicalSectionId("entreprise")).toBe("univers");
     expect(canonicalSectionId("sources_rapides")).toBe("a_lire");
-    expect(canonicalSectionId("playbook")).toBe("playbook");
-    expect(sectionPosition("presentation")).toBe(sectionPosition("recit_canonique"));
+    expect(canonicalSectionId("entete")).toBe("identite");
+    expect(canonicalSectionId("chiffres")).toBe("data");
+    expect(canonicalSectionId("playbook")).toBe("apprentissages");
+    expect(canonicalSectionId("questions_reseaux")).toBe("clips");
+    expect(canonicalSectionId("topics")).toBe("topics");
+    expect(sectionPosition("entete")).toBe(sectionPosition("identite"));
   });
   it("chaque section porte son contrat d'édition (get_section → update_section)", () => {
     for (const id of FICHE_SECTION_IDS) {
