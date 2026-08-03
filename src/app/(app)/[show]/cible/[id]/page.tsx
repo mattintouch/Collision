@@ -119,16 +119,16 @@ export default async function CiblePage({
             {/* Schéma de référence (0045) : statut fin quand il diffère de
                 l'étape, score social, tags et catégories de Louis. */}
             {cible.statut_ref && cible.statut_ref !== cible.stage_label && (
-              <span className="chip border-sky-400/40 text-sky-300">Réf : {cible.statut_ref}</span>
+              <span className="chip border-sky-400/40 text-sky-700">Réf : {cible.statut_ref}</span>
             )}
             {(cible.social_score ?? 0) > 0 && (
               <span className="chip border-noir-600 text-blanc-muted">Social {cible.social_score}/3</span>
             )}
             {cible.premiere_neige && (
-              <span className="chip border-sky-400/40 text-sky-300">Première neige</span>
+              <span className="chip border-sky-400/40 text-sky-700">Première neige</span>
             )}
             {cible.tag_investisseur && (
-              <span className="chip border-emerald-400/40 text-emerald-300">Investisseur</span>
+              <span className="chip border-emerald-400/40 text-emerald-700">Investisseur</span>
             )}
             {(cible.categorie ?? []).map((cat) => (
               <span key={cat} className="chip border-noir-600 text-blanc-muted">{cat}</span>

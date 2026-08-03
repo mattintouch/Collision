@@ -78,7 +78,7 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
   return (
     <div className="flex flex-col gap-2">
       {erreur && (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-300">
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-700">
           {erreur}
         </div>
       )}
@@ -95,7 +95,7 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
                   {c.nom}
                 </Link>
                 {factice && (
-                  <span className="rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[11px] text-amber-300">
+                  <span className="rounded border border-amber-400/40 bg-amber-400/10 px-1.5 py-0.5 text-[11px] text-amber-700">
                     nom factice, à archiver
                   </span>
                 )}
@@ -110,11 +110,11 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
               value={prio}
               onChange={(e) => setPriorites((p) => ({ ...p, [c.id]: e.target.value as Priorite }))}
               disabled={occupe}
-              className="rounded-lg border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+              className="rounded-lg border border-noir-600 bg-transparent px-2 py-1.5 text-sm"
               aria-label={`Priorité de ${c.nom}`}
             >
               {PRIORITES.map((p) => (
-                <option key={p} value={p} className="bg-neutral-900">
+                <option key={p} value={p} className="bg-white">
                   {PRIORITE_LABELS[p]}
                 </option>
               ))}
@@ -136,29 +136,29 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
             >
               Archiver
             </button>
-            <div className="flex w-full flex-wrap items-center gap-2 border-t border-white/5 pt-2">
+            <div className="flex w-full flex-wrap items-center gap-2 border-t border-noir-600 pt-2">
               <span className="text-[11px] uppercase tracking-wide text-blanc-muted">Référence</span>
               <select
                 value={r?.genre !== undefined ? r.genre ?? "" : c.genre ?? ""}
                 onChange={(e) => majRef(c.id, { genre: e.target.value || null })}
                 disabled={occupe}
-                className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-xs"
+                className="rounded-lg border border-noir-600 bg-transparent px-2 py-1 text-xs"
                 aria-label={`Genre de ${c.nom}`}
               >
-                <option value="" className="bg-neutral-900">genre ?</option>
+                <option value="" className="bg-white">genre ?</option>
                 {genres.map((g) => (
-                  <option key={g} value={g} className="bg-neutral-900">{g}</option>
+                  <option key={g} value={g} className="bg-white">{g}</option>
                 ))}
               </select>
               <select
                 value={r?.social_score !== undefined ? r.social_score : c.social_score ?? 0}
                 onChange={(e) => majRef(c.id, { social_score: Number(e.target.value) })}
                 disabled={occupe}
-                className="rounded-lg border border-white/10 bg-transparent px-2 py-1 text-xs"
+                className="rounded-lg border border-noir-600 bg-transparent px-2 py-1 text-xs"
                 aria-label={`Score social de ${c.nom}`}
               >
                 {[0, 1, 2, 3].map((s) => (
-                  <option key={s} value={s} className="bg-neutral-900">social {s}</option>
+                  <option key={s} value={s} className="bg-white">social {s}</option>
                 ))}
               </select>
               {([
@@ -174,8 +174,8 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
                     onClick={() => majRef(c.id, { [champ]: !actif })}
                     className={`rounded-lg border px-2 py-1 text-xs ${
                       actif
-                        ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                        : "border-white/10 text-blanc-muted hover:text-blanc"
+                        ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-700"
+                        : "border-noir-600 text-blanc-muted hover:text-blanc"
                     }`}
                   >
                     {label}
@@ -188,7 +188,7 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
                 onChange={(e) => majRef(c.id, { categorieTexte: e.target.value })}
                 disabled={occupe}
                 placeholder="catégories, séparées par des virgules"
-                className="min-w-[220px] flex-1 rounded-lg border border-white/10 bg-transparent px-2 py-1 text-xs"
+                className="min-w-[220px] flex-1 rounded-lg border border-noir-600 bg-transparent px-2 py-1 text-xs"
                 aria-label={`Catégories de ${c.nom}`}
               />
             </div>

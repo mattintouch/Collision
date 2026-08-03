@@ -134,7 +134,7 @@ export function EpisodePublicationForm({
     });
   };
 
-  const input = "w-full rounded-lg border border-white/10 bg-transparent px-3 py-2 text-sm";
+  const input = "w-full rounded-lg border border-noir-600 bg-transparent px-3 py-2 text-sm";
   const zone = `${input} min-h-24`;
   const bloc = "card p-4 space-y-3";
   const titreBloc = "label";
@@ -142,11 +142,11 @@ export function EpisodePublicationForm({
   return (
     <div className="space-y-4">
       {/* Verrou */}
-      <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${verrou ? "border-amber-400/40 bg-amber-400/10" : "border-white/10"}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${verrou ? "border-amber-400/40 bg-amber-400/10" : "border-noir-600"}`}>
         <div className="text-sm">
           {verrou ? (
             <>
-              <span className="font-semibold text-amber-300">Épisode verrouillé</span>
+              <span className="font-semibold text-amber-700">Épisode verrouillé</span>
               <span className="text-blanc-muted"> depuis le {new Date(verrou).toLocaleDateString("fr-FR")} : publication en lecture seule{estAdmin ? " (ton profil admin peut écrire)" : ""}.</span>
             </>
           ) : (
@@ -161,7 +161,7 @@ export function EpisodePublicationForm({
       </div>
 
       {message && (
-        <div className={`rounded-lg px-4 py-2 text-sm ${message.ok ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-300" : "border border-red-500/40 bg-red-500/10 text-red-300"}`}>
+        <div className={`rounded-lg px-4 py-2 text-sm ${message.ok ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-700" : "border border-red-500/40 bg-red-500/10 text-red-700"}`}>
           {message.texte}
         </div>
       )}
@@ -186,7 +186,7 @@ export function EpisodePublicationForm({
               <span className="text-blanc-muted">{label}</span>
               <select className={input} value={valeurs[champ]} onChange={set(champ)} disabled={lectureSeule}>
                 {statutsProduction.map((v) => (
-                  <option key={v} value={v} className="bg-neutral-900">{v}</option>
+                  <option key={v} value={v} className="bg-white">{v}</option>
                 ))}
               </select>
             </label>
@@ -232,14 +232,14 @@ export function EpisodePublicationForm({
         <h2 className={titreBloc}>Médias courts</h2>
         <div className="grid gap-4 lg:grid-cols-3">
           {MEDIAS.map(({ prefixe, label }) => (
-            <div key={prefixe} className="space-y-2 rounded-lg border border-white/10 p-3">
+            <div key={prefixe} className="space-y-2 rounded-lg border border-noir-600 p-3">
               <div className="text-sm font-medium">{label}</div>
               <label className="block text-sm">
                 <span className="text-blanc-muted">Statut</span>
                 <select className={input} value={valeurs[`${prefixe}_statut`]} onChange={set(`${prefixe}_statut`)} disabled={lectureSeule}>
-                  <option value="" className="bg-neutral-900">non prévu</option>
+                  <option value="" className="bg-white">non prévu</option>
                   {statutsMedia.map((v) => (
-                    <option key={v} value={v} className="bg-neutral-900">{v}</option>
+                    <option key={v} value={v} className="bg-white">{v}</option>
                   ))}
                 </select>
               </label>

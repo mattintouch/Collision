@@ -142,17 +142,51 @@ export interface FicheViewData {
   footer: string;
 }
 
-/* Tokens typographiques du système GDIY. */
+/* Tokens du handoff design v3.1 (03/08) : Tungsten titres, Source Sans 3
+   lecture, IBM Plex Mono labels, palette papier/encre. Zéro border-radius. */
 const T_COND = "'Tungsten Condensed', 'Arial Narrow', sans-serif";
 const T_COMP = "'Tungsten Compressed', 'Tungsten Condensed', 'Arial Narrow', sans-serif";
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
+const MONO = "'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const PAPER = "#FBFAF7";
+const INK = "#141414";
+const INK_INVERT = "#F5F2EC";
+const SUB = "#8A857D";
+const SUB_STRONG = "#5C5850";
+const HAIRLINE = "#E8E5DF";
+const HAIRLINE_SOFT = "#F0EDE7";
+const MUTED_BAR = "#C9C4BB";
+const JAUNE = "#F4C435";
+const ROUGE = "#E63946";
+const LIVE_BG = "#0F0F0E";
+const LIVE_CARD = "#141414";
+const LIVE_HAIRLINE = "#26241F";
+const LIVE_SUB = "#99948C";
+const LIVE_NOTE = "#B8B2A8";
+const ZG_TEXT = "#8A6E10";
 
-const h2Style: React.CSSProperties = { fontFamily: T_COND, fontWeight: 700, fontSize: 40, lineHeight: 0.95, textTransform: "uppercase", margin: 0 };
-const h3Style: React.CSSProperties = { fontFamily: T_COND, fontWeight: 700, fontSize: 28, lineHeight: 1, textTransform: "uppercase", margin: 0 };
-const sectionStyle: React.CSSProperties = { marginTop: 52, borderTop: "2px solid #000", paddingTop: 18 };
-const monoSrc: React.CSSProperties = { fontFamily: MONO, fontSize: 11, color: "#6B6B65" };
-/* Bloc A : mode lecture, prose, interligne généreux, largeur limitée. */
-const proseStyle: React.CSSProperties = { fontSize: 17, lineHeight: 1.65, maxWidth: 680 };
+const h2Style: React.CSSProperties = { fontFamily: T_COND, fontWeight: 600, fontSize: 30, lineHeight: 1, textTransform: "uppercase", margin: 0, letterSpacing: ".01em" };
+const sectionStyle: React.CSSProperties = { padding: "34px 0", borderTop: `1px solid ${HAIRLINE}` };
+const monoSrc: React.CSSProperties = { fontFamily: MONO, fontSize: 11, color: SUB };
+const monoLabel: React.CSSProperties = { fontFamily: MONO, fontSize: 12, letterSpacing: ".06em", color: SUB_STRONG };
+const secNum: React.CSSProperties = { fontFamily: MONO, fontSize: 12, color: SUB };
+const secHead: React.CSSProperties = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" };
+const h3Style: React.CSSProperties = { fontFamily: T_COND, fontWeight: 600, fontSize: 24, lineHeight: 1, textTransform: "uppercase", margin: 0, letterSpacing: ".01em" };
+const proseStyle: React.CSSProperties = { fontSize: 15, lineHeight: 1.55, maxWidth: "72ch" };
+
+/** Chip ZG jaune : ouvre le popover (repli : ancre vers l'item). */
+function ZgChip({ zg, onOpen, outline }: { zg: string; onOpen: (id: string) => void; outline?: boolean }) {
+  const id = zg.startsWith("zg_") ? zg : `zg_${zg}`;
+  return (
+    <button
+      onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); onOpen(id); }}
+      style={outline
+        ? { background: "none", border: `1px solid ${JAUNE}`, color: JAUNE, fontFamily: MONO, fontSize: 11, fontWeight: 600, padding: "3px 8px", cursor: "pointer" }
+        : { background: JAUNE, border: "none", color: INK, fontFamily: MONO, fontSize: 10, fontWeight: 600, padding: "3px 7px", cursor: "pointer" }}
+    >
+      ZG
+    </button>
+  );
+}
 
 const TITRE_OF = new Map(FICHE_SECTIONS.map((s) => [s.id, s.titre]));
 // Zone étude (avant le bandeau console) : v3.1 (tldr, data, apprentissages)
@@ -186,6 +220,23 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const [presences, setPresences] = useState<PresenceOperateur[]>([]);
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
   const [syncMode, setSyncMode] = useState<"realtime" | "polling">("realtime");
+  /* Handoff v3.1 : trois modes de présentation (état local, persisté par
+     fiche). Le live montre un topic à la fois, navigation MANUELLE (les
+     timecodes d'épisode sont retirés, décision Matthieu du 03/08). */
+  const [mode, setMode] = useState<"etude" | "combat" | "live">("etude");
+  const [topicIdx, setTopicIdx] = useState(0);
+  const [zgOpen, setZgOpen] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`gdiy-mode-${data.slug}`);
+      if (saved === "etude" || saved === "combat" || saved === "live") setMode(saved);
+    } catch { /* stockage indisponible */ }
+  }, [data.slug]);
+  const changerMode = (m: "etude" | "combat" | "live") => {
+    setMode(m);
+    try { localStorage.setItem(`gdiy-mode-${data.slug}`, m); } catch { /* ignore */ }
+  };
+  const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sb = useMemo(() => createClient(), []);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
@@ -400,9 +451,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   };
   const markClip = () => {
     signalerSaisie();
-    sendEvent("clip", { text: "Moment fort marqué" });
-    setCarnetOpen(true);
-    setChatOpen(false);
+    // Handoff v3.1 : le marqueur se rattache à la question en cours (première
+    // non rayée du topic courant en live, sinon première non rayée).
+    const source = mode === "live" && data.topics[topicIdx] ? data.topics[topicIdx].questions : data.topics.flatMap((t) => t.questions);
+    const enCoursQ = (source.length ? source : data.questions).find((q) => !asked[q.num]);
+    sendEvent("clip", { text: enCoursQ ? `Moment fort · Q${enCoursQ.num}` : "Moment fort marqué", ...(enCoursQ ? { num: enCoursQ.num } : {}) });
+    if (mode !== "live") {
+      setCarnetOpen(true);
+      setChatOpen(false);
+    }
   };
 
   /* REC : ouvre une session en base. STOP (A2) : confirmation explicite puis
@@ -470,37 +527,45 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
   const renderSection = (id: string): React.ReactNode => {
     switch (id) {
-      case "tldr":
-        // 03 TL;DR (v3.1) : le brief d'attaque en 60 secondes, neuf labels.
+      case "tldr": {
+        // 03 TL;DR : le brief d'attaque en 60 secondes, neuf labels en <dl>.
         // Fallback : la forme du 30/07 (puces sans label) des fiches non migrées.
+        const tldrTexte: React.CSSProperties = { fontSize: mode === "combat" ? 18 : 16, lineHeight: 1.55, margin: 0 };
         if (data.tldr.length) {
           return (
-            <section key={id} id="tldr" style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF", scrollMarginTop: 64 }}>
-              <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>TL;DR · 60 SECONDES</div>
-              <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+            <section key={id} id="tldr" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
+              <div style={secHead}>
+                <h2 style={h2Style}>TL;DR</h2>
+                <span style={secNum}>03 · BRIEF D&apos;ATTAQUE · 60 SECONDES</span>
+              </div>
+              <dl style={{ margin: "16px 0 0", display: "flex", flexDirection: "column" }}>
                 {data.tldr.map((t, i) => (
-                  <div key={i} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "8px 0", borderBottom: i < data.tldr.length - 1 ? "1px solid #ECECE8" : "none" }}>
-                    <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.12em", fontWeight: 700, color: "#6B6B65", flexShrink: 0, minWidth: 130, textTransform: "uppercase" }}>{t.label}</span>
-                    <span style={{ fontSize: 16, lineHeight: 1.45, fontWeight: 600 }}>{t.texte}</span>
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "170px 1fr", gap: 16, padding: "10px 0", borderBottom: i < data.tldr.length - 1 ? `1px solid ${HAIRLINE_SOFT}` : "none" }}>
+                    <dt style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, letterSpacing: ".06em", paddingTop: 3, textTransform: "uppercase" }}>{t.label}</dt>
+                    <dd style={tldrTexte}>{t.texte}</dd>
                   </div>
                 ))}
-              </div>
+              </dl>
             </section>
           );
         }
         return data.tldr_legacy.length ? (
-          <section key={id} id="tldr" style={{ marginTop: 40, border: "2px solid #000", padding: "20px 22px", background: "#FFF", scrollMarginTop: 64 }}>
-            <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>TL;DR</div>
+          <section key={id} id="tldr" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
+            <div style={secHead}>
+              <h2 style={h2Style}>TL;DR</h2>
+              <span style={secNum}>03</span>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
               {data.tldr_legacy.map((t, i) => (
                 <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
-                  <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 22, lineHeight: 1, color: "#BFBFB9", flexShrink: 0, minWidth: 24 }}>{pad2(i + 1)}</span>
-                  <span style={{ fontSize: 16, lineHeight: 1.45, fontWeight: 600 }}>{t}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: SUB, flexShrink: 0, minWidth: 24 }}>{pad2(i + 1)}</span>
+                  <span style={tldrTexte}>{t}</span>
                 </div>
               ))}
             </div>
           </section>
         ) : null;
+      }
 
       case "enjeu":
         return data.enjeu || data.lecon ? (
@@ -622,26 +687,21 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         if (vide) return null;
         return (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Personnel</h2>
-            <div style={{ marginTop: 14, borderLeft: "3px solid #F4C435", padding: "10px 14px", background: "#F6F4EF" }}>
-              <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>USAGE</span>
-              <p style={{ fontSize: 14, lineHeight: 1.5, margin: "6px 0 0 0" }}>{p.bandeau}</p>
+            <div style={secHead}>
+              <h2 style={h2Style}>Personnel</h2>
+              <span style={secNum}>08</span>
             </div>
+            <div style={{ background: INK, color: INK_INVERT, fontFamily: MONO, fontSize: 12, padding: "10px 14px", marginTop: 14 }}>{p.bandeau.toUpperCase()}</div>
             {p.entourage.length > 0 && (
               <div style={{ marginTop: 22 }}>
-                <h3 style={h3Style}>Entourage</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16, marginTop: 12 }}>
+                <div style={{ ...monoLabel, marginBottom: 10 }}>ENTOURAGE</div>
+                <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: "6px 16px", border: `1px solid ${HAIRLINE}`, padding: "14px 16px" }}>
                   {p.entourage.map((e, i) => (
-                    <div key={i} style={{ border: "1px solid #000", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 6 }}>
-                      <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 24, textTransform: "uppercase", lineHeight: 1 }}>{e.nom}</span>
-                      {e.role && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{e.role.toUpperCase()}</span>}
-                      {e.eclaire && <span style={{ fontSize: 14, lineHeight: 1.5 }}>{e.eclaire}</span>}
-                      {e.preconfirmer && (
-                        <span style={{ fontSize: 13, lineHeight: 1.5, borderTop: "1px solid #D9D9D4", paddingTop: 8 }}>
-                          <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700 }}>PRÉ-CONFIRMER · </span>
-                          {e.preconfirmer}
-                        </span>
-                      )}
+                    <div key={i} style={{ display: "contents" }}>
+                      <span style={{ fontWeight: 600, fontSize: 15 }}>{e.nom}{e.role ? <span style={{ color: SUB, fontWeight: 400 }}> · {e.role}</span> : null}</span>
+                      <span style={{ fontSize: 15, lineHeight: 1.55 }}>
+                        {[e.eclaire, e.preconfirmer ? `À pré-confirmer avant plateau : ${e.preconfirmer}` : null].filter(Boolean).join(" ")}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -649,42 +709,31 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             )}
             {(p.donnees_cachees.length > 0 || p.items_legacy.length > 0) && (
               <div style={{ marginTop: 22 }}>
-                <h3 style={h3Style}>Données cachées</h3>
-                <p style={{ fontSize: 14, color: "#6B6B65", margin: "6px 0 0 0", maxWidth: 620 }}>Vieux dossiers, anecdotes introuvables dans les interviews récentes, archives. En bien ou en mal.</p>
-                <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
-                  {p.donnees_cachees.map((it, i) => (
-                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
-                      <span style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</span>
-                      {it.source && <span style={monoSrc}>{it.source}</span>}
-                      {!it.source && it.zg && (
-                        <a href={`#zg_${it.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", alignSelf: "flex-start", textDecoration: "none" }}>
-                          ZG: {it.zg.replace(/^zg_/, "")}
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                  {p.items_legacy.map((it, i) => (
-                    <div key={`l${i}`} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
-                      <span style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</span>
-                      <span style={monoSrc}>{it.source}</span>
+                <div style={{ ...monoLabel, marginBottom: 10 }}>DONNÉES CACHÉES</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {[...p.donnees_cachees, ...p.items_legacy].map((it, i) => (
+                    <div key={i} style={{ border: `1px solid ${HAIRLINE}`, padding: "12px 16px" }}>
+                      <div style={{ fontSize: 15, lineHeight: 1.55 }}>{it.texte}</div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 6 }}>
+                        {"source" in it && it.source && <span style={{ fontFamily: MONO, fontSize: 11, color: SUB }}>{it.source}</span>}
+                        {"zg" in it && it.zg && <ZgChip zg={it.zg} onOpen={setZgOpen} />}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
             {p.zone_grise.length > 0 && (
-              <div style={{ marginTop: 22, background: "#EFE9DC", border: "1px solid #000", padding: "20px 22px" }}>
-                <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", fontWeight: 700 }}>ZONE GRISE : À FAIRE DIRE PAR L&apos;INVITÉ</div>
-                <p style={{ fontSize: 13, lineHeight: 1.5, margin: "6px 0 0 0", color: "#464641" }}>Source unique de vérité des statuts de vérification. Les autres sections pointent (ZG: xxx), aucune ne recopie.</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+              <div id="zonegrise" style={{ marginTop: 26 }}>
+                <div style={{ background: JAUNE, color: INK, fontFamily: MONO, fontSize: 12, fontWeight: 600, padding: "10px 14px" }}>
+                  ZONE GRISE · NE RIEN AFFIRMER DE CE BLOC À L&apos;ANTENNE SANS SON STATUT · CIBLE DE TOUS LES POINTEURS ZG
+                </div>
+                <div style={{ border: `1px solid ${HAIRLINE}`, borderTop: "none" }}>
                   {p.zone_grise.map((z, i) => (
-                    <div key={i} id={z.id || undefined} style={{ fontSize: 15, lineHeight: 1.5, borderLeft: "2px solid #000", paddingLeft: 12, scrollMarginTop: 64 }}>
-                      {z.id && (
-                        <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "1px 6px", marginRight: 8, verticalAlign: "middle" }}>
-                          ZG: {z.id.replace(/^zg_/, "")}
-                        </span>
-                      )}
-                      {z.texte} {z.origine && <span style={monoSrc}>({z.origine})</span>}
+                    <div key={i} id={z.id || undefined} style={{ padding: "14px 16px", borderBottom: i < p.zone_grise.length - 1 ? `1px solid ${HAIRLINE_SOFT}` : "none", scrollMarginTop: 64 }}>
+                      {z.id && <div style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: ZG_TEXT, marginBottom: 5 }}>{z.id}</div>}
+                      <div style={{ fontSize: 15, lineHeight: 1.55 }}>{z.texte}</div>
+                      {z.origine && <div style={{ fontFamily: MONO, fontSize: 11, color: SUB, marginTop: 6 }}>{z.origine}</div>}
                     </div>
                   ))}
                 </div>
@@ -751,95 +800,90 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         if (!data.kpis.length && !aMarche && !aGraphes) return null;
         return (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Data</h2>
-            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>Données vérifiées et datées, chaque carte porte sa source. Un chiffre non tranché pointe la zone grise.</p>
+            <div style={secHead}>
+              <h2 style={h2Style}>Data</h2>
+              <span style={secNum}>04</span>
+            </div>
             {data.kpis.length > 0 && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 1, background: "#000", border: "1px solid #000", marginTop: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 1, background: HAIRLINE, border: `1px solid ${HAIRLINE}`, marginTop: 18 }}>
                 {data.kpis.map((k, i) => (
-                  <div key={i} style={{ background: "#FFF", padding: "16px 16px 14px 16px", display: "flex", flexDirection: "column", gap: 4 }}>
-                    <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 52, lineHeight: 0.9 }}>{k.valeur}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>{k.libelle}</span>
-                    {k.source && <span style={{ ...monoSrc, marginTop: 4 }}>{k.source}</span>}
-                    {!k.source && k.zg && (
-                      <a href={`#zg_${k.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", marginTop: 4, alignSelf: "flex-start", textDecoration: "none" }}>
-                        ZG: {k.zg.replace(/^zg_/, "")}
-                      </a>
-                    )}
+                  <div key={i} style={{ background: PAPER, padding: "16px 16px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 38, lineHeight: 1 }}>{k.valeur}</span>
+                      {k.zg && <span style={{ marginLeft: "auto" }}><ZgChip zg={k.zg} onOpen={setZgOpen} /></span>}
+                    </div>
+                    <div style={{ fontSize: 14, lineHeight: 1.4, marginTop: 8 }}>{k.libelle}</div>
+                    {k.source && <div style={{ fontFamily: MONO, fontSize: 11, color: SUB, marginTop: 8 }}>{k.source}</div>}
                   </div>
                 ))}
               </div>
             )}
             {v.barres && v.barres.valeurs.length > 0 && (
-              <div style={{ marginTop: 32 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <h3 style={h3Style}>{v.barres.titre}</h3>
-                  {v.barres.source && <span style={monoSrc}>SOURCE : {v.barres.source.toUpperCase()}</span>}
-                </div>
-                {v.barres.note && <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 520 }}>{v.barres.note}</p>}
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 180, marginTop: 16, borderBottom: "2px solid #000", padding: "0 4px" }}>
+              <div style={{ marginTop: 28 }}>
+                <div style={{ ...monoLabel, marginBottom: 14 }}>{v.barres.titre.toUpperCase()}{v.barres.source ? ` · ${v.barres.source.toUpperCase()}` : ""}</div>
+                {v.barres.note && <p style={{ fontSize: 14, color: SUB, margin: "0 0 10px", maxWidth: 520 }}>{v.barres.note}</p>}
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 28, height: 150, borderBottom: `2px solid ${INK}`, padding: "0 8px" }}>
                   {(() => {
                     const max = Math.max(...v.barres!.valeurs.map((b) => b.valeur), 1);
                     return v.barres!.valeurs.map((b, i) => (
-                      <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, height: "100%" }}>
-                        <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700 }}>{b.affiche}</span>
-                        <div style={{ width: "100%", background: b.plein ? "#000" : "#8F8F88", height: `${Math.round((b.valeur / max) * 100)}%` }} />
+                      <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, justifyContent: "flex-end", height: "100%", flex: 1 }}>
+                        <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 16, color: b.plein ? INK : SUB }}>{b.affiche}</span>
+                        <div style={{ width: "100%", maxWidth: 56, height: `${Math.max(3, Math.round((b.valeur / max) * 100))}%`, background: b.plein ? INK : MUTED_BAR }} />
                       </div>
                     ));
                   })()}
                 </div>
-                <div style={{ display: "flex", gap: 6, padding: "6px 4px 0 4px" }}>
+                <div style={{ display: "flex", gap: 28, padding: "6px 8px 0" }}>
                   {v.barres.valeurs.map((b, i) => (
-                    <span key={i} style={{ flex: 1, textAlign: "center", fontFamily: MONO, fontSize: 10, color: "#6B6B65" }}>{b.label}</span>
+                    <span key={i} style={{ flex: 1, textAlign: "center", fontFamily: MONO, fontSize: 11, color: SUB }}>{b.label}</span>
                   ))}
                 </div>
               </div>
             )}
             {v.comparaison && v.comparaison.valeurs.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 32 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <h3 style={h3Style}>{v.comparaison.titre ?? "Croissance comparée"}</h3>
-                  {v.comparaison.source && <span style={monoSrc}>{v.comparaison.source.toUpperCase()}</span>}
+              <div style={{ marginTop: 28 }}>
+                <div style={{ ...monoLabel, marginBottom: 14 }}>{(v.comparaison.titre ?? "Comparaison").toUpperCase()}{v.comparaison.source ? ` · ${v.comparaison.source.toUpperCase()}` : ""}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {(() => {
+                    const max = Math.max(...v.comparaison!.valeurs.map((g) => Math.abs(g.pct)), 1);
+                    return v.comparaison!.valeurs.map((g, i) => (
+                      <div key={i}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
+                          <span>{g.nom}</span>
+                          <span style={{ fontFamily: T_COND, fontWeight: 600 }}>{g.affiche}</span>
+                        </div>
+                        <div style={{ height: 14, background: g.hero ? INK : MUTED_BAR, width: `${Math.max(4, Math.round((Math.abs(g.pct) / max) * 100))}%` }} />
+                      </div>
+                    ));
+                  })()}
                 </div>
-                {v.comparaison.valeurs.map((g, i) => (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 1fr 64px", gap: 12, alignItems: "center" }}>
-                    <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 20, textTransform: "uppercase", lineHeight: 1 }}>{g.nom}</span>
-                    <div style={{ height: 22, background: "#ECECE8", position: "relative" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(2, Math.min(100, Math.round(Math.abs(g.pct) / 1.4)))}%`, background: g.hero ? "#000" : "#BFBFB9" }} />
-                    </div>
-                    <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{g.affiche}</span>
-                  </div>
-                ))}
               </div>
             )}
             {v.rentabilite && v.rentabilite.valeurs.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 32 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <h3 style={h3Style}>{v.rentabilite.titre ?? "Rentabilité"}</h3>
-                  {v.rentabilite.source && <span style={monoSrc}>SOURCE : {v.rentabilite.source.toUpperCase()}</span>}
-                </div>
-                {v.rentabilite.note && <p style={{ fontSize: 14, color: "#6B6B65", margin: 0, maxWidth: 620 }}>{v.rentabilite.note}</p>}
-                {v.rentabilite.valeurs.map((m, i) => (
-                  <div key={i} style={{ display: "grid", gridTemplateColumns: "48px 1fr 56px", gap: 12, alignItems: "center" }}>
-                    <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700 }}>{m.label}</span>
-                    <div style={{ height: 26, background: "#ECECE8", position: "relative" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.max(0, Math.min(100, m.pct))}%`, background: "#000" }} />
+              <div style={{ marginTop: 28 }}>
+                <div style={{ ...monoLabel, marginBottom: 14 }}>{(v.rentabilite.titre ?? "Rentabilité").toUpperCase()}{v.rentabilite.source ? ` · ${v.rentabilite.source.toUpperCase()}` : ""}</div>
+                {v.rentabilite.note && <p style={{ fontSize: 14, color: SUB, margin: "0 0 10px", maxWidth: 520 }}>{v.rentabilite.note}</p>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {v.rentabilite.valeurs.map((m, i) => (
+                    <div key={i}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 4 }}>
+                        <span>{m.label}</span>
+                        <span style={{ fontFamily: T_COND, fontWeight: 600 }}>{m.affiche}</span>
+                      </div>
+                      <div style={{ height: 14, background: INK, width: `${Math.max(0, Math.min(100, m.pct))}%` }} />
                     </div>
-                    <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{m.affiche}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
             {aMarche && (
-              <div style={{ marginTop: 32 }}>
-                <h3 style={h3Style}>Marché et comparables</h3>
-                {data.marche!.texte && <p style={{ ...proseStyle, margin: "12px 0 0 0" }}>{data.marche!.texte}</p>}
+              <div style={{ border: `1px solid ${HAIRLINE}`, padding: "14px 16px", marginTop: 26 }}>
+                <div style={{ ...monoLabel, marginBottom: 10 }}>MARCHÉ ET COMPARABLES</div>
+                {data.marche!.texte && <p style={{ fontSize: 15, lineHeight: 1.5, margin: "0 0 10px" }}>{data.marche!.texte}</p>}
                 {data.marche!.comparables.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 24px", fontSize: 15, lineHeight: 1.5 }}>
                     {data.marche!.comparables.map((p, i) => (
-                      <div key={i} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "10px 4px", borderBottom: "1px solid #D9D9D4", flexWrap: "wrap" }}>
-                        <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 20, textTransform: "uppercase", lineHeight: 1 }}>{p.nom}</span>
-                        {p.position && <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}>{p.position}</span>}
-                      </div>
+                      <div key={i}><span style={{ fontWeight: 600 }}>{p.nom}</span>{p.position ? ` : ${p.position}` : ""}</div>
                     ))}
                   </div>
                 )}
@@ -867,17 +911,18 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       case "apprentissages":
         return data.apprentissages.items.length ? (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Apprentissages</h2>
-            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>{data.apprentissages.intro ?? "Des systèmes au format connu / manque / question. Test : la réponse change la façon de travailler d'un auditeur dès lundi matin."}</p>
-            <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
+            <div style={secHead}>
+              <h2 style={h2Style}>Apprentissages</h2>
+              <span style={secNum}>05 · CONNU / MANQUE / QUESTION</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
               {data.apprentissages.items.map((pb, i) => (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "44px 1fr", gap: 12, padding: "18px 0", borderBottom: "1px solid #D9D9D4" }}>
-                  <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 44, lineHeight: 0.9, color: "#BFBFB9" }}>{pad2(i + 1)}</span>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 26, textTransform: "uppercase", lineHeight: 1 }}>{pb.titre}</span>
-                    {pb.connu && <span style={{ fontSize: 14, lineHeight: 1.5 }}><strong>Connu :</strong> {pb.connu}</span>}
-                    {pb.manque && <span style={{ fontSize: 14, lineHeight: 1.5, color: "#464641" }}><strong>Manque :</strong> {pb.manque}</span>}
-                    {pb.question && <span style={{ fontSize: 15, lineHeight: 1.5, fontWeight: 600, borderLeft: "2px solid #000", paddingLeft: 12 }}>{pb.question}</span>}
+                <div key={i} style={{ padding: "18px 0", borderBottom: `1px solid ${HAIRLINE_SOFT}` }}>
+                  <div style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 20, textTransform: "uppercase", letterSpacing: ".01em", marginBottom: 10 }}>{pb.titre}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "88px 1fr", gap: "6px 14px" }}>
+                    {pb.connu && (<><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: SUB, paddingTop: 3 }}>CONNU</span><span style={{ fontSize: mode === "combat" ? 17 : 15, lineHeight: 1.55 }}>{pb.connu}</span></>)}
+                    {pb.manque && (<><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: SUB, paddingTop: 3 }}>MANQUE</span><span style={{ fontSize: mode === "combat" ? 17 : 15, lineHeight: 1.55 }}>{pb.manque}</span></>)}
+                    {pb.question && (<><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: INK, paddingTop: 3 }}>QUESTION</span><span style={{ fontSize: mode === "combat" ? 19 : 17, lineHeight: 1.45, fontWeight: 600 }}>{pb.question}</span></>)}
                   </div>
                 </div>
               ))}
@@ -951,82 +996,86 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </section>
         ) : null;
 
-      case "clips":
-        // 06 Clips (v3.1) : les questions qui fâchent ferment la liste.
-        return data.clips.length ? (
+      case "clips": {
+        // 06 Clips : les questions qui fâchent ferment la liste, filet rouge
+        // au-dessus de la première.
+        if (!data.clips.length) return null;
+        const premierFache = data.clips.findIndex((c) => c.fache);
+        return (
           <section key={id} id="clips" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
-            <h2 style={h2Style}>Clips</h2>
-            <p style={{ fontSize: 14, color: "#6B6B65", margin: "8px 0 0 0", maxWidth: 620 }}>À dégainer sur un moment de mou ou pour relancer : la réponse courte fait le short. Proposées par Vadim, à challenger. Les questions qui fâchent ferment la liste.</p>
-            <div style={{ display: "flex", flexDirection: "column", marginTop: 14, borderTop: "1px solid #000" }}>
-              {data.clips.map((rs, i) => (
-                <div key={i} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "13px 4px", borderBottom: "1px solid #D9D9D4" }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{rs.question}</span>
-                  <span style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
-                    {rs.fache && <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700, background: "#000", color: "#FFF", padding: "1px 6px" }}>QUESTION QUI FÂCHE</span>}
-                    {rs.meta && <span style={monoSrc}>{rs.meta}</span>}
-                    {rs.zg && (
-                      <a href={`#zg_${rs.zg.replace(/^zg_/, "")}`} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "1px 6px", textDecoration: "none" }}>
-                        ZG: {rs.zg.replace(/^zg_/, "")}
-                      </a>
+            <div style={secHead}>
+              <h2 style={h2Style}>Clips</h2>
+              <span style={secNum}>06 · QUESTIONS FRONTALES · LES QUESTIONS QUI FÂCHENT FERMENT LA LISTE</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+              {data.clips.map((rs, i) => {
+                const [ressort, ...resteMeta] = (rs.meta ?? "").split(" · ");
+                return (
+                  <div key={i} style={{ padding: "14px 0", borderBottom: `1px solid ${HAIRLINE_SOFT}`, borderTop: i === premierFache && i > 0 ? `2px solid ${ROUGE}` : undefined }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+                      {ressort && <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, background: INK, color: INK_INVERT, padding: "3px 8px" }}>{ressort}</span>}
+                      {rs.fache && <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: ROUGE }}>QUESTION QUI FÂCHE</span>}
+                      {rs.zg && <ZgChip zg={rs.zg} onOpen={setZgOpen} />}
+                    </div>
+                    <div style={{ fontSize: mode === "combat" ? 19 : 17, lineHeight: 1.45, fontWeight: 600 }}>{rs.question}</div>
+                    {resteMeta.length > 0 && (
+                      <div style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.5, color: SUB, marginTop: 6 }}>POURQUOI ÇA CLIPPE · {resteMeta.join(" · ")}</div>
                     )}
-                  </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </section>
-        ) : null;
+        );
+      }
 
-      case "topics":
-        // 07 Topics (v3.1) : terrain connu, puis topics à gate time et
-        // questions cœur numérotées en continu, rayées d'un tap avec timecode.
-        return data.terrain_connu.length || data.topics.length ? (
+      case "topics": {
+        // 07 Topics : terrain connu puis topics à questions cœur numérotées en
+        // continu, rayables d'un tap (timecode de SESSION pour le montage).
+        // Les timecodes d'épisode (gate times) ne s'affichent plus (03/08).
+        if (!data.terrain_connu.length && !data.topics.length) return null;
+        const qFs = mode === "combat" ? 19 : 17;
+        return (
           <section key={id} id="topics" style={{ ...sectionStyle, scrollMarginTop: 64 }}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={secHead}>
               <h2 style={h2Style}>Topics</h2>
-              {totalQuestionsTopics > 0 && (
-                <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65" }}>{askedTotal} / {totalQuestionsTopics} POSÉES</span>
-              )}
+              <span style={secNum}>07 · {data.topics.length} TOPICS · {totalQuestionsTopics || data.questions.length} QUESTIONS · {askedTotal} POSÉE(S)</span>
             </div>
             {data.terrain_connu.length > 0 && (
-              <div style={{ marginTop: 14, border: "1px solid #000", padding: "14px 16px" }}>
-                <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", fontWeight: 700 }}>TERRAIN CONNU · DÉJÀ RÉPONDU PARTOUT</span>
-                <div style={{ display: "flex", flexDirection: "column", marginTop: 8 }}>
+              <div style={{ border: `1px solid ${HAIRLINE}`, padding: 16, marginTop: 16 }}>
+                <div style={{ ...monoLabel, marginBottom: 12 }}>TERRAIN CONNU · RÉPONSE RODÉE + DÉPASSEMENT</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   {data.terrain_connu.map((r, i) => (
-                    <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "10px 0", borderBottom: i < data.terrain_connu.length - 1 ? "1px solid #ECECE8" : "none" }}>
-                      <span style={{ fontSize: 15, fontWeight: 600 }}>{r.question}</span>
-                      {r.reponse && <span style={{ fontSize: 13, color: "#6B6B65" }}>Réponse rodée : {r.reponse}</span>}
-                      {r.depassement && <span style={{ fontSize: 14, lineHeight: 1.45, borderLeft: "2px solid #000", paddingLeft: 10 }}><span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700 }}>DÉPASSEMENT · </span>{r.depassement}</span>}
+                    <div key={i}>
+                      <div style={{ fontSize: qFs, lineHeight: 1.45, fontWeight: 600 }}>{r.question}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: "4px 12px", marginTop: 6 }}>
+                        {r.reponse && (<><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: SUB, paddingTop: 2 }}>RODÉE</span><span style={{ fontSize: mode === "combat" ? 17 : 15, lineHeight: 1.55 }}>{r.reponse}</span></>)}
+                        {r.depassement && (<><span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: INK, paddingTop: 2 }}>DÉPASSEMENT</span><span style={{ fontSize: mode === "combat" ? 17 : 15, lineHeight: 1.55 }}>{r.depassement}</span></>)}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 26, marginTop: 20 }}>
+            <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
               {data.topics.map((t, ti) => (
-                <div key={ti}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", borderBottom: "2px solid #000", paddingBottom: 8 }}>
-                    {t.debut_min !== undefined && t.fin_min !== undefined && (
-                      <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, letterSpacing: "0.06em" }}>{t.debut_min}&apos; → {t.fin_min}&apos;</span>
-                    )}
-                    <h3 style={h3Style}>{t.titre}</h3>
+                <div key={ti} style={{ padding: "20px 16px", margin: "0 -16px", borderBottom: `1px solid ${HAIRLINE_SOFT}` }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+                    <h3 style={{ ...h3Style, flex: 1 }}>{t.titre}</h3>
                   </div>
-                  {t.intention && <p style={{ fontSize: 14, color: "#464641", margin: "8px 0 0 0", maxWidth: 640 }}>{t.intention}</p>}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                  {t.intention && <p style={{ fontSize: mode === "combat" ? 17 : 15, lineHeight: 1.55, margin: "8px 0 4px", maxWidth: "72ch" }}>{t.intention}</p>}
+                  <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
                     {t.questions.map((q) => {
-                      const isAsked = !!asked[q.num];
+                      const rayee = !!asked[q.num];
                       return (
-                        <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ cursor: "pointer", border: "1px solid #000", padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start", opacity: isAsked ? 0.45 : 1, background: isAsked ? "#F7F7F5" : "#FFF" }}>
-                          <span style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: 40, lineHeight: 0.85, color: "#BFBFB9", flexShrink: 0, minWidth: 34 }}>{q.num}</span>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-                            <span style={{ fontSize: 18, lineHeight: 1.35, fontWeight: 600, textDecoration: isAsked ? "line-through" : "none" }}>{q.texte}</span>
-                            {q.note && <span style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.6, color: "#6B6B65" }}>{q.note}</span>}
-                            {q.zg && (
-                              <a href={`#zg_${q.zg.replace(/^zg_/, "")}`} onClick={(ev) => ev.stopPropagation()} style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.08em", background: "#000", color: "#FFF", padding: "2px 6px", alignSelf: "flex-start", textDecoration: "none" }}>
-                                ZG: {q.zg.replace(/^zg_/, "")}
-                              </a>
-                            )}
-                            {isAsked && <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#2FA46A", fontWeight: 700 }}>POSÉE · {askedAt[q.num]}</span>}
+                        <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ display: "flex", gap: 12, padding: "10px 12px", cursor: "pointer", borderLeft: `2px solid ${rayee ? HAIRLINE : INK}`, marginBottom: 6, opacity: rayee ? 0.45 : 1, background: rayee ? "transparent" : "#FFFFFF" }}>
+                          <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, minWidth: 32, paddingTop: 3 }}>{q.num}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: qFs, lineHeight: 1.45, fontWeight: 600, textDecoration: rayee ? "line-through" : "none" }}>{q.texte}</div>
+                            {q.note && <div style={{ fontFamily: MONO, fontSize: 12, lineHeight: 1.55, color: SUB, marginTop: 4 }}>{q.note}</div>}
                           </div>
+                          {q.zg && <span style={{ alignSelf: "flex-start", marginTop: 4 }}><ZgChip zg={q.zg} onOpen={setZgOpen} /></span>}
+                          {rayee && <span style={{ fontFamily: MONO, fontSize: 11, color: SUB, paddingTop: 5 }}>{askedAt[q.num]}</span>}
                         </div>
                       );
                     })}
@@ -1035,28 +1084,32 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               ))}
             </div>
           </section>
-        ) : null;
+        );
+      }
 
       case "revue_de_presse": {
         const r = data.revue_de_presse;
         if (!r.reseaux.length && !r.palmares.length && !r.a_lire.length) return null;
         return (
           <section key={id} style={sectionStyle}>
-            <h2 style={h2Style}>Revue de presse</h2>
+            <div style={secHead}>
+              <h2 style={h2Style}>Revue de presse</h2>
+              <span style={secNum}>09</span>
+            </div>
             {r.reseaux.length > 0 && (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
                 {r.reseaux.map((l, i) => (
-                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" style={{ border: "1px solid #000", background: "#000", color: "#FFF", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em", textDecoration: "none" }}>{l.label.toUpperCase()} »</a>
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: MONO, fontSize: 12, border: `1px solid ${INK}`, padding: "6px 12px", textDecoration: "none" }}>{l.label.toUpperCase()}</a>
                 ))}
               </div>
             )}
             {r.palmares.length > 0 && (
-              <div style={{ marginTop: 22 }}>
-                <h3 style={h3Style}>Palmarès</h3>
-                <div style={{ display: "flex", flexDirection: "column", marginTop: 10 }}>
+              <div style={{ marginTop: 24 }}>
+                <div style={{ ...monoLabel, marginBottom: 10 }}>PALMARÈS</div>
+                <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: "6px 16px" }}>
                   {r.palmares.map((p, i) => (
-                    <div key={i} style={{ display: "flex", gap: 16, padding: "8px 0", borderBottom: "1px solid #ECECE8", alignItems: "baseline" }}>
-                      <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 700, flexShrink: 0, width: 44 }}>{p.date ?? ""}</span>
+                    <div key={i} style={{ display: "contents" }}>
+                      <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600 }}>{p.date ?? ""}</span>
                       <span style={{ fontSize: 15, lineHeight: 1.5 }}>{p.texte}</span>
                     </div>
                   ))}
@@ -1064,33 +1117,35 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               </div>
             )}
             {r.a_lire.length > 0 && (
-              <div style={{ marginTop: 22 }}>
-                <h3 style={h3Style}>À lire la veille</h3>
-                <div style={{ display: "flex", flexDirection: "column", marginTop: 10, borderTop: "1px solid #000" }}>
-                  {r.a_lire.map((s, i) => {
-                    const inner = (
-                      <>
-                        {s.niveau && <span style={{ fontFamily: MONO, fontSize: 10, letterSpacing: "0.1em", fontWeight: 700, border: "1px solid #000", padding: "1px 6px", flexShrink: 0 }}>{(NIVEAUX[s.niveau] ?? s.niveau).toUpperCase()}</span>}
-                        {s.date && <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0 }}>{s.date}</span>}
-                        <span style={{ fontSize: 15, fontWeight: 600, textDecoration: s.url ? "underline" : "none", textUnderlineOffset: 3 }}>{s.titre}</span>
-                        {s.temps_lecture && <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65" }}>{s.temps_lecture.toUpperCase()}</span>}
-                        {s.apport && <span style={{ fontSize: 13, color: "#6B6B65" }}>{s.apport}</span>}
-                      </>
-                    );
-                    const style: React.CSSProperties = { display: "flex", alignItems: "baseline", gap: 14, padding: "14px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" };
-                    return s.url ? (
-                      <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
-                    ) : (
-                      <div key={i} style={style}>{inner}</div>
-                    );
-                  })}
+              <div style={{ marginTop: 26 }}>
+                <div style={{ ...monoLabel, marginBottom: 10 }}>À LIRE LA VEILLE</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {r.a_lire.map((l, i) => (
+                    <div key={i} style={{ border: `1px solid ${HAIRLINE}`, padding: "12px 16px", display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                      {l.niveau && (
+                        <span style={l.niveau === "indispensable"
+                          ? { fontFamily: MONO, fontSize: 10, fontWeight: 600, background: INK, color: INK_INVERT, padding: "3px 8px" }
+                          : { fontFamily: MONO, fontSize: 10, fontWeight: 600, border: `1px solid ${INK}`, color: INK, padding: "2px 8px" }}>
+                          {(NIVEAUX[l.niveau] ?? l.niveau).toUpperCase()}
+                        </span>
+                      )}
+                      {l.url ? (
+                        <a href={l.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600, fontSize: 16 }}>{l.titre}</a>
+                      ) : (
+                        <span style={{ fontWeight: 600, fontSize: 16 }}>{l.titre}</span>
+                      )}
+                      {l.temps_lecture && <span style={{ fontFamily: MONO, fontSize: 11, color: SUB }}>{l.temps_lecture.toUpperCase()}</span>}
+                      {l.date && <span style={{ fontFamily: MONO, fontSize: 11, color: SUB }}>{l.date}</span>}
+                      {l.apport && <span style={{ fontSize: 15, lineHeight: 1.5, flexBasis: "100%" }}>{l.apport}</span>}
+                    </div>
+                  ))}
                 </div>
+                {r.sources_total > 0 && (
+                  <div style={{ fontFamily: MONO, fontSize: 12, color: SUB, marginTop: 12 }}>
+                    SOURCES COMPLÈTES CONSERVÉES EN BASE · {r.sources_total} · GET_SECTION SOURCES DANS MAGELLAN
+                  </div>
+                )}
               </div>
-            )}
-            {r.sources_total > 0 && (
-              <p style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", margin: "18px 0 0 0", letterSpacing: "0.06em" }}>
-                SOURCES COMPLÈTES : {r.sources_total} EN BASE · DEMANDER À CLAUDE « get_section sources » DANS MAGELLAN
-              </p>
             )}
           </section>
         );
@@ -1193,68 +1248,126 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const ordreB = ordreContenu.filter((idSec) => !ZONE_ETUDE.has(idSec));
 
   return (
-    <div style={{ minHeight: "100vh", paddingBottom: 120, background: "#FFF", paddingRight: estDesktop && panneauOuvert ? 376 : undefined }}>
-      {/* Header sticky : nom + numéro, REC ou chrono. */}
-      <header style={{ position: "sticky", top: 0, zIndex: 60, background: "#000", color: "#FFF", display: "flex", alignItems: "stretch", height: 52 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "0 16px", alignSelf: "center", minWidth: 0, flex: 1 }}>
-          <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.01em", whiteSpace: "nowrap", textTransform: "uppercase" }}>{data.invite_nom}</span>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: "#8F8F88", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 120, background: mode === "live" ? LIVE_BG : PAPER, color: mode === "live" ? INK_INVERT : INK, paddingRight: estDesktop && panneauOuvert && mode !== "live" ? 376 : undefined }}>
+      {/* 00 · Sticky : nom + société, ancres, commutateur de modes, zone REC. */}
+      <header style={{ position: "sticky", top: 0, zIndex: 60, background: INK, color: INK_INVERT, display: "flex", alignItems: "center", gap: 16, height: 56, padding: "0 20px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, minWidth: 0 }}>
+          <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 22, letterSpacing: "0.04em", whiteSpace: "nowrap", textTransform: "uppercase" }}>{data.invite_nom}</span>
+          <span className="fiche-societe" style={{ fontFamily: MONO, fontSize: 11, color: LIVE_SUB, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {data.identite.societe ? `${data.identite.societe} · ${numero}` : numero}
           </span>
         </div>
-        {/* v3.1 : trois ancres d'accès direct (H-1 mobile), masquées sous 560 px via la classe globale. */}
-        <nav className="fiche-ancres" style={{ display: "flex", alignItems: "stretch" }}>
-          {[["#tldr", "TL;DR"], ["#clips", "CLIPS"], ["#topics", "QUESTIONS"]].map(([href, label]) => (
-            <a key={href} href={href} style={{ display: "flex", alignItems: "center", padding: "0 12px", borderLeft: "1px solid #2B2B27", fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#8F8F88", textDecoration: "none" }}>{label}</a>
-          ))}
-        </nav>
-        {recStarted ? (
-          <div style={{ display: "flex", alignItems: "stretch", borderLeft: "1px solid #2B2B27" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px" }}>
-              <span style={{ width: 8, height: 8, background: "#E63946", borderRadius: 999, animation: "gdiy-recpulse 1.6s ease-in-out infinite" }} />
-              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, letterSpacing: "0.04em" }}>{fmt(elapsed)}</span>
-            </div>
-            {/* STOP (A2) : toujours visible pendant le REC, confirmation en deux
-                temps (un clic accidentel à 3 h d'enregistrement est inacceptable). */}
-            {stopConfirm ? (
-              <>
-                <button
-                  onClick={stopRec}
-                  disabled={stopEnCours}
-                  style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#E63946", color: "#FFF", padding: "0 14px", fontFamily: T_COND, fontWeight: 700, fontSize: 20, letterSpacing: "0.04em" }}
-                >
-                  {stopEnCours ? "CLÔTURE…" : `CONFIRMER STOP · ${fmt(elapsed)}`}
-                </button>
-                <button
-                  onClick={() => setStopConfirm(false)}
-                  disabled={stopEnCours}
-                  style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#171715", color: "#FFF", padding: "0 12px", fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em" }}
-                >
-                  ANNULER
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setStopConfirm(true)}
-                style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: "#171715", color: "#FFF", padding: "0 16px", display: "flex", alignItems: "center", gap: 8, fontFamily: T_COND, fontWeight: 700, fontSize: 20, letterSpacing: "0.04em" }}
-              >
-                <span style={{ width: 10, height: 10, background: "#FFF", display: "inline-block" }} />
-                STOP
-              </button>
-            )}
-          </div>
+        {/* Trois ancres d'accès direct (H-1 mobile), masquées sous 560 px. */}
+        {mode !== "live" ? (
+          <nav className="fiche-ancres" style={{ display: "flex", gap: 4, margin: "0 auto" }}>
+            {[["#tldr", "TL;DR"], ["#clips", "CLIPS"], ["#topics", "QUESTIONS"]].map(([href, label]) => (
+              <a key={href} href={href} style={{ fontFamily: MONO, fontSize: 12, color: INK_INVERT, textDecoration: "none", padding: "6px 10px", border: "1px solid #3A3833" }}>{label}</a>
+            ))}
+          </nav>
         ) : (
-          <button
-            onClick={startRec}
-            disabled={!checklistComplete}
-            style={{ border: "none", borderLeft: "1px solid #2B2B27", cursor: checklistComplete ? "pointer" : "not-allowed", background: checklistComplete ? "#E63946" : "#171715", color: checklistComplete ? "#FFF" : "#6B6B65", padding: "0 18px", display: "flex", alignItems: "center", gap: 8, fontFamily: T_COND, fontWeight: 700, fontSize: 22, letterSpacing: "0.04em" }}
-          >
-            {checklistComplete ? (derniereClose ? "REC (NOUVELLE SESSION) »" : "REC »") : `REC · ${doneCount}/${data.checklist.length}`}
-          </button>
+          <div style={{ margin: "0 auto" }} />
         )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", border: "1px solid #3A3833" }}>
+            {([["etude", "ÉTUDE"], ["combat", "COMBAT"], ["live", "LIVE"]] as const).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => changerMode(m)}
+                style={{ fontFamily: MONO, fontSize: 10, fontWeight: 600, letterSpacing: ".04em", padding: "7px 9px", border: "none", cursor: "pointer", background: mode === m ? INK_INVERT : "transparent", color: mode === m ? INK : LIVE_SUB }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {recStarted ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 10, height: 10, background: ROUGE, borderRadius: "50%", animation: "gdiy-recpulse 1.2s infinite" }} />
+              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600 }}>{fmt(elapsed)}</span>
+              {/* STOP (A2) : confirmation deux temps, SÛR ? retombe seul après 3 s
+                  (un clic accidentel à 3 h d'enregistrement est inacceptable). */}
+              <button
+                onClick={() => {
+                  if (!stopConfirm) {
+                    setStopConfirm(true);
+                    if (stopTimer.current) clearTimeout(stopTimer.current);
+                    stopTimer.current = setTimeout(() => setStopConfirm(false), 3000);
+                    return;
+                  }
+                  if (stopTimer.current) clearTimeout(stopTimer.current);
+                  void stopRec();
+                }}
+                disabled={stopEnCours}
+                style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, padding: "7px 12px", cursor: "pointer", border: `1px solid ${stopConfirm ? ROUGE : "#3A3833"}`, background: stopConfirm ? ROUGE : "transparent", color: "#fff" }}
+              >
+                {stopEnCours ? "CLÔTURE…" : stopConfirm ? "SÛR ?" : "STOP"}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={startRec}
+              disabled={!checklistComplete}
+              style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, padding: "8px 14px", cursor: checklistComplete ? "pointer" : "not-allowed", border: "none", background: checklistComplete ? ROUGE : "#3A3833", color: checklistComplete ? "#fff" : SUB }}
+            >
+              {checklistComplete ? (derniereClose ? "REC (NOUVELLE SESSION) »" : "REC »") : `REC · ${doneCount}/${data.checklist.length}`}
+            </button>
+          )}
+        </div>
       </header>
 
-      <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px" }}>
+      {/* ── MODE LIVE : un topic à la fois, navigation MANUELLE (les timecodes
+          d'épisode sont retirés, décision Matthieu du 03/08 : ni gate times,
+          ni temps restant, ni topic auto). Écran à distance de bras : questions
+          en gros, notes en second niveau, zéro décoration. ── */}
+      {mode === "live" && (() => {
+        const topicsLive = data.topics.length
+          ? data.topics
+          : [{ titre: "Les questions", intention: undefined as string | undefined, questions: data.questions }];
+        const idx = Math.min(topicIdx, topicsLive.length - 1);
+        const topic = topicsLive[idx];
+        const suivant = topicsLive[idx + 1];
+        return (
+          <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "28px 24px 140px", boxSizing: "border-box" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, borderBottom: `1px solid ${LIVE_HAIRLINE}`, paddingBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => setTopicIdx(Math.max(0, idx - 1))} style={{ background: "none", border: "1px solid #3A3833", color: INK_INVERT, fontFamily: MONO, fontSize: 14, padding: "8px 14px", cursor: "pointer" }}>←</button>
+                <button onClick={() => setTopicIdx(Math.min(topicsLive.length - 1, idx + 1))} style={{ background: "none", border: "1px solid #3A3833", color: INK_INVERT, fontFamily: MONO, fontSize: 14, padding: "8px 14px", cursor: "pointer" }}>→</button>
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 13, color: LIVE_SUB }}>TOPIC {idx + 1}/{topicsLive.length}</div>
+            </div>
+            <h1 style={{ fontFamily: T_COND, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".01em", fontSize: 44, lineHeight: 1.05, margin: "22px 0 6px" }}>{topic.titre}</h1>
+            {topic.intention && <p style={{ fontSize: 19, lineHeight: 1.5, color: LIVE_NOTE, margin: "0 0 8px", maxWidth: "70ch" }}>{topic.intention}</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 18 }}>
+              {topic.questions.map((q) => {
+                const rayee = !!asked[q.num];
+                return (
+                  <div key={q.num} onClick={() => toggleQuestion(q.num)} style={{ display: "flex", gap: 16, padding: "14px 16px", cursor: "pointer", borderBottom: `1px solid #1C1B17`, opacity: rayee ? 0.38 : 1, background: rayee ? "transparent" : LIVE_CARD }}>
+                    <span style={{ fontFamily: MONO, fontSize: 16, fontWeight: 600, color: JAUNE, paddingTop: 8, minWidth: 36 }}>{q.num}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 34, lineHeight: 1.25, fontWeight: 600, textDecoration: rayee ? "line-through" : "none", maxWidth: "30ch" }}>{q.texte}</div>
+                      {q.note && <div style={{ fontFamily: MONO, fontSize: 13, lineHeight: 1.55, color: SUB, marginTop: 6 }}>{q.note}</div>}
+                      {q.zg && (
+                        <div style={{ marginTop: 8 }}>
+                          <ZgChip zg={q.zg} onOpen={setZgOpen} outline />
+                        </div>
+                      )}
+                    </div>
+                    {rayee && <span style={{ fontFamily: MONO, fontSize: 12, color: SUB_STRONG, paddingTop: 10 }}>{askedAt[q.num]}</span>}
+                  </div>
+                );
+              })}
+              {topic.questions.length === 0 && (
+                <p style={{ fontSize: 16, color: LIVE_SUB }}>Aucune question sur ce topic.</p>
+              )}
+            </div>
+            {suivant && (
+              <div style={{ borderTop: `1px solid ${LIVE_HAIRLINE}`, marginTop: 26, paddingTop: 14, fontFamily: MONO, fontSize: 13, color: SUB }}>SUIVANT · {suivant.titre.toUpperCase()}</div>
+            )}
+          </div>
+        );
+      })()}
+
+      {mode !== "live" && (
+      <main style={{ maxWidth: mode === "combat" ? 600 : 760, margin: "0 auto", padding: "0 20px", fontSize: mode === "combat" ? 17 : 15 }}>
         {/* Gate anti fiche vide (chantier 2 §3.1) : une section obligatoire vide
             rend la fiche non présentable, l'état est dit franchement, avec la cause. */}
         {data.incompletes.length > 0 && (
@@ -1285,100 +1398,114 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </div>
         )}
 
-        {/* Entête */}
-        <section style={{ paddingTop: 36 }}>
-          {/* Fil d'Ariane (A3.4) : board, fiches, fiche courante. */}
-          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.12em", color: "#8F8F88", marginBottom: 10 }}>
-            <a href="/" style={{ color: "#8F8F88", textDecoration: "none" }}>BOARD</a>
-            {" / "}
-            <a href="/fiches" style={{ color: "#8F8F88", textDecoration: "none" }}>FICHES</a>
-            {" / "}
-            <span style={{ color: "#464641" }}>{data.invite_nom.toUpperCase()}</span>
+        {/* 01 · Identité */}
+        <section id="identite" style={{ padding: "44px 0 8px" }}>
+          {/* Fil d'Ariane (A3.4) + statut, en tête de page. */}
+          <div style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.08em", color: SUB, marginBottom: 10, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <span>
+              <a href="/" style={{ color: SUB, textDecoration: "none" }}>BOARD</a>
+              {" / "}
+              <a href="/fiches" style={{ color: SUB, textDecoration: "none" }}>FICHES</a>
+              {" / "}
+              <span style={{ color: SUB_STRONG }}>{data.invite_nom.toUpperCase()}</span>
+            </span>
+            <span>STATUT : {data.statut.toUpperCase()} · V{data.version} · {numero}</span>
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", color: "#6B6B65", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <span>FICHE DE PRÉPARATION · {numero}</span>
-            <span>STATUT : {data.statut.toUpperCase()} · V{data.version}</span>
-          </div>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: SUB, letterSpacing: ".08em" }}>01 · IDENTITÉ</div>
           {(() => {
-            // 01 Identité (v3.1) : le titre est cliquable vers Wikipedia quand
-            // la page existe (règle systématique), sinon LinkedIn, sinon rien.
+            // Le titre est cliquable vers Wikipedia quand la page existe
+            // (règle systématique), sinon LinkedIn, sinon rien.
             const lienTitre = data.identite.liens.find((l) => /wikipedia/i.test(l.url)) ?? data.identite.liens.find((l) => /linkedin/i.test(l.url)) ?? null;
-            const h1 = (
-              <h1 style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: "clamp(88px, 16vw, 180px)", lineHeight: 0.85, letterSpacing: "-0.01em", textTransform: "uppercase", margin: "18px 0 0 0" }}>
-                {data.identite.titre_lignes.map((l, i) => (
-                  <span key={i}>{i > 0 && <br />}{l}</span>
-                ))}
+            const h1Inner = data.identite.titre_lignes.join(" ");
+            return (
+              <h1 style={{ fontFamily: T_COND, fontWeight: 700, textTransform: "uppercase", fontSize: 56, lineHeight: 1, margin: "10px 0 4px", letterSpacing: ".005em" }}>
+                {lienTitre ? (
+                  <a href={lienTitre.url} target="_blank" rel="noopener noreferrer" title={lienTitre.label} style={{ textDecorationThickness: 3 }}>{h1Inner}</a>
+                ) : h1Inner}
               </h1>
             );
-            return lienTitre ? (
-              <a href={lienTitre.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", color: "inherit" }} title={lienTitre.label}>{h1}</a>
-            ) : h1;
           })()}
-          {(data.identite.societe || data.identite.date_naissance) && (
-            <p style={{ fontFamily: MONO, fontSize: 13, letterSpacing: "0.06em", color: "#464641", margin: "14px 0 0 0" }}>
-              {[
-                data.identite.societe ? data.identite.societe.toUpperCase() : null,
-                data.identite.date_naissance
-                  ? `NÉ LE ${new Date(data.identite.date_naissance).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}${data.identite.age !== undefined ? ` (${data.identite.age} ANS)` : ""}`
-                  : null,
-              ].filter(Boolean).join(" · ")}
-            </p>
+          {data.identite.societe && (
+            <div style={{ fontSize: 18, fontWeight: 600, margin: "2px 0" }}>{data.identite.societe}</div>
           )}
-          {data.identite.sous_titre && (
-            <p style={{ fontSize: 20, lineHeight: 1.45, maxWidth: 620, margin: "22px 0 0 0" }}>{data.identite.sous_titre}</p>
+          {data.identite.date_naissance && (
+            <div style={{ fontFamily: MONO, fontSize: 13, color: SUB_STRONG, margin: "6px 0 14px" }}>
+              Né le {new Date(data.identite.date_naissance).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+              {data.identite.age !== undefined ? ` · ${data.identite.age} ans au jour de l'enregistrement` : ""}
+            </div>
           )}
           {(data.identite.pilules.length > 0 || data.identite.liens.length > 0) && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 20 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
               {data.identite.pilules.map((p, i) => (
-                <span key={i} style={{ border: "1px solid #000", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em" }}>{p}</span>
+                <span key={i} style={{ fontFamily: MONO, fontSize: 12, fontWeight: 500, background: INK, color: INK_INVERT, padding: "6px 12px" }}>{p}</span>
               ))}
               {data.identite.liens.map((l, i) => (
-                <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ border: "1px solid #000", background: "#000", color: "#FFF", padding: "7px 14px", fontFamily: MONO, fontSize: 12, letterSpacing: "0.08em", textDecoration: "none" }}>{l.label.toUpperCase()} »</a>
+                <a key={i} href={l.url} target="_blank" rel="noreferrer" style={{ fontFamily: MONO, fontSize: 12, border: `1px solid ${INK}`, padding: "6px 12px", textDecoration: "none" }}>{l.label.toUpperCase()} »</a>
               ))}
             </div>
           )}
-          {(data.identite.accompagnants.length > 0 || data.identite.mise_en_relation) && (
-            <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 4 }}>
-              <p style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.06em", color: "#464641", margin: 0 }}>
-                ACCOMPAGNANTS · {data.identite.accompagnants.length > 0
-                  ? data.identite.accompagnants.map((a) => `${a.nom}${a.fonction ? ` (${a.fonction})` : ""}`).join(", ")
-                  : "à confirmer"}
-              </p>
-              {data.identite.mise_en_relation && (
-                <p style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.06em", color: "#464641", margin: 0 }}>
-                  MISE EN RELATION · {[data.identite.mise_en_relation.qui, data.identite.mise_en_relation.canal].filter(Boolean).join(" · ")}
-                </p>
+          {/* Champs saisis à la main : état vide « à confirmer » obligatoire. */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px", border: `1px solid ${HAIRLINE}`, padding: "14px 16px", marginBottom: 20 }}>
+            <div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: SUB, letterSpacing: ".08em" }}>ACCOMPAGNANTS</div>
+              {data.identite.accompagnants.length > 0 ? (
+                <div style={{ fontSize: 15, marginTop: 3 }}>{data.identite.accompagnants.map((a) => `${a.nom}${a.fonction ? ` (${a.fonction})` : ""}`).join(", ")}</div>
+              ) : (
+                <div style={{ fontSize: 15, color: SUB, fontStyle: "italic", marginTop: 3 }}>à confirmer</div>
               )}
             </div>
+            <div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: SUB, letterSpacing: ".08em" }}>MISE EN RELATION</div>
+              {data.identite.mise_en_relation ? (
+                <div style={{ fontSize: 15, marginTop: 3 }}>{[data.identite.mise_en_relation.qui, data.identite.mise_en_relation.canal].filter(Boolean).join(", ")}</div>
+              ) : (
+                <div style={{ fontSize: 15, color: SUB, fontStyle: "italic", marginTop: 3 }}>à confirmer</div>
+              )}
+            </div>
+          </div>
+          {data.identite.sous_titre && (
+            <p style={{ fontSize: mode === "combat" ? 20 : 18, lineHeight: 1.55, margin: 0, maxWidth: "65ch" }}>{data.identite.sous_titre}</p>
           )}
         </section>
 
-        {/* Checklist pré-rec */}
-        <section style={sectionStyle}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-            <h2 style={h2Style}>Checklist pré-rec</h2>
-            <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65" }}>{doneCount} / {data.checklist.length}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", columnGap: 24, marginTop: 14, borderTop: "1px solid #000" }}>
+        {/* 02 · Checklist pré-rec : fusion visuelle 5e case + REC (le clic REC
+            reste un geste séparé dans le sticky, décision Matthieu du 31/07). */}
+        <section style={{ padding: "34px 0" }}>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: SUB, letterSpacing: ".08em", marginBottom: 14 }}>02 · CHECKLIST PRÉ-REC · {doneCount}/{data.checklist.length}</div>
+          <div style={{ border: `1px solid ${HAIRLINE}` }}>
             {data.checklist.map((label, i) => {
               const done = !!checked[i];
+              const derniere = i === data.checklist.length - 1;
+              const fusion = derniere && checklistComplete;
               return (
-                <label key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", borderBottom: "1px solid #D9D9D4", cursor: "pointer", minHeight: 44, boxSizing: "border-box" }}>
-                  <input type="checkbox" checked={done} onChange={() => toggleCheck(i)} style={{ width: 20, height: 20, margin: 0, flexShrink: 0 }} />
-                  <span style={{ fontSize: 15, textDecoration: done ? "line-through" : "none", color: done ? "#8F8F88" : "#0A0A0A" }}>{label}</span>
-                </label>
+                <div
+                  key={i}
+                  onClick={() => toggleCheck(i)}
+                  style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px", borderBottom: i < data.checklist.length - 1 ? `1px solid ${HAIRLINE_SOFT}` : "none", cursor: "pointer", background: fusion ? INK : "transparent", color: fusion ? INK_INVERT : INK }}
+                >
+                  <span style={{ width: 22, height: 22, boxSizing: "border-box", border: `2px solid ${fusion ? JAUNE : done ? INK : MUTED_BAR}`, background: done ? (fusion ? JAUNE : INK) : "transparent", color: fusion ? INK : INK_INVERT, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+                    {done ? "✓" : ""}
+                  </span>
+                  <span style={{ fontSize: mode === "combat" ? 18 : 16, flex: 1, textDecoration: done ? "line-through" : "none", color: done ? (fusion ? LIVE_SUB : SUB) : "inherit" }}>{label}</span>
+                  {derniere && (
+                    <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, padding: "5px 10px", background: checklistComplete ? JAUNE : HAIRLINE_SOFT, color: checklistComplete ? INK : SUB, whiteSpace: "nowrap" }}>
+                      {checklistComplete ? (recStarted ? "REC EN COURS" : "REC DÉVERROUILLÉ →") : `VERROUILLE REC · ${doneCount}/${data.checklist.length}`}
+                    </span>
+                  )}
+                </div>
               );
             })}
           </div>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: SUB, marginTop: 10 }}>Checklist complète = REC déverrouillé dans le bandeau. Le clic REC reste un geste séparé.</div>
         </section>
 
         {/* ── BLOC A : comprendre (mode lecture) ── */}
         {ordreA.map(renderSection)}
 
         {/* ── Séparation nette : la console commence ici ── */}
-        <div id="console" style={{ marginTop: 64, background: "#000", color: "#FFF", padding: "14px 20px", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 30, lineHeight: 1, textTransform: "uppercase" }}>Console d&apos;épisode</span>
-          <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.14em", color: "#8F8F88" }}>À SCANNER PENDANT L&apos;ENREGISTREMENT</span>
+        <div id="console" style={{ marginTop: 44, background: INK, color: INK_INVERT, padding: "12px 16px", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: T_COND, fontWeight: 600, fontSize: 24, lineHeight: 1, textTransform: "uppercase", letterSpacing: ".01em" }}>Console d&apos;épisode</span>
+          <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: "0.08em", color: LIVE_SUB }}>À SCANNER PENDANT L&apos;ENREGISTREMENT</span>
         </div>
 
         {/* ── BLOC B : console ── */}
@@ -1466,10 +1593,11 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </div>
         )}
 
-        <footer style={{ marginTop: 24, borderTop: "2px solid #000", paddingTop: 18, fontFamily: MONO, fontSize: 12, lineHeight: 1.8, color: "#464641" }}>
+        <footer style={{ marginTop: 24, borderTop: `2px solid ${INK}`, padding: "18px 0 60px", fontFamily: MONO, fontSize: 13, fontWeight: 600, letterSpacing: ".06em", lineHeight: 1.8, color: INK }}>
           {data.footer}
         </footer>
       </main>
+      )}
 
       {/* Drawer carnet */}
       {carnetOpen && (
@@ -1574,32 +1702,78 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         </div>
       )}
 
-      {/* Barre d'actions fixe */}
-      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 80, background: "#000", borderTop: "1px solid #000", display: "flex", height: 64 }}>
-        <button onClick={markClip} style={{ flex: 1.2, border: "none", cursor: "pointer", background: "#E63946", color: "#FFF", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em" }}>
-          CLIP <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{carnet.filter((c) => c.tag === "CLIP").length}</span>
+      {/* Barre d'actions fixe : CLIP jaune (le rouge est réservé au REC).
+          En live : CLIP + compteur + ligne de flottaison régie (jamais
+          superposée aux questions), RÉGIE en accès direct. */}
+      <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 80, background: INK, borderTop: `1px solid ${LIVE_HAIRLINE}`, display: "flex", alignItems: "stretch", height: 64 }}>
+        <button onClick={markClip} style={{ border: "none", cursor: "pointer", background: JAUNE, color: INK, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 600, fontSize: 22, letterSpacing: "0.06em", padding: "0 28px" }}>
+          CLIP <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600 }}>{carnet.filter((c) => c.tag === "CLIP").length}</span>
         </button>
-        <button onClick={() => { setCarnetOpen(!carnetOpen); setChatOpen(false); }} style={{ flex: 1, border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer", background: carnetOpen ? "#FFF" : "#000", color: carnetOpen ? "#000" : "#FFF", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em" }}>
-          CARNET <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{carnet.length}</span>
-        </button>
-        <button
-          onClick={() => {
-            if (estDesktop) setPanneauOuvert(!panneauOuvert);
-            else setChatOpen(!chatOpen);
-            setCarnetOpen(false);
-          }}
-          style={{
-            flex: 1, border: "none", borderLeft: "1px solid #2B2B27", cursor: "pointer",
-            background: regieVisible ? "#FFF" : "#000", color: regieVisible ? "#000" : "#FFF",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-            fontFamily: T_COND, fontWeight: 700, fontSize: 26, letterSpacing: "0.04em",
-            // Tâche 8 : clignote tant que des messages non lus attendent, régie fermée.
-            animation: nonLus.length > 0 && !regieVisible ? "gdiy-blink 1.1s steps(2, start) infinite" : undefined,
-          }}
-        >
-          RÉGIE <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{nonLus.length > 0 && !regieVisible ? `${nonLus.length} NON LU(S)` : chat.length}</span>
-        </button>
+        {mode === "live" ? (
+          <>
+            <span style={{ display: "flex", alignItems: "center", fontFamily: MONO, fontSize: 12, color: LIVE_SUB, padding: "0 16px", whiteSpace: "nowrap" }}>
+              rattaché à la question en cours
+            </span>
+            {chat.length > 0 && (
+              <span style={{ display: "flex", alignItems: "center", fontFamily: MONO, fontSize: 12, color: SUB, marginLeft: "auto", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", padding: "0 12px", minWidth: 0, flex: 1, justifyContent: "flex-end" }}>
+              RÉGIE · {chat[chat.length - 1].who} : {chat[chat.length - 1].text}
+              </span>
+            )}
+            <button
+              onClick={() => { if (estDesktop) setPanneauOuvert(!panneauOuvert); else setChatOpen(!chatOpen); setCarnetOpen(false); }}
+              style={{ border: "none", borderLeft: `1px solid ${LIVE_HAIRLINE}`, cursor: "pointer", background: regieVisible ? INK_INVERT : INK, color: regieVisible ? INK : INK_INVERT, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: MONO, fontSize: 12, fontWeight: 600, padding: "0 18px", animation: nonLus.length > 0 && !regieVisible ? "gdiy-blink 1.1s steps(2, start) infinite" : undefined }}
+            >
+              RÉGIE {nonLus.length > 0 && !regieVisible ? `· ${nonLus.length}` : ""}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => { setCarnetOpen(!carnetOpen); setChatOpen(false); }} style={{ flex: 1, border: "none", borderLeft: `1px solid ${LIVE_HAIRLINE}`, cursor: "pointer", background: carnetOpen ? INK_INVERT : INK, color: carnetOpen ? INK : INK_INVERT, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontFamily: T_COND, fontWeight: 600, fontSize: 22, letterSpacing: "0.06em" }}>
+              CARNET <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{carnet.length}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (estDesktop) setPanneauOuvert(!panneauOuvert);
+                else setChatOpen(!chatOpen);
+                setCarnetOpen(false);
+              }}
+              style={{
+                flex: 1, border: "none", borderLeft: `1px solid ${LIVE_HAIRLINE}`, cursor: "pointer",
+                background: regieVisible ? INK_INVERT : INK, color: regieVisible ? INK : INK_INVERT,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
+                fontFamily: T_COND, fontWeight: 600, fontSize: 22, letterSpacing: "0.06em",
+                // Tâche 8 : clignote tant que des messages non lus attendent, régie fermée.
+                animation: nonLus.length > 0 && !regieVisible ? "gdiy-blink 1.1s steps(2, start) infinite" : undefined,
+              }}
+            >
+              RÉGIE <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400 }}>{nonLus.length > 0 && !regieVisible ? `${nonLus.length} NON LU(S)` : chat.length}</span>
+            </button>
+          </>
+        )}
       </div>
+
+      {/* Popover zone grise : l'item complet au tap, sans navigation (repli :
+          les ancres #zg_xxx existent toujours dans la section personnel). */}
+      {zgOpen && (() => {
+        const item = data.personnel.zone_grise.find((z) => z.id === zgOpen) ?? data.zone_grise.find((z) => z.id === zgOpen) ?? null;
+        return (
+          <div onClick={() => setZgOpen(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,15,14,.55)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div onClick={(ev) => ev.stopPropagation()} style={{ background: INK, color: INK_INVERT, maxWidth: 640, width: "100%", margin: "0 16px 24px", boxShadow: "0 24px 60px rgba(0,0,0,.5)" }}>
+              <div style={{ background: JAUNE, height: 6 }} />
+              <div style={{ padding: "20px 24px 24px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: JAUNE }}>ZONE GRISE · {zgOpen}</span>
+                  <button onClick={() => setZgOpen(null)} style={{ background: "none", border: "1px solid #3A3833", color: INK_INVERT, fontFamily: MONO, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>FERMER</button>
+                </div>
+                <div style={{ fontSize: 18, lineHeight: 1.55 }}>
+                  {item ? item.texte : "Item introuvable dans la zone grise. Voir la section Personnel."}
+                </div>
+                {item?.origine && <div style={{ fontFamily: MONO, fontSize: 12, color: LIVE_SUB, marginTop: 12 }}>{item.origine}</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

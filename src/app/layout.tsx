@@ -1,16 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Source_Sans_3, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-// Identité « Cockpit » 2026 : Space Grotesk (display + UI + corps) + JetBrains
-// Mono (micro-labels, compteurs, dates).
-const sans = Space_Grotesk({
+// Couche GDIY (03/08) : Source Sans 3 (UI + corps) + IBM Plex Mono
+// (micro-labels, compteurs, dates), alignées sur les fiches.
+const sans = Source_Sans_3({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "600", "700"],
   variable: "--font-sans",
   display: "swap",
 });
-const mono = JetBrains_Mono({
+const mono = IBM_Plex_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-mono",
@@ -25,12 +25,12 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: "Magellan",
-    statusBarStyle: "black-translucent",
+    statusBarStyle: "default",
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0B0C10",
+  themeColor: "#FBFAF7",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
