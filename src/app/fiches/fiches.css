@@ -1,5 +1,10 @@
-/* Système GDIY (handoff design) : Tungsten caps + neo-grotesk + mono, noir/blanc
-   éditorial. Portée limitée au segment /fiches (design distinct du Cockpit). */
+/* Système GDIY v3.1 (handoff design du 03/08) : Tungsten pour les titres,
+   Source Sans 3 pour la lecture, IBM Plex Mono pour les labels, palette
+   papier/encre. Portée limitée au segment /fiches. Hi-fi : couleurs,
+   typographie, espacements et états sont définitifs. Aucun border-radius
+   (sauf le point REC). */
+
+@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
 @font-face {
   font-family: "Tungsten Condensed";
@@ -20,26 +25,51 @@
   font-display: swap;
 }
 
+/* Tokens du handoff (référence : README du bundle design). */
 .gdiy {
-  font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-  color: #0a0a0a;
-  background: #ffffff;
+  --paper: #fbfaf7;
+  --ink: #141414;
+  --ink-invert: #f5f2ec;
+  --sub: #8a857d;
+  --sub-strong: #5c5850;
+  --hairline: #e8e5df;
+  --hairline-soft: #f0ede7;
+  --muted-bar: #c9c4bb;
+  --jaune: #f4c435;
+  --rouge: #e63946;
+  --live-bg: #0f0f0e;
+  --live-card: #141414;
+  --live-hairline: #26241f;
+  --live-sub: #99948c;
+  --live-note: #b8b2a8;
+  --zg-text: #8a6e10;
+  --current-topic: #f7f3e6;
+
+  font-family: "Source Sans 3", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
   -webkit-font-smoothing: antialiased;
 }
 .gdiy a {
-  color: #000000;
+  color: var(--ink);
   text-decoration: underline;
+  text-decoration-color: var(--jaune);
+  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
 }
-.gdiy a:hover { color: #6b6b65; }
-.gdiy input[type="checkbox"] { accent-color: #000000; }
-.gdiy ::selection { background: #f4c435; color: #000; }
+.gdiy a:hover { background: var(--jaune); color: var(--ink); }
+.gdiy input[type="checkbox"] { accent-color: var(--ink); }
+.gdiy ::selection { background: var(--jaune); color: #000; }
+
+html { scroll-behavior: smooth; }
 
 /* v3.1 : ancres du sticky (TL;DR, Clips, Questions), masquées sous 560 px
-   quand la place manque (accès direct H-1 sur mobile au dessus). */
+   quand la place manque. Sous 760 px, la société du bandeau disparaît. */
 @media (max-width: 559px) {
   .fiche-ancres { display: none !important; }
+}
+@media (max-width: 759px) {
+  .fiche-societe { display: none !important; }
 }
 
 @keyframes gdiy-recpulse {
@@ -52,12 +82,11 @@
    non lus attendent et que la régie est fermée. */
 @keyframes gdiy-blink {
   0%, 49% { background: #E63946; color: #fff; }
-  50%, 100% { background: #000; color: #fff; }
+  50%, 100% { background: #141414; color: #fff; }
 }
 
-/* Alerte de saisie (demande C2 du récap du 27/07) : bandeau de la régie
-   quand un autre opérateur écrit sur la fiche pendant le REC. Cycle 800 ms,
-   opacité 1 vers 0.3. */
+/* Alerte de saisie (C2 du 27/07) : bandeau de la régie quand un autre
+   opérateur écrit sur la fiche pendant le REC. */
 @keyframes gdiy-saisie {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
