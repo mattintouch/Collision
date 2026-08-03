@@ -66,7 +66,7 @@ const dateFr = (d: string | null | undefined) =>
 /** Normalise la cause d'un échec de job pour le regroupement B1. */
 export function normaliseCause(error: string): string {
   const e = error.toLowerCase();
-  if (e.startsWith("timeout")) return "timeout au delà de 10 minutes";
+  if (e.startsWith("timeout")) return "timeout au delà du délai de garde";
   if (e.includes("sans résultat exploitable") || e.includes("sans json exploitable")) return "recherche web sans résultat exploitable";
   if (e.includes("credit balance")) return "crédit API épuisé";
   return error.slice(0, 80);
@@ -96,7 +96,7 @@ export function promptCorrection(
     const systematique = (stats.jobs >= 3 && (jobsPrec.get(cause) ?? 0) >= 3) || stats.cibles.size >= 5;
     if (!systematique) continue;
     if (cause.startsWith("timeout")) {
-      return "Les jobs de génération dépassent régulièrement 10 minutes et tombent en timeout. Découpe la recherche web en sous-requêtes plus courtes, réduis le nombre de requêtes par passe, et ajoute au worker un retry avec backoff. Si le dépassement persiste, relève le timeout du worker et documente la nouvelle valeur.";
+      return "Les jobs de génération dépassent régulièrement le délai de garde du worker et tombent en timeout. Découpe la recherche web en sous-requêtes plus courtes, réduis le nombre de requêtes par passe, et ajoute au worker un retry avec backoff. Si le dépassement persiste, relève le délai de garde et documente la nouvelle valeur.";
     }
     if (cause.startsWith("recherche web")) {
       return "La recherche web revient régulièrement sans résultat exploitable sur plusieurs fiches. Vérifie le prompt de recherche (trop restrictif ?), ajoute un repli à une seule requête large quand la première passe est vide, et journalise la requête envoyée pour diagnostic.";

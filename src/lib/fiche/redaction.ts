@@ -35,6 +35,21 @@ const REDACTION_AUTHOR = "vadim (rédaction)";
  *  web. Recalibrable par l'env (décision Haiku/Sonnet sur données, §4.4). */
 const REDACTION_MODEL = () => process.env.REDACTION_MODEL ?? "claude-sonnet-4-6";
 
+/** Budget mural MINIMAL pour démarrer une passe de rédaction (correctif du
+ *  03/08). La passe consolide la fiche ENTIÈRE en un appel modèle à 16 384
+ *  tokens de sortie, deux avec le finisher : sur la fiche la plus lourde elle
+ *  dépasse largement les 300 s d'une fonction standard. Un drain qui dispose
+ *  de moins que cette réserve laisse le job en file (le cron, à 800 s, le
+ *  prendra avec un budget frais) plutôt que de le démarrer et de se faire
+ *  tuer en plein vol, ce qui finissait en « timeout (> n min) » au faucheur. */
+export const REDACTION_RESERVE_MS = 420_000;
+
+/** Un drain peut-il revendiquer une passe de rédaction avec ce reste de
+ *  budget mural ? (PURE, testée.) */
+export function redactionAdmissible(resteMs: number): boolean {
+  return resteMs >= REDACTION_RESERVE_MS;
+}
+
 /** Sections que la passe a le droit de réécrire (contrat v3.1). Hors
  *  périmètre : la checklist, le footer, les clips (challengés par l'équipe,
  *  lus en contexte pour le contrôle des doublons) et les sources (liste de
@@ -241,7 +256,7 @@ export async function processRedaction(
   sb: SB,
   cible: CibleEnrichie,
   fiche: FicheRow,
-  opts: { model?: string; usageOut?: WebSearchUsage } = {}
+  opts: { model?: string; usageOut?: WebSearchUsage; heartbeat?: () => Promise<void> } = {}
 ): Promise<{ sections: string[]; sources: number; rapport: RapportRedaction }> {
   if (!hasAnthropicKey()) throw new Error("Clé Anthropic absente : rédaction impossible (poser ANTHROPIC_API_KEY).");
 
@@ -274,6 +289,9 @@ export async function processRedaction(
   };
   let res = await client.messages.create({ model, max_tokens: 16384, system: SYSTEM, messages });
   compte(res);
+  // Signe de vie entre les deux appels modèle (chacun peut durer plusieurs
+  // minutes) : le faucheur de jobs ne requalifie pas une passe encore vivante.
+  await opts.heartbeat?.().catch(() => {});
   const texteDe = (m: Anthropic.Message) =>
     m.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n");
   let sortie = extractJson<SortieRedaction>(texteDe(res));

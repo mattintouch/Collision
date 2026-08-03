@@ -75,7 +75,8 @@ migration, contrats par section).
   fiches (objectif `fiche:<groupe>`). Drainage : `kickQueue()` (waitUntil,
   budget ~50 s, 2-3 jobs) déclenché par les appels MCP chauds, l'ouverture
   des fiches et la page Aujourd'hui ; cron quotidien en secours (Hobby).
-  Retry 2 tentatives, requalification des jobs bloqués après 10 minutes.
+  Retry 2 tentatives, requalification des jobs bloqués après 15 minutes (avec
+  signe de vie de la passe de rédaction entre ses appels modèle).
 
 ## 4. Modèle de données (essentiel)
 
