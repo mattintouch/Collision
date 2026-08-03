@@ -1,10 +1,12 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Identité Magellan 2026 — direction « Cockpit ».
- * Sombre, technique ; noir encre froid (jamais de pur noir) ; accent jaune→ambre
- * ponctuel ; hairlines blanches en rgba (cf. globals.css). Tokens du handoff
- * design 2026 (Space Grotesk + JetBrains Mono).
+ * Identité Magellan 2026 — couche GDIY papier/encre (handoff design du 03/08,
+ * étendue à tout Magellan pour rester cohérent avec les fiches, décision
+ * Matthieu). L'échelle « noir » historique est REMAPPÉE sur les surfaces
+ * papier et « blanc » sur l'encre : les classes existantes se propagent sans
+ * réécrire chaque composant. Zéro border-radius, hairlines beiges, jaune
+ * #F4C435 en accent, rouge réservé aux états critiques.
  */
 const config: Config = {
   content: ["./src/app/**/*.{ts,tsx}", "./src/components/**/*.{ts,tsx}"],
@@ -13,32 +15,32 @@ const config: Config = {
       colors: {
         // Fonds (remappés sur l'échelle « noir » existante pour propager partout).
         noir: {
-          DEFAULT: "#0B0C10", // bg/page
-          900: "#0B0C10",
-          800: "#14161D", // surface/card
-          700: "#1b1e26", // hover / sous-panneau
-          600: "#262a33", // approximation solide des hairlines (bordures)
-          500: "#2f3440",
+          DEFAULT: "#FBFAF7", // bg/page (papier)
+          900: "#FBFAF7",
+          800: "#FFFFFF", // surface/card
+          700: "#F0EDE7", // hover / sous-panneau
+          600: "#E8E5DF", // hairlines (bordures)
+          500: "#C9C4BB",
         },
         blanc: {
-          DEFAULT: "#F3F4F6", // text/primary
-          pure: "#FFFFFF",
-          muted: "#9aa0ac", // text/muted
-          dim: "#6b7280", // text/dim
-          faint: "#5b616b", // text/faint
+          DEFAULT: "#141414", // text/primary (encre)
+          pure: "#000000",
+          muted: "#5C5850", // text/muted
+          dim: "#8A857D", // text/dim
+          faint: "#C9C4BB", // text/faint
         },
         jaune: {
-          DEFAULT: "#FFD200", // accent Collision
-          600: "#E6BD00",
-          pale: "#FFE680", // glint shimmer
+          DEFAULT: "#F4C435", // accent GDIY
+          600: "#E0B222",
+          pale: "#F7E9B0",
         },
-        amber: "#FF9F1C", // fin du dégradé jaune→ambre
-        // Voie d'approche.
-        froid: "#5DB4FF",
-        chaud: "#FF8C42",
+        amber: "#F4C435", // plus de dégradé : l'accent est plat
+        // Voie d'approche (assombries pour le fond papier).
+        froid: "#1D6FD8",
+        chaud: "#C2601E",
         // Conseils de relance.
-        relancer: "#5fe0a0",
-        appui: "#9fd0ff",
+        relancer: "#177A4C",
+        appui: "#1D6FD8",
         // Signalétique par show.
         gdiy: "#1FB46A",
         ccg: "#3B82F6",
@@ -50,14 +52,15 @@ const config: Config = {
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
-        card: "14px",
-        control: "9px",
-        chip: "7px",
-        pill: "20px",
+        // Handoff 03/08 : aucun border-radius nulle part.
+        card: "0px",
+        control: "0px",
+        chip: "0px",
+        pill: "0px",
       },
       boxShadow: {
-        cta: "0 6px 18px -6px rgba(255,210,0,.5)",
-        fab: "0 8px 24px -4px rgba(255,210,0,.5)",
+        cta: "none",
+        fab: "none",
         frame: "0 24px 60px -20px rgba(0,0,0,.6)",
       },
     },

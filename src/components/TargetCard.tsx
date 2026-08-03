@@ -10,26 +10,26 @@ import {
 
 const ADVICE: Record<Resurgence["conseil"], { icon: string; cls: string; bg: string }> = {
   relancer: { icon: "→", cls: "text-relancer", bg: "rgba(31,180,106,.12)" },
-  passer_par_appui: { icon: "↳", cls: "text-appui", bg: "rgba(93,180,255,.1)" },
-  attendre: { icon: "◷", cls: "text-blanc-muted", bg: "rgba(255,255,255,.04)" },
+  passer_par_appui: { icon: "↳", cls: "text-appui", bg: "rgba(29,111,216,.1)" },
+  attendre: { icon: "◷", cls: "text-blanc-muted", bg: "rgba(20,20,20,.04)" },
 };
-const PRIO_DOT: Record<Priorite, string> = { haute: "#FFD200", moyenne: "#9aa0ac", basse: "#5b616b" };
+const PRIO_DOT: Record<Priorite, string> = { haute: "#8A6E10", moyenne: "#5C5850", basse: "#8A857D" };
 
 // Badges du score (le « signal frais » est déjà rendu par le bloc dédié, on
 // l'omet ici pour ne pas doublonner).
 const BADGE_STYLE: Record<string, { color: string; border: string; bg: string }> = {
   "fenêtre de relance": { color: "#1FB46A", border: "rgba(31,180,106,.35)", bg: "rgba(31,180,106,.1)" },
-  "risque d'abandon": { color: "#FF8C42", border: "rgba(255,140,66,.35)", bg: "rgba(255,140,66,.1)" },
-  "relais actionnable": { color: "#5DB4FF", border: "rgba(93,180,255,.35)", bg: "rgba(93,180,255,.1)" },
-  "estival ☀": { color: "#FFD200", border: "rgba(255,210,0,.35)", bg: "rgba(255,210,0,.1)" },
-  "à reporter (sept.)": { color: "#9aa0ac", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
-  "gagné": { color: "#9aa0ac", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
+  "risque d'abandon": { color: "#C2601E", border: "rgba(194,96,30,.45)", bg: "rgba(194,96,30,.1)" },
+  "relais actionnable": { color: "#1D6FD8", border: "rgba(29,111,216,.45)", bg: "rgba(29,111,216,.1)" },
+  "estival ☀": { color: "#8A6E10", border: "rgba(180,150,30,.5)", bg: "rgba(244,196,53,.22)" },
+  "à reporter (sept.)": { color: "#5C5850", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
+  "gagné": { color: "#5C5850", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
 };
 
 function scoreColor(s: number): string {
-  if (s >= 60) return "#FFD200";
-  if (s >= 40) return "#9aa0ac";
-  return "#565B66";
+  if (s >= 60) return "#8A6E10";
+  if (s >= 40) return "#5C5850";
+  return "#8A857D";
 }
 
 // A3.3 : stades « programmé ou au delà » — la carte affiche le lien direct vers
@@ -56,7 +56,7 @@ export function TargetCard({
     ? [cible.secteur, cible.pays].filter(Boolean).join(" · ")
     : [cible.role, cible.organisation].filter(Boolean).join(" · ");
   const froid = cible.voie === "froid";
-  const voieColor = froid ? "#5DB4FF" : "#FF8C42";
+  const voieColor = froid ? "#1D6FD8" : "#C2601E";
   const advice = ADVICE[r.conseil];
   const shownBadges = (badges ?? []).filter((b) => b !== "signal frais" && BADGE_STYLE[b]);
 
@@ -83,8 +83,8 @@ export function TargetCard({
             className="chip mono shrink-0"
             style={{
               color: voieColor,
-              borderColor: froid ? "rgba(93,180,255,.3)" : "rgba(255,140,66,.3)",
-              background: froid ? "rgba(93,180,255,.07)" : "rgba(255,140,66,.07)",
+              borderColor: froid ? "rgba(29,111,216,.4)" : "rgba(194,96,30,.4)",
+              background: froid ? "rgba(29,111,216,.08)" : "rgba(194,96,30,.08)",
               fontSize: "9.5px",
               fontWeight: 600,
               letterSpacing: ".1em",
@@ -104,16 +104,16 @@ export function TargetCard({
             </span>
           )}
           {cible.note_priorite != null && (
-            <span style={{ color: "#FFD200" }}>★ P{cible.note_priorite}</span>
+            <span style={{ color: "#8A6E10" }}>★ P{cible.note_priorite}</span>
           )}
           {cible.stage_label && <span>{cible.stage_label}</span>}
           {/* Statut de référence (0045) : affiché seulement quand il porte une
               valeur fine posée à la main, différente du libellé d'étape. */}
           {cible.statut_ref && cible.statut_ref !== cible.stage_label && (
-            <span style={{ color: "#5DB4FF" }}>{cible.statut_ref}</span>
+            <span style={{ color: "#1D6FD8" }}>{cible.statut_ref}</span>
           )}
           {(cible.social_score ?? 0) > 0 && (
-            <span className="mono" title="Score social (schéma de référence)" style={{ color: "#9aa0ac" }}>
+            <span className="mono" title="Score social (schéma de référence)" style={{ color: "#5C5850" }}>
               <span style={{ fontSize: "8.5px", letterSpacing: ".12em", opacity: 0.7 }}>SOCIAL </span>
               <span style={{ fontWeight: 700 }}>{cible.social_score}</span>
             </span>
@@ -143,9 +143,9 @@ export function TargetCard({
             <span>{cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}</span>
           )}
           {(cible.watchlist_keys ?? []).map((w) => (
-            <span key={w} style={{ color: "#FFD200" }}>{w.toUpperCase()}</span>
+            <span key={w} style={{ color: "#8A6E10" }}>{w.toUpperCase()}</span>
           ))}
-          {cible.premiere_neige && <span style={{ color: "#5DB4FF" }}>PREMIÈRE NEIGE</span>}
+          {cible.premiere_neige && <span style={{ color: "#1D6FD8" }}>PREMIÈRE NEIGE</span>}
           {cible.tag_investisseur && <span style={{ color: "#1FB46A" }}>INVESTISSEUR</span>}
         </div>
 
@@ -173,8 +173,8 @@ export function TargetCard({
             className="relative rounded-[10px] p-[11px] pl-[14px]"
             style={
               cible.signal_frais
-                ? { background: "linear-gradient(90deg,rgba(255,210,0,.08),rgba(255,210,0,.015))", border: "1px solid rgba(255,210,0,.16)" }
-                : { background: "rgba(255,255,255,.025)", border: "1px solid var(--line)" }
+                ? { background: "linear-gradient(90deg,rgba(244,196,53,.18),rgba(244,196,53,.04))", border: "1px solid rgba(180,150,30,.35)" }
+                : { background: "rgba(20,20,20,.03)", border: "1px solid var(--line)" }
             }
           >
             {cible.signal_frais && (
@@ -182,11 +182,11 @@ export function TargetCard({
             )}
             <div
               className="label"
-              style={cible.signal_frais ? { color: "#FFD200", fontSize: "9px", letterSpacing: ".16em" } : { color: "#6b7280", fontSize: "9px" }}
+              style={cible.signal_frais ? { color: "#8A6E10", fontSize: "9px", letterSpacing: ".16em" } : { color: "#8A857D", fontSize: "9px" }}
             >
               {cible.signal_frais ? "● Signal frais" : "Pourquoi maintenant"}
             </div>
-            <p className="mt-1 text-[13px] leading-[1.35]" style={{ color: cible.signal_frais ? "#F3F4F6" : "#cfd2d8" }}>
+            <p className="mt-1 text-[13px] leading-[1.35]" style={{ color: cible.signal_frais ? "#141414" : "#464641" }}>
               {r.raison}
             </p>
             <span className={`mono mt-[9px] inline-flex items-center gap-1 rounded-[7px] px-[9px] py-[5px] text-[10.5px] font-medium ${advice.cls}`} style={{ background: advice.bg }}>
@@ -196,7 +196,7 @@ export function TargetCard({
         )}
 
         {/* 4 — Pied */}
-        <div className="meta flex items-center justify-between" style={{ color: "#565B66" }}>
+        <div className="meta flex items-center justify-between" style={{ color: "#8A857D" }}>
           <span>
             {cible.jours_depuis_touche !== null ? `Dernière touche · ${cible.jours_depuis_touche} j` : "Jamais touché"}
           </span>

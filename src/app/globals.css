@@ -4,18 +4,18 @@
 
 :root {
   --font-display: var(--font-sans);
-  /* Hairlines & surfaces verre (direction Cockpit). */
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --glass-1: rgba(255, 255, 255, 0.025);
-  --glass-2: rgba(255, 255, 255, 0.04);
-  --accent-gradient: linear-gradient(135deg, #ffd200, #ff9f1c);
+  /* Couche GDIY papier/encre (handoff 03/08), appliquée à tout Magellan. */
+  --line: #e8e5df;
+  --line-strong: #d9d5cc;
+  --glass-1: rgba(20, 20, 20, 0.02);
+  --glass-2: rgba(20, 20, 20, 0.045);
+  --accent-gradient: #f4c435;
 }
 
 html,
 body {
-  background-color: #0b0c10;
-  color: #f3f4f6;
+  background-color: #fbfaf7;
+  color: #141414;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -28,8 +28,7 @@ body {
   width: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #262a33;
-  border-radius: 9999px;
+  background: #c9c4bb;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -59,9 +58,9 @@ body {
   }
   /* CTA primaire : dégradé jaune→ambre, texte encre. */
   .btn-jaune {
-    @apply btn text-noir-900;
+    @apply btn;
+    color: #141414;
     background: var(--accent-gradient);
-    box-shadow: 0 6px 18px -6px rgba(255, 210, 0, 0.5);
   }
   .btn-jaune:hover {
     opacity: 0.95;
@@ -102,7 +101,7 @@ body {
   }
 }
 .shimmer {
-  background: linear-gradient(100deg, #f3f4f6 0%, #f3f4f6 38%, #ffe680 50%, #f3f4f6 62%, #f3f4f6 100%);
+  background: linear-gradient(100deg, #141414 0%, #141414 38%, #8a6e10 50%, #141414 62%, #141414 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
@@ -114,7 +113,6 @@ body {
 /* Pastille logo (losange dégradé). */
 .logo-dot {
   background: var(--accent-gradient);
-  box-shadow: 0 0 10px rgba(255, 210, 0, 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {

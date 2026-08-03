@@ -17,7 +17,7 @@ export default async function ShowLayout({
   if (!show) notFound();
   const email = auth.data.user?.email ?? "";
 
-  const accent = show.couleur ?? "#FFD200";
+  const accent = show.couleur ?? "#8A6E10";
 
   return (
     <div className="min-h-screen">

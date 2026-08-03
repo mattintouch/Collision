@@ -88,7 +88,7 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
           </Link>
           {action.sous_titre && <p className="text-sm text-blanc-muted">{action.sous_titre}</p>}
         </div>
-        <span className="mono shrink-0" style={{ color: "#FFD200", fontWeight: 700 }}>SCORE {action.score}</span>
+        <span className="mono shrink-0" style={{ color: "#8A6E10", fontWeight: 700 }}>SCORE {action.score}</span>
       </div>
 
       {action.badges.length > 0 && (
@@ -101,7 +101,7 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
 
       {action.pourquoi && (
         <div className="mt-3 rounded-[10px] p-3" style={{ background: "rgba(255,210,0,.06)", border: "1px solid rgba(255,210,0,.14)" }}>
-          <div className="label" style={{ color: "#FFD200", fontSize: "9px" }}>Pourquoi maintenant</div>
+          <div className="label" style={{ color: "#8A6E10", fontSize: "9px" }}>Pourquoi maintenant</div>
           <p className="mt-1 text-[13px] leading-snug">{action.pourquoi}</p>
         </div>
       )}
@@ -119,7 +119,7 @@ export function DailyActionCard({ action, showSlug }: { action: DailyAction; sho
       <div className="mt-3">
         <div className="flex items-center justify-between gap-2">
           <div className="label" style={{ fontSize: "9px" }}>
-            Brouillon {draftSource === "copilote" && <span style={{ color: "#FFD200" }}>· copilote</span>}
+            Brouillon {draftSource === "copilote" && <span style={{ color: "#8A6E10" }}>· copilote</span>}
           </div>
           <div className="flex items-center gap-1.5">
             <button onClick={redigerAvecCopilote} disabled={drafting} className="btn-ghost px-2 py-0.5 text-xs disabled:opacity-50">

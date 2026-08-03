@@ -70,7 +70,7 @@ export default async function AujourdhuiPage({
 
   return (
     <div>
-      <p className="label mb-1" style={{ color: "#FFD200" }}>Session du jour</p>
+      <p className="label mb-1" style={{ color: "#8A6E10" }}>Session du jour</p>
       <h1 className="font-display text-2xl font-semibold tracking-tight">
         Aujourd&apos;hui
       </h1>
@@ -81,8 +81,8 @@ export default async function AujourdhuiPage({
       </p>
 
       {besoinsEnAlerte.length > 0 && (
-        <div className="card mt-6 p-4" style={{ borderLeft: "3px solid #FFD200" }}>
-          <p className="label" style={{ color: "#FFD200" }}>Besoins éditoriaux non couverts</p>
+        <div className="card mt-6 p-4" style={{ borderLeft: "3px solid #8A6E10" }}>
+          <p className="label" style={{ color: "#8A6E10" }}>Besoins éditoriaux non couverts</p>
           <ul className="mt-2 space-y-1 text-sm">
             {besoinsEnAlerte.map((b) => (
               <li key={b.besoin.id}>
