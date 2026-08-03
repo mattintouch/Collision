@@ -104,6 +104,21 @@ describe("contrôle du format scannable (règle 3)", () => {
   });
 });
 
+describe("réserve murale de la passe de rédaction (correctif du 03/08)", () => {
+  it("un drain court laisse la rédaction en file, un drain frais la revendique", async () => {
+    const { redactionAdmissible, REDACTION_RESERVE_MS } = await import("../src/lib/fiche/redaction");
+    // kickQueue (budget 240 s) ne revendique JAMAIS une passe de rédaction.
+    expect(redactionAdmissible(240_000)).toBe(false);
+    // Le cron en début de drain (budget 740 s) la revendique.
+    expect(redactionAdmissible(740_000)).toBe(true);
+    // Le même cron en fin de drain la laisse au suivant.
+    expect(redactionAdmissible(REDACTION_RESERVE_MS - 1)).toBe(false);
+    expect(redactionAdmissible(REDACTION_RESERVE_MS)).toBe(true);
+    // Budget mural illimité (défaut de processEnrichmentJobs) : admissible.
+    expect(redactionAdmissible(Infinity)).toBe(true);
+  });
+});
+
 describe("contrats de section (update_section manuel)", () => {
   it("les contrats v3.1 reflètent budgets et propriété des faits", () => {
     expect(JSON.stringify(SECTION_CONTRACTS.tldr)).toContain("1200 caractères");

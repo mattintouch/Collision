@@ -17,7 +17,7 @@ const data: RecapData = {
   besoins: [{ show: "gdiy", contrainte: "1 femme, épisode estival", periode: "été 2026", candidates: 1 }],
   generations: { done: 8, failed: 10 },
   echecs: [
-    { cause: "timeout au delà de 10 minutes", jobs: [{ nom: "Ariel Benzaquen", type: "profil" }, { nom: "Rudy Gobert", type: "deroule" }] },
+    { cause: "timeout au delà du délai de garde", jobs: [{ nom: "Ariel Benzaquen", type: "profil" }, { nom: "Rudy Gobert", type: "deroule" }] },
     { cause: "recherche web sans résultat exploitable", jobs: [{ nom: "Tarik Benabdallah", type: "profil" }] },
   ],
   cout: { semaine_eur: 2.92, mois_eur: 3.43, plafond_eur: 200 },
@@ -106,9 +106,9 @@ describe("récap hebdo v2 — règle des tirets", () => {
 describe("récap hebdo v2 — B, échecs et coûts", () => {
   it("chaque échec nomme sa fiche, son type de job et sa cause, groupés par cause", () => {
     const { html } = buildRecapEmail(data);
-    expect(html).toContain("Cause timeout au delà de 10 minutes : Ariel Benzaquen (job profil), Rudy Gobert (job deroule). À relancer.");
+    expect(html).toContain("Cause timeout au delà du délai de garde : Ariel Benzaquen (job profil), Rudy Gobert (job deroule). À relancer.");
     expect(html).toContain("Cause recherche web sans résultat exploitable : Tarik Benabdallah (job profil). À relancer.");
-    expect((html.match(/timeout au delà de 10 minutes/g) ?? []).length).toBe(1);
+    expect((html.match(/timeout au delà du délai de garde/g) ?? []).length).toBe(1);
   });
 
   it("porte les compteurs et la ligne de coût", () => {
@@ -163,8 +163,8 @@ describe("récap hebdo v2 — C, demandes produit", () => {
 
 describe("récap hebdo v2 — normalisation des causes", () => {
   it("regroupe les variantes sous une cause lisible", () => {
-    expect(normaliseCause("timeout")).toBe("timeout au delà de 10 minutes");
-    expect(normaliseCause("timeout après 600s")).toBe("timeout au delà de 10 minutes");
+    expect(normaliseCause("timeout")).toBe("timeout au delà du délai de garde");
+    expect(normaliseCause("timeout après 600s")).toBe("timeout au delà du délai de garde");
     expect(normaliseCause("Recherche web sans résultat exploitable")).toBe("recherche web sans résultat exploitable");
     expect(normaliseCause("Your credit balance is too low to access the Anthropic API")).toBe("crédit API épuisé");
     expect(normaliseCause("x".repeat(200)).length).toBe(80);
@@ -172,7 +172,7 @@ describe("récap hebdo v2 — normalisation des causes", () => {
 });
 
 describe("récap hebdo v2 — B3, prompt de correction conditionnel", () => {
-  const timeout = "timeout au delà de 10 minutes";
+  const timeout = "timeout au delà du délai de garde";
 
   it("un incident ponctuel ne produit PAS de prompt", () => {
     expect(promptCorrection([{ cause: timeout, cible_id: "a" }], [])).toBeNull();

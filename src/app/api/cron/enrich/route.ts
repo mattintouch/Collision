@@ -13,10 +13,15 @@ import { refreshFolkMirror } from "@/lib/folk/mirror";
 import { cronAutorise } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// 800 : plafond Pro avec Fluid compute. Le cron est le SEUL drain autorisé à
+// traiter une passe de rédaction (réserve murale de jobs.ts) : la passe la
+// plus lourde (fiche complète, deux appels modèle possibles) doit tenir dans
+// une fonction, sinon Vercel la tue en plein vol et le job retombe en
+// « timeout » via le faucheur.
+export const maxDuration = 800;
 
 // Budget mural sous maxDuration ; sert aussi de TTL du verrou (un crash libère seul).
-const BUDGET_MS = 280_000;
+const BUDGET_MS = 740_000;
 
 async function run(req: Request): Promise<Response> {
   // Scheduler (Bearer CRON_SECRET) ou membre de l'équipe connecté (test navigateur).

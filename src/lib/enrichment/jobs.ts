@@ -1,7 +1,8 @@
 // S3 — traitement des jobs d'enrichissement.
 //
 // Deux déclencheurs, selon le plan Vercel :
-//  • Pro  : le cron (vercel.json) appelle /api/cron/enrich (maxDuration 300).
+//  • Pro  : le cron (vercel.json) appelle /api/cron/enrich (maxDuration 800),
+//    seul drain avec assez de budget mural pour une passe de rédaction.
 //  • Hobby : pas de cron < 1×/jour → la file se draine via `waitUntil` au moment
 //    où on met un job en file (enrich_cible/colonne) ou sur les lectures chaudes
 //    (daily_five, page « Aujourd'hui »). `kickQueue()` lance ce drainage en
@@ -11,7 +12,7 @@ import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
 import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
-import { processRedaction } from "../fiche/redaction";
+import { processRedaction, redactionAdmissible } from "../fiche/redaction";
 import { syncCibleToFolk } from "../folk/sync";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
 import { verifierBudget } from "../ai/cout";
@@ -20,7 +21,11 @@ import { alerteEchecGeneration, alerteDisjoncteur, alerteBudget } from "../recap
 import type { FicheRow } from "../fiche/store";
 import type { CibleEnrichie } from "../types";
 
-const STALE_MINUTES = 10;
+// Délai de garde du faucheur (correctif du 03/08 : 10 → 15). Un job encore
+// vivant envoie un signe de vie entre ses appels modèle (heartbeat), chacun
+// borné à 10 min par le SDK : 15 min ne requalifient donc jamais une passe
+// vivante, seulement une fonction réellement tuée.
+const STALE_MINUTES = 15;
 // Pause avant la seconde tentative d'un groupe de fiche (erreur transitoire).
 const RETRY_PAUSE_MS = 3_000;
 // Modèle profond quand on a le budget (cron 300 s) ; modèle rapide sinon.
@@ -81,12 +86,20 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 
   // 2) Traiter les jobs en attente un par un, dans la limite `max` et le budget mural.
   while (traites < max && Date.now() - startedAt < budgetMs) {
-    const { data: pending } = await sb
+    // Réserve murale (correctif du 03/08) : une passe de rédaction ne démarre
+    // que si le drain dispose encore du budget pour la finir. Sinon elle reste
+    // en file pour le cron (800 s) : démarrée trop tard, la fonction était
+    // tuée en plein appel modèle et le job finissait au faucheur en
+    // « timeout », systématiquement sur les fiches les plus lourdes.
+    const resteMs = budgetMs - (Date.now() - startedAt);
+    let requete = sb
       .from("enrichment_jobs")
       .select("id, cible_id, objectif, apply")
       .eq("statut", "pending")
       .order("created_at", { ascending: true })
       .limit(1);
+    if (!redactionAdmissible(resteMs)) requete = requete.neq("objectif", `${FICHE_JOB_PREFIX}redaction`);
+    const { data: pending } = await requete;
     const job = (pending ?? [])[0] as { id: string; cible_id: string; objectif: string; apply: boolean } | undefined;
     if (!job) break;
 
@@ -164,7 +177,15 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         for (let tentative = 1; tentative <= 2 && !r; tentative++) {
           try {
             r = groupe === "redaction"
-              ? await processRedaction(sb, row as CibleEnrichie, fiche as FicheRow, { model, usageOut: usage })
+              ? await processRedaction(sb, row as CibleEnrichie, fiche as FicheRow, {
+                  model,
+                  usageOut: usage,
+                  // Signe de vie entre les appels modèle : le faucheur ne
+                  // requalifie que les jobs restés muets STALE_MINUTES.
+                  heartbeat: async () => {
+                    await sb.from("enrichment_jobs").update({ updated_at: nowIso() }).eq("id", job.id);
+                  },
+                })
               : await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches, usageOut: usage });
           } catch (e) {
             lastErr = e;
@@ -248,7 +269,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
  */
 export function kickQueue(): void {
   // Budget 240 s : les fonctions qui appellent kickQueue déclarent
-  // maxDuration 300 (Fluid compute). Un kick draine une fiche entière.
+  // maxDuration 300 (Fluid compute). Un kick draine les groupes de recherche
+  // d'une fiche ; la passe de rédaction, sous la réserve murale de 420 s,
+  // reste en file pour le cron et son budget de 800 s.
   const work = processEnrichmentJobs({ max: 6, model: FAST_MODEL, maxSearches: 3, budgetMs: 240_000 }).catch(() => {});
   try {
     waitUntil(work);
