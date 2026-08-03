@@ -36,6 +36,12 @@
 .gdiy input[type="checkbox"] { accent-color: #000000; }
 .gdiy ::selection { background: #f4c435; color: #000; }
 
+/* v3.1 : ancres du sticky (TL;DR, Clips, Questions), masquées sous 560 px
+   quand la place manque (accès direct H-1 sur mobile au dessus). */
+@media (max-width: 559px) {
+  .fiche-ancres { display: none !important; }
+}
+
 @keyframes gdiy-recpulse {
   0% { opacity: 1; }
   50% { opacity: 0.25; }

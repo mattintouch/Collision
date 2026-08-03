@@ -1762,7 +1762,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     {
       fiche: z.string().describe("slug, id ou nom d'invité"),
       show: z.string().optional(),
-      sections: z.union([z.array(z.string()), z.string()]).optional().describe("ids de sections à charger (ex. [\"playbook\", \"chiffres\"] ou \"playbook,chiffres\") ; omis = toute la fiche"),
+      sections: z.union([z.array(z.string()), z.string()]).optional().describe("ids de sections à charger (ex. [\"topics\", \"data\"] ou \"topics,data\") ; omis = toute la fiche"),
     },
     { readOnlyHint: true },
     async (a) => {
@@ -1824,7 +1824,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "get_section",
-    "Renvoie une seule section d'une fiche (contenu structuré, version, rôle de cadrage). Pratique pour éditer finement sans recharger toute la fiche. section_id stable (ex. playbook, chiffres, dix_questions, questions_reseaux, zone_grise).",
+    "Renvoie une seule section d'une fiche (contenu structuré, version, rôle de cadrage). Pratique pour éditer finement sans recharger toute la fiche. section_id stable du contrat v3.1 (identite, tldr, data, apprentissages, clips, topics, personnel, revue_de_presse) ; les anciens ids (entete, chiffres, playbook, questions_reseaux...) restent acceptés par alias.",
     { fiche: z.string(), section_id: z.string().describe("clé stable de section"), show: z.string().optional() },
     { readOnlyHint: true },
     async (a) => {
@@ -1856,7 +1856,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section : appeler get_section d'abord, son champ `contrat` donne la forme exacte attendue. Intentions : rédiger une section, corriger le playbook, injecter les questions clips.",
     {
       fiche: z.string(),
-      section_id: z.string().describe("clé stable (ex. enjeu, chiffres, playbook, dix_questions, zone_grise)"),
+      section_id: z.string().describe("clé stable v3.1 (ex. identite, tldr, data, apprentissages, clips, topics, personnel, revue_de_presse)"),
       content: z.record(z.any()).describe("objet JSON du contenu de la section (remplace l'existant)"),
       show: z.string().optional(),
     },
@@ -2059,8 +2059,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sid = a.show ? await showId(sb, a.show) : null;
       const f = await resolveFiche(sb, a.fiche, sid);
       if (!f) return text({ error: `Fiche « ${a.fiche} » introuvable.` });
-      // Gate du contrat v2 (§3.5) : passage en_challenge refusé si la mécanique
-      // du succès (A3), l'univers (A4) ou les chiffres (B2) sont vides.
+      // Gate (contrat v3.1) : passage en_challenge refusé si data,
+      // apprentissages ou topics sont vides.
       if (a.statut === "en_challenge") {
         const requises = [...SECTIONS_OBLIGATOIRES];
         const { data: secs } = await sb.from("fiche_sections").select("section_id, content").eq("fiche_id", f.id).in("section_id", requises);
@@ -2070,7 +2070,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
           return text({
             error: `Passage en_challenge refusé : section(s) obligatoire(s) vide(s) : ${vides.join(", ")}.`,
             cause: "sections_obligatoires_vides",
-            action: "Lancer generate_fiche (groupe chiffres) ou remplir via update_section, puis réessayer.",
+            action: "Lancer generate_fiche (groupes manquants) ou remplir via update_section, puis réessayer.",
           });
         }
       }
@@ -2157,8 +2157,8 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "suggest_questions_reseaux",
-    "Propose des questions « clips » calibrées sur l'invité d'une fiche : questions clickbait à dégainer en tournage (moment de mou, relance) pour fabriquer un extrait viral. Ressorts : argent, échec, contre-pied, confession. Vadim propose, l'équipe challenge. apply=true écrit la section questions_reseaux (non destructif) ; sinon, renvoie seulement les propositions.",
-    { fiche: z.string(), count: z.number().optional().describe("nombre de questions (défaut 10, max 12)"), apply: z.boolean().optional().describe("true = écrit la section questions_reseaux de la fiche"), show: z.string().optional() },
+    "Propose des questions « clips » calibrées sur l'invité d'une fiche : questions clickbait à dégainer en tournage (moment de mou, relance) pour fabriquer un extrait viral. Ressorts : argent, échec, contre-pied, confession. Vadim propose, l'équipe challenge. apply=true écrit la section clips (non destructif) ; sinon, renvoie seulement les propositions.",
+    { fiche: z.string(), count: z.number().optional().describe("nombre de questions (défaut 10, max 12)"), apply: z.boolean().optional().describe("true = écrit la section clips de la fiche"), show: z.string().optional() },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a, extra) => {
       const sb = createServiceClient();
@@ -2179,7 +2179,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (a.apply) {
         if (f.statut === "verrouillee") return text({ error: "Fiche verrouillée : écriture impossible.", cause: "fiche_verrouillee", questions });
         const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
-        await writeSection(sb, f.id, "questions_reseaux", { questions }, author);
+        await writeSection(sb, f.id, "clips", { questions }, author);
         ecrit = true;
       }
       return text({ ok: true, fiche: f.slug, invite: f.invite_nom, demo, ecrit, count: questions.length, questions, ...(demo ? { note: "Mode démo (pas de clé Anthropic ou recherche vide) : questions génériques par ressort." } : {}) });
