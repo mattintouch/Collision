@@ -85,6 +85,10 @@ export interface RapportRedaction {
    *  le garde-fou code APRÈS la passe, sans remplacement (fin du jeu de
    *  taupes apprentissages contre topics). */
   questions_resorbees?: string[];
+  /** Correctif du 04/08 (backlog 4be50ce8) : TL;DR encore hors budget après
+   *  la passe, réécrit par un appel court dédié. Mesures avant et après
+   *  (longueur JSON des items, la même que le lint). */
+  tldr_reecrit?: { avant: number; apres: number };
   /** Règle 5 : verdict du lint APRÈS la passe (doublons, chiffres répétés et
    *  questions en double résiduels = bloquants restants ; zéro attendu sur une
    *  fiche fraîche). */
@@ -345,6 +349,48 @@ export function resorbeQuestionsSansRemplacement(
   return { admis: out, resorbees };
 }
 
+// Correctif du 04/08 (backlog 4be50ce8) : réécriture ciblée du TL;DR. Sur les
+// fiches denses, la passe complète ne tient pas le budget de 1200 caractères
+// (Chiche oscillait entre 1601 et 1770 malgré la consigne). Plutôt qu'une
+// troncature serveur (refusée : elle coupe une ligne en plein fait), un appel
+// court dédié réécrit le SEUL TL;DR sous budget, sans toucher au reste. La
+// mesure est celle du lint (longueur JSON des items, tolérance 200).
+
+/** Longueur JSON des items du TL;DR (la même mesure que le lint). */
+export function tldrTotal(content: Content | undefined): number {
+  const items = content?.items;
+  return Array.isArray(items) ? JSON.stringify(items).length : 0;
+}
+
+/** Le TL;DR dépasse-t-il le budget total, à la tolérance du lint près ? */
+export function tldrAReecrire(content: Content | undefined): boolean {
+  const total = tldrTotal(content);
+  return total > BUDGETS_V3.tldr_total_chars + 200;
+}
+
+/** Valide la sortie de la réécriture ciblée (PURE, testée) : items non vides
+ *  au format {label, texte}, et un total STRICTEMENT plus court que l'entrée
+ *  (une réécriture qui rallonge ou stagne est refusée, l'existant reste). */
+export function admettreTldrReecrit(actuel: Content, propose: unknown): Content | null {
+  if (!propose || typeof propose !== "object" || Array.isArray(propose)) return null;
+  const items = (propose as Content).items;
+  if (!Array.isArray(items) || !items.length) return null;
+  const propres = items.filter(
+    (it) => it && typeof it === "object" && typeof (it as Content).label === "string" && typeof (it as Content).texte === "string" && ((it as Content).texte as string).trim()
+  ) as Content[];
+  if (!propres.length) return null;
+  const resultat: Content = { items: propres };
+  if (tldrTotal(resultat) >= tldrTotal(actuel)) return null;
+  return resultat;
+}
+
+const SYSTEM_TLDR = [
+  "Tu es le rédacteur en chef des fiches de préparation GDIY. Le TL;DR fourni dépasse son budget : réécris le SOUS 1200 caractères au TOTAL (l'ensemble des textes), en condensant sans perdre de fait.",
+  "Neuf labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. Une idée par ligne, phrases courtes, chaque ligne sous 240 caractères. Tu condenses le contenu reçu, tu n'inventes rien et tu n'ajoutes aucun fait.",
+  "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément.",
+  'Réponds UNIQUEMENT en JSON : {"items": [{"label": "Qui", "texte": "..."}]}',
+].join("\n\n");
+
 interface SortieRedaction { sections?: Record<string, unknown>; rapport?: Partial<RapportRedaction> }
 
 /**
@@ -408,6 +454,33 @@ export async function processRedaction(
   // Fin du jeu de taupes (04/08) : les questions encore en double après la
   // passe sont retirées des sections réécrites, sans remplacement.
   const { admis, resorbees } = resorbeQuestionsSansRemplacement(actuel, filtre);
+
+  // Réécriture ciblée du TL;DR (04/08) : si le budget total est encore
+  // dépassé après la passe, un appel court dédié le réécrit seul. Best-effort :
+  // en cas d'échec ou de sortie inutilisable, le TL;DR long reste tel quel et
+  // le lint continue de le signaler.
+  let tldr_reecrit: RapportRedaction["tldr_reecrit"];
+  const tldrFinal = (admis.tldr ?? actuel.tldr) as Content | undefined;
+  if (tldrFinal && tldrAReecrire(tldrFinal)) {
+    await opts.heartbeat?.().catch(() => {});
+    try {
+      const resTldr = await client.messages.create({
+        model,
+        max_tokens: 2048,
+        system: SYSTEM_TLDR,
+        messages: [{ role: "user", content: `Invité : ${cible.nom}. TL;DR actuel (JSON) :\n${JSON.stringify(tldrFinal)}` }],
+      });
+      compte(resTldr);
+      const reecrit = admettreTldrReecrit(tldrFinal, extractJson<Content>(texteDe(resTldr)));
+      if (reecrit) {
+        tldr_reecrit = { avant: tldrTotal(tldrFinal), apres: tldrTotal(reecrit) };
+        admis.tldr = reecrit;
+      }
+    } catch {
+      /* réécriture best-effort : la passe principale reste valide */
+    }
+  }
+
   const written: string[] = [];
   for (const [id, contenu] of Object.entries(admis)) {
     await writeSection(sb, fiche.id, id, contenu, REDACTION_AUTHOR);
@@ -428,6 +501,7 @@ export async function processRedaction(
     balisage_nettoye: Array.isArray(sortie.rapport?.balisage_nettoye) ? (sortie.rapport!.balisage_nettoye as string[]).slice(0, 10) : [],
     meta_narratif_nettoye: Array.isArray(sortie.rapport?.meta_narratif_nettoye) ? (sortie.rapport!.meta_narratif_nettoye as string[]).slice(0, 10) : [],
     questions_resorbees: resorbees.slice(0, 20),
+    tldr_reecrit,
     lint_residuel: {
       doublons: lintApres.doublons.slice(0, 10),
       chiffres_repetes: lintApres.chiffres_repetes.slice(0, 10),

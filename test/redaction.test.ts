@@ -174,6 +174,44 @@ describe("fin du jeu de taupes des questions (correctif du 04/08, cas Benzaquen)
   });
 });
 
+describe("réécriture ciblée du TL;DR (correctif du 04/08)", () => {
+  const item = (label: string, n: number) => ({ label, texte: "x".repeat(n) });
+
+  it("le déclencheur suit la mesure du lint : budget total plus tolérance", async () => {
+    const { tldrTotal, tldrAReecrire } = await import("../src/lib/fiche/redaction");
+    const court = { items: [item("Qui", 100), item("Levier", 100)] };
+    expect(tldrAReecrire(court)).toBe(false);
+    const long = { items: Array.from({ length: 9 }, (_, i) => item(`L${i}`, 200)) };
+    expect(tldrTotal(long)).toBeGreaterThan(BUDGETS_V3.tldr_total_chars + 200);
+    expect(tldrAReecrire(long)).toBe(true);
+    expect(tldrAReecrire(undefined)).toBe(false);
+    expect(tldrAReecrire({ texte: "pas d'items" })).toBe(false);
+  });
+
+  it("admet une réécriture STRICTEMENT plus courte au bon format, refuse le reste", async () => {
+    const { admettreTldrReecrit, tldrTotal } = await import("../src/lib/fiche/redaction");
+    const actuel = { items: Array.from({ length: 9 }, (_, i) => item(`L${i}`, 200)) };
+    const plusCourt = { items: Array.from({ length: 9 }, (_, i) => item(`L${i}`, 110)) };
+    const admis = admettreTldrReecrit(actuel, plusCourt);
+    expect(admis).not.toBeNull();
+    expect(tldrTotal(admis!)).toBeLessThan(tldrTotal(actuel));
+    // Une réécriture qui rallonge, un format invalide ou un vide sont refusés.
+    expect(admettreTldrReecrit(actuel, { items: Array.from({ length: 9 }, (_, i) => item(`L${i}`, 300)) })).toBeNull();
+    expect(admettreTldrReecrit(actuel, { items: [] })).toBeNull();
+    expect(admettreTldrReecrit(actuel, { items: [{ label: "Qui" }] })).toBeNull();
+    expect(admettreTldrReecrit(actuel, "pas un objet")).toBeNull();
+    expect(admettreTldrReecrit(actuel, null)).toBeNull();
+  });
+
+  it("écarte les items malformés et garde les valides", async () => {
+    const { admettreTldrReecrit } = await import("../src/lib/fiche/redaction");
+    const actuel = { items: Array.from({ length: 9 }, (_, i) => item(`L${i}`, 200)) };
+    const mixte = { items: [item("Qui", 80), { label: "Piège" }, { texte: "sans label" }, item("Levier", 80)] };
+    const admis = admettreTldrReecrit(actuel, mixte);
+    expect((admis!.items as unknown[]).length).toBe(2);
+  });
+});
+
 describe("réserve murale de la passe de rédaction (correctif du 03/08)", () => {
   it("un drain court laisse la rédaction en file, un drain frais la revendique", async () => {
     const { redactionAdmissible, REDACTION_RESERVE_MS } = await import("../src/lib/fiche/redaction");
