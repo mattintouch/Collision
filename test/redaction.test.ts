@@ -104,6 +104,76 @@ describe("contrôle du format scannable (règle 3)", () => {
   });
 });
 
+describe("fin du jeu de taupes des questions (correctif du 04/08, cas Benzaquen)", () => {
+  const QUESTION = "Comment tu transmets à tes jeunes combattants : tu leur enseignes la technique, le mental ou le business, et qu'est-ce qui bloque le plus chez eux";
+
+  it("une question d'apprentissage en collision avec une question de topics est retirée sans remplacement", async () => {
+    const { resorbeQuestionsSansRemplacement } = await import("../src/lib/fiche/redaction");
+    const actuel = {
+      topics: { topics: [{ titre: "Transmission", intention: "x", questions: [{ num: "01", texte: QUESTION }] }] },
+    };
+    const admis = {
+      apprentissages: { items: [
+        { titre: "Transmission", connu: "un gala rentable", manque: "le blocage réel", question: QUESTION },
+        { titre: "Arbitrage", connu: "attaque et défense", manque: "qui tranche", question: "Qui tranche le plan de match quand le staff est partagé" },
+      ] },
+    };
+    const r = resorbeQuestionsSansRemplacement(actuel, admis);
+    const items = (r.admis.apprentissages as { items: Record<string, unknown>[] }).items;
+    expect(items).toHaveLength(2);
+    expect(items[0].question).toBeUndefined();
+    expect(items[0].connu).toBe("un gala rentable");
+    expect(items[1].question).toBe("Qui tranche le plan de match quand le staff est partagé");
+    expect(r.resorbees).toHaveLength(1);
+    expect(r.resorbees[0]).toContain("apprentissages[0]");
+    expect(r.resorbees[0]).toContain("topics[0].questions[0]");
+  });
+
+  it("une question cœur en collision avec un clip sort de son topic et la numérotation continue est refaite", async () => {
+    const { resorbeQuestionsSansRemplacement } = await import("../src/lib/fiche/redaction");
+    const actuel = {
+      clips: { questions: [{ question: QUESTION, ressort: "vécu" }] },
+    };
+    const admis = {
+      topics: { topics: [
+        { titre: "T1", intention: "x", questions: [{ num: "01", texte: "Ton premier gala, tu le finances comment" }, { num: "02", texte: QUESTION }] },
+        { titre: "T2", intention: "y", questions: [{ num: "03", texte: "Le K-1, tu y retournes à quelles conditions" }] },
+      ] },
+    };
+    const r = resorbeQuestionsSansRemplacement(actuel, admis);
+    const topics = (r.admis.topics as { topics: { questions: { num: string; texte: string }[] }[] }).topics;
+    expect(topics[0].questions.map((q) => q.texte)).toEqual(["Ton premier gala, tu le finances comment"]);
+    expect(topics[0].questions[0].num).toBe("01");
+    expect(topics[1].questions[0].num).toBe("02");
+    expect(r.resorbees).toHaveLength(1);
+  });
+
+  it("sans doublon, les sections réécrites ressortent identiques et le rapport est vide", async () => {
+    const { resorbeQuestionsSansRemplacement } = await import("../src/lib/fiche/redaction");
+    const admis = {
+      apprentissages: { items: [{ titre: "t", connu: "c", manque: "m", question: "Une question unique sur le modèle économique des galas" }] },
+      topics: { topics: [{ titre: "T", intention: "x", questions: [{ num: "01", texte: "Une autre question sur la double carrière et le droit" }] }] },
+    };
+    const r = resorbeQuestionsSansRemplacement({}, admis);
+    expect(r.admis).toEqual(admis);
+    expect(r.resorbees).toEqual([]);
+  });
+
+  it("ne touche jamais une section que la passe n'a pas réécrite", async () => {
+    const { resorbeQuestionsSansRemplacement } = await import("../src/lib/fiche/redaction");
+    const actuel = {
+      apprentissages: { items: [{ titre: "t", connu: "c", manque: "m", question: QUESTION }] },
+      topics: { topics: [{ titre: "T", intention: "x", questions: [{ num: "01", texte: QUESTION }] }] },
+    };
+    // La passe ne réécrit que data : le doublon apprentissages/topics existant
+    // reste à la charge d'une passe future, rien n'est retiré hors périmètre.
+    const admis = { data: { kpis: [] } };
+    const r = resorbeQuestionsSansRemplacement(actuel, admis);
+    expect(r.admis).toEqual(admis);
+    expect(r.resorbees).toEqual([]);
+  });
+});
+
 describe("réserve murale de la passe de rédaction (correctif du 03/08)", () => {
   it("un drain court laisse la rédaction en file, un drain frais la revendique", async () => {
     const { redactionAdmissible, REDACTION_RESERVE_MS } = await import("../src/lib/fiche/redaction");
