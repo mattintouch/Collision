@@ -126,19 +126,37 @@ describe("identifiants de zone grise (règle 6)", () => {
 });
 
 describe("lint — bruit structurel écarté (mesuré sur Gobert v60/v74)", () => {
-  it("un même lien dans a_lire et sources n'est pas un doublon ; un apport dupliqué l'est", () => {
+  it("un même lien dans a_lire et sources n'est pas un doublon ; un apport dupliqué entre listes AFFICHÉES l'est", () => {
     const lien = { titre: "Rudy Gobert élu défenseur de l'année pour la quatrième fois", url: "https://www.bebasket.fr/rudy-gobert-elu-defenseur", date: "mai 2024" };
     const propre = lintFiche({
       a_lire: { liens: [{ ...lien, apport: "le palmarès défensif complet et son contexte" }] },
       sources: { liens: [{ ...lien, apport: "récit du quatrième trophée et réactions du vestiaire" }] },
     });
     expect(propre.doublons).toEqual([]);
+    // Correctif du 04/08 : sources est hors détection, le doublon ne se mesure
+    // plus qu'entre les listes affichées (a_lire legacy, revue_de_presse).
     const apportDuplique = "la même phrase d'apport recopiée mot pour mot entre la liste curée et la liste exhaustive des sources";
     const sale = lintFiche({
       a_lire: { liens: [{ ...lien, apport: apportDuplique }] },
-      sources: { liens: [{ ...lien, apport: apportDuplique }] },
+      revue_de_presse: { a_lire: [{ ...lien, apport: apportDuplique }] },
     });
     expect(sale.doublons.length).toBe(1);
+  });
+
+  it("correctif du 04/08 (cas Chiche) : un doublon impliquant sources ne compte plus, le même entre sections de contenu compte", () => {
+    const passage = "dont l'article 40 sur le dossier coffre et l'article 56 sur la visioconférence des détenus particulièrement signalés";
+    const avecSources = lintFiche({
+      data: { marche: { texte: `Le cadre légal, ${passage}, borne le marché.` } },
+      sources: { liens: [{ titre: "t", url: "https://x", citation: passage }] },
+    });
+    expect(avecSources.doublons).toEqual([]);
+    expect(avecSources.bloquants).toBe(0);
+    const entreContenus = lintFiche({
+      data: { marche: { texte: `Le cadre légal, ${passage}, borne le marché.` } },
+      topics: { topics: [{ titre: "t", intention: passage, questions: [] }] },
+    });
+    expect(entreContenus.doublons.length).toBe(1);
+    expect(entreContenus.bloquants).toBe(1);
   });
 
   it("un pointeur ZG qui cite le chiffre interdit ne compte pas comme répétition", () => {

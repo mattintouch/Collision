@@ -77,6 +77,15 @@ function textesDe(content: Content, prefix = ""): { chemin: string; texte: strin
 const SECTIONS_LIENS = new Set(["a_lire", "sources", "revue_de_presse"]);
 const CHAMPS_LIENS_IGNORES = /(^|\.)(titre|url|date|temps_lecture|niveau|label)($|\[)/;
 
+/** Correctif du 04/08 (backlog b346c4cb) : sources sort ENTIÈREMENT de la
+ *  détection de doublons. La passe de rédaction n'a pas le droit de réécrire
+ *  cette section, l'interface ne l'affiche plus (archive exhaustive en base) :
+ *  un doublon entre une section de contenu et sources est irrésorbable par la
+ *  boucle et gonflait le compteur de bloquants à tort (cas Raphaël Chiche,
+ *  doublons data/sources et personnel/sources). Les chiffres de sources
+ *  restaient déjà hors comptage (SECTIONS_SANS_COMPTAGE_CHIFFRES). */
+const SECTIONS_HORS_DOUBLONS = new Set(["sources"]);
+
 /** Un pointeur de zone grise (« ZG: gautier, ne pas dire 250 k€ ») cite le
  *  chiffre interdit PAR CONSTRUCTION : ses valeurs ne comptent pas comme
  *  répétition. */
@@ -213,7 +222,7 @@ export function lintFiche(sections: Record<string, Content>): LintRapport {
         meta_narratif.push({ section: sectionId, extrait: texte.slice(0, 120) });
       }
       const lienIgnore = SECTIONS_LIENS.has(sectionId) && CHAMPS_LIENS_IGNORES.test(chemin);
-      if (!lienIgnore) motsSection.push(...normalise(texte).split(" ").filter(Boolean));
+      if (!lienIgnore && !SECTIONS_HORS_DOUBLONS.has(sectionId)) motsSection.push(...normalise(texte).split(" ").filter(Boolean));
       if (!cheminExcluChiffres(sectionId, chemin) && !estPointeurZg(texte)) {
         for (const valeur of chiffresRemarquables(texte)) {
           const cle = valeur.replace(/\s/g, "");
