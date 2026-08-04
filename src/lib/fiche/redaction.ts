@@ -21,7 +21,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractJson, type WebSearchUsage } from "../ai/websearch";
 import { hasAnthropicKey } from "../copilot/config";
 import { isEmptyContent, BUDGETS_V3 } from "./schema";
-import { lintFiche, type LintRapport } from "./lint";
+import { lintFiche, doublonsQuestions, type LintRapport } from "./lint";
 import { writeSection, type FicheRow } from "./store";
 import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
@@ -81,6 +81,10 @@ export interface RapportRedaction {
   balisage_nettoye?: string[];
   /** Correctif anti-répétition (règle 3) : méta narratif retiré du contenu. */
   meta_narratif_nettoye?: string[];
+  /** Correctif du 04/08 (backlog 64595940) : questions en double retirées par
+   *  le garde-fou code APRÈS la passe, sans remplacement (fin du jeu de
+   *  taupes apprentissages contre topics). */
+  questions_resorbees?: string[];
   /** Règle 5 : verdict du lint APRÈS la passe (doublons, chiffres répétés et
    *  questions en double résiduels = bloquants restants ; zéro attendu sur une
    *  fiche fraîche). */
@@ -107,7 +111,7 @@ export function consignesLint(lint: LintRapport): string {
     morceaux.push(`MÉTA NARRATIF À RETIRER :\n${lint.meta_narratif.slice(0, 10).map((m) => `- ${m.section} : « ${m.extrait} »`).join("\n")}`);
   }
   if (lint.questions_doublons.length) {
-    morceaux.push(`QUESTIONS EN DOUBLE (une question ne vit qu'à UN endroit ; garder la version la mieux placée, retirer les autres de topics ou d'apprentissages, JAMAIS des clips qui ne sont pas modifiables ; remplacer chaque question retirée par une question neuve plus profonde) :\n${lint.questions_doublons
+    morceaux.push(`QUESTIONS EN DOUBLE (une question ne vit qu'à UN endroit ; garder la version la mieux placée, retirer les autres de topics ou d'apprentissages, JAMAIS des clips qui ne sont pas modifiables ; ne PAS remplacer la question retirée, le retrait suffit) :\n${lint.questions_doublons
       .slice(0, 10)
       .map((q) => `- « ${q.question.slice(0, 90)} » présente dans : ${q.endroits.join(", ")}`)
       .join("\n")}`);
@@ -148,7 +152,7 @@ const SYSTEM = [
   ].join("\n"),
   [
     "SECTION TL;DR : écris ou réécris la section tldr, le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL). Neuf labels DANS CET ORDRE : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. Une idée par ligne, phrases courtes. C'est une SYNTHÈSE de la fiche consolidée : chaque ligne s'appuie sur un fait présent ailleurs, rien de neuf. La leçon transférable vit dans apprentissages, pas ici. Format : {\"items\": [{\"label\": \"Qui\", \"texte\": \"...\"}]}.",
-    "CONTRÔLE DES QUESTIONS : une question ne vit qu'à UN endroit de la fiche (topics, clips, terrain connu, apprentissages). En cas de doublon ou de paraphrase, garde la version la mieux placée et retire l'autre de topics ou d'apprentissages (les clips ne sont PAS modifiables) ; remplace chaque question retirée par une question NEUVE plus profonde. Signale chaque résorption dans dedoublonnages. Les questions cœur des topics restent NUMÉROTÉES EN CONTINU (01, 02...) après tes retouches : renumérote si nécessaire.",
+    "CONTRÔLE DES QUESTIONS : une question ne vit qu'à UN endroit de la fiche (topics, clips, terrain connu, apprentissages). En cas de doublon ou de paraphrase, garde la version la mieux placée et retire l'autre de topics ou d'apprentissages (les clips ne sont PAS modifiables), SANS la remplacer : un retrait pour doublon ne crée JAMAIS de question de remplacement, un item d'apprentissage garde connu et manque et perd simplement sa question. Avant d'émettre une question NEUVE, quelle qu'en soit la raison, vérifie la contre TOUTES les questions existantes de la fiche (clips, topics, terrain connu, apprentissages) : en cas de recouvrement, ne l'émets pas. Signale chaque résorption dans dedoublonnages. Les questions cœur des topics restent NUMÉROTÉES EN CONTINU (01, 02...) après tes retouches : renumérote si nécessaire.",
     "PROFONDEUR DES QUESTIONS : chaque question en comment des topics exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à exiger). Une question dont la réponse attendue tiendrait dans un article publié est FAIBLE : reformule la jusqu'à extraire un apprentissage que seul l'invité peut donner. Toute réponse philosophique attendue = prévoir la relance mécanisme + date en note.",
     "GATE TIMES : les topics portent debut_min et fin_min sur un épisode d'environ 150 minutes ; vérifie qu'ils se suivent sans trou ni chevauchement grossier, corrige à la marge sans réinventer le découpage.",
   ].join("\n"),
@@ -246,6 +250,101 @@ export function appliquerRedaction(
   return admis;
 }
 
+// Correctif du 04/08 (backlog 64595940) : fin du jeu de taupes des questions.
+// La consigne « remplace chaque question retirée par une question neuve »
+// faisait renaître un doublon au tour suivant (la question neuve créée dans
+// apprentissages entrait en collision avec une question de topics). Le prompt
+// interdit désormais le remplacement, et ce garde-fou CODE contrôle la sortie
+// de la passe : toute question encore en double dans l'état final est retirée
+// des sections réécrites, sans remplacement. Le survivant suit la propriété :
+// clips, terrain connu et sections non réécrites d'abord (intouchables), puis
+// les questions cœur de topics, les questions d'apprentissages en dernier.
+
+type EndroitQuestion =
+  | { type: "apprentissage"; i: number }
+  | { type: "topic_question"; i: number; j: number }
+  | { type: "intouchable" };
+
+function parseEndroitQuestion(e: string): EndroitQuestion {
+  let m = /^apprentissages\[(\d+)\]$/.exec(e);
+  if (m) return { type: "apprentissage", i: Number(m[1]) };
+  m = /^topics\[(\d+)\]\.questions\[(\d+)\]$/.exec(e);
+  if (m) return { type: "topic_question", i: Number(m[1]), j: Number(m[2]) };
+  return { type: "intouchable" };
+}
+
+const RANG_SURVIE: Record<EndroitQuestion["type"], number> = {
+  intouchable: 0,
+  topic_question: 1,
+  apprentissage: 2,
+};
+
+/**
+ * Retire des sections RÉÉCRITES par la passe toute question encore en double
+ * dans l'état final de la fiche (PURE, testée). Une question d'apprentissage
+ * retirée laisse son item (connu, manque) sans champ question ; une question
+ * cœur retirée sort de la liste de son topic et la numérotation continue
+ * (01, 02...) est refaite. Les sections non réécrites ne bougent jamais.
+ */
+export function resorbeQuestionsSansRemplacement(
+  actuel: Record<string, Content>,
+  admis: Record<string, Content>
+): { admis: Record<string, Content>; resorbees: string[] } {
+  const resorbees: string[] = [];
+  if (!admis.apprentissages && !admis.topics) return { admis, resorbees };
+
+  const apres: Record<string, Content> = { ...actuel, ...admis };
+  const retraitsApprentissages = new Set<number>();
+  const retraitsTopics = new Set<string>();
+  for (const g of doublonsQuestions(apres)) {
+    const parsed = g.endroits.map((e) => ({ e, p: parseEndroitQuestion(e) }));
+    const survivant = [...parsed].sort((a, b) => RANG_SURVIE[a.p.type] - RANG_SURVIE[b.p.type])[0];
+    for (const { e, p } of parsed) {
+      if (e === survivant.e) continue;
+      if (p.type === "apprentissage" && admis.apprentissages) {
+        retraitsApprentissages.add(p.i);
+        resorbees.push(`« ${g.question.slice(0, 70)} » retirée de ${e} sans remplacement (gardée : ${survivant.e})`);
+      } else if (p.type === "topic_question" && admis.topics) {
+        retraitsTopics.add(`${p.i}:${p.j}`);
+        resorbees.push(`« ${g.question.slice(0, 70)} » retirée de ${e} sans remplacement (gardée : ${survivant.e})`);
+      }
+    }
+  }
+  if (!retraitsApprentissages.size && !retraitsTopics.size) return { admis, resorbees };
+
+  const out: Record<string, Content> = { ...admis };
+  const app = out.apprentissages;
+  if (retraitsApprentissages.size && app && Array.isArray(app.items)) {
+    out.apprentissages = {
+      ...app,
+      items: (app.items as unknown[]).map((item, i) => {
+        if (!retraitsApprentissages.has(i) || !item || typeof item !== "object") return item;
+        const { question: _question, ...reste } = item as Content;
+        return reste;
+      }),
+    };
+  }
+  const top = out.topics;
+  if (retraitsTopics.size && top && Array.isArray(top.topics)) {
+    let num = 0;
+    out.topics = {
+      ...top,
+      topics: (top.topics as unknown[]).map((topic, i) => {
+        if (!topic || typeof topic !== "object" || !Array.isArray((topic as Content).questions)) return topic;
+        const questions = ((topic as Content).questions as unknown[])
+          .filter((_, j) => !retraitsTopics.has(`${i}:${j}`))
+          .map((q) => {
+            num += 1;
+            if (!q || typeof q !== "object" || typeof (q as Content).num !== "string") return q;
+            return { ...(q as Content), num: String(num).padStart(2, "0") };
+          });
+        return { ...(topic as Content), questions };
+      }),
+    };
+  }
+  return { admis: out, resorbees };
+}
+
 interface SortieRedaction { sections?: Record<string, unknown>; rapport?: Partial<RapportRedaction> }
 
 /**
@@ -305,7 +404,10 @@ export async function processRedaction(
   }
   if (!sortie) throw new Error(`Rédaction sans JSON exploitable (stop: ${res.stop_reason ?? "?"}). Début : ${texteDe(res).slice(0, 260) || "(vide)"}`);
 
-  const admis = appliquerRedaction(actuel, sortie.sections);
+  const filtre = appliquerRedaction(actuel, sortie.sections);
+  // Fin du jeu de taupes (04/08) : les questions encore en double après la
+  // passe sont retirées des sections réécrites, sans remplacement.
+  const { admis, resorbees } = resorbeQuestionsSansRemplacement(actuel, filtre);
   const written: string[] = [];
   for (const [id, contenu] of Object.entries(admis)) {
     await writeSection(sb, fiche.id, id, contenu, REDACTION_AUTHOR);
@@ -325,6 +427,7 @@ export async function processRedaction(
     noms_unifies: Array.isArray(sortie.rapport?.noms_unifies) ? (sortie.rapport!.noms_unifies as RapportRedaction["noms_unifies"]).slice(0, 10) : [],
     balisage_nettoye: Array.isArray(sortie.rapport?.balisage_nettoye) ? (sortie.rapport!.balisage_nettoye as string[]).slice(0, 10) : [],
     meta_narratif_nettoye: Array.isArray(sortie.rapport?.meta_narratif_nettoye) ? (sortie.rapport!.meta_narratif_nettoye as string[]).slice(0, 10) : [],
+    questions_resorbees: resorbees.slice(0, 20),
     lint_residuel: {
       doublons: lintApres.doublons.slice(0, 10),
       chiffres_repetes: lintApres.chiffres_repetes.slice(0, 10),
