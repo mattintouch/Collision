@@ -9,6 +9,8 @@ const tabs = [
   { key: "board", label: "Board" },
   { key: "qualifier", label: "À qualifier" },
   { key: "episodes", label: "Épisodes" },
+  { key: "post-prod", label: "Post-prod" },
+  { key: "database", label: "Database" },
   { key: "veille", label: "Veille" },
   { key: "copilote", label: "Copilote" },
 ];

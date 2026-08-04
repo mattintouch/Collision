@@ -3,6 +3,7 @@
 
 import { createClient } from "./supabase/server";
 import { computeShowStats, type ShowStats } from "./stats";
+import { CHAMPS_PUBLICATION } from "./episodes/publication";
 import type {
   Appui,
   CibleEnrichie,
@@ -65,6 +66,83 @@ export async function getEpisodesForShow(showId: string): Promise<EpisodeListIte
     lieu: byCible.get(r.id)?.lieu ?? null,
     episode_id: byCible.get(r.id)?.id ?? null,
   }));
+}
+
+/** Un épisode de post-prod = l'épisode (domaine PUBLICATION complet, colonnes
+ *  0046) + l'identité de la cible (nom, organisation) qu'aucune colonne
+ *  episodes ne porte. `episode` garde toutes les colonnes CHAMPS_PUBLICATION
+ *  telles quelles : c'est l'objet passé sans transformation à
+ *  EpisodePublicationForm quand la fiche rédac s'ouvre en modale. */
+export interface PostProdEpisode {
+  id: string; // episodes.id — clé de la fiche rédac
+  cible_id: string;
+  cible_nom: string;
+  cible_organisation: string | null;
+  episode: Record<string, unknown> & { id: string; nom: string; published_locked_at: string | null };
+}
+
+/** Épisodes en post-prod : la jointure cible (identité) + episodes (domaine
+ *  PUBLICATION réel, colonnes 0046) pour le board Post-Prod et la fiche Rédac
+ *  ouverte en modale sur la même page. Aucune donnée mockée : uniquement les
+ *  colonnes déjà rebranchées sur cibles_enrichies / episodes. */
+export async function getPostProdEpisodes(showId: string): Promise<PostProdEpisode[]> {
+  const supabase = createClient();
+  const { data: eps } = await supabase
+    .from("episodes")
+    .select(`id, cible_id, published_locked_at, ${CHAMPS_PUBLICATION.join(", ")}`)
+    .eq("show_id", showId)
+    .order("created_at", { ascending: false });
+  const rows = (eps ?? []) as unknown as (Record<string, unknown> & {
+    id: string;
+    cible_id: string;
+    published_locked_at: string | null;
+  })[];
+  if (rows.length === 0) return [];
+  const cibleIds = [...new Set(rows.map((r) => r.cible_id))];
+  const { data: cibles } = await supabase
+    .from("cibles_enrichies")
+    .select("id, nom, organisation")
+    .in("id", cibleIds);
+  const byCible = new Map(
+    (cibles ?? []).map((c: { id: string; nom: string; organisation: string | null }) => [c.id, c])
+  );
+  return rows.map((r) => {
+    const cible = byCible.get(r.cible_id);
+    return {
+      id: r.id,
+      cible_id: r.cible_id,
+      cible_nom: cible?.nom ?? "Cible inconnue",
+      cible_organisation: cible?.organisation ?? null,
+      episode: { ...r, nom: cible?.nom ?? "Cible inconnue" },
+    };
+  });
+}
+
+export interface EpisodePubliRef {
+  cible_id: string;
+  episode_id: string;
+  numero: number | null;
+  titre: string | null;
+  date_publication: string | null;
+}
+
+/** Version légère de la jointure episodes (numéro, titre, date de publication)
+ *  pour la colonne « Épisode/Publication » de la Database — un show entier en
+ *  une requête, pas une par cible. */
+export async function getEpisodesPubliRefsForShow(showId: string): Promise<EpisodePubliRef[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("episodes")
+    .select("id, cible_id, numero, titre, date_publication")
+    .eq("show_id", showId)
+    .order("created_at", { ascending: false });
+  const parCible = new Map<string, EpisodePubliRef>();
+  for (const e of (data ?? []) as { id: string; cible_id: string; numero: number | null; titre: string | null; date_publication: string | null }[]) {
+    if (!parCible.has(e.cible_id)) {
+      parCible.set(e.cible_id, { cible_id: e.cible_id, episode_id: e.id, numero: e.numero, titre: e.titre, date_publication: e.date_publication });
+    }
+  }
+  return [...parCible.values()];
 }
 
 /** Watchlists disponibles (vocabulaire de curation). */

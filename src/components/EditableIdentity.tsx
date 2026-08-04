@@ -68,7 +68,7 @@ export function EditableIdentity({
 
   return (
     <div className="group">
-      <h1 className="shimmer font-display text-3xl font-semibold tracking-tight">{nom}</h1>
+      <h1 className="font-display text-3xl font-semibold tracking-tight text-blanc">{nom}</h1>
       <p className="mt-1 text-sm text-blanc-muted">
         {subtitle || "—"}
         <button

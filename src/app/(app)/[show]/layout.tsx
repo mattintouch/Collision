@@ -17,7 +17,7 @@ export default async function ShowLayout({
   if (!show) notFound();
   const email = auth.data.user?.email ?? "";
 
-  const accent = show.couleur ?? "#8A6E10";
+  const accent = show.couleur ?? "#9A7418";
 
   return (
     <div className="min-h-screen">
@@ -25,7 +25,7 @@ export default async function ShowLayout({
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
             <span className="logo-dot inline-block h-3 w-3 rotate-45 rounded-[3px]" />
-            <span className="shimmer font-display text-lg font-semibold tracking-tight">
+            <span className="font-display text-lg font-semibold tracking-tight text-blanc">
               Magellan
             </span>
           </Link>

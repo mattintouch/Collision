@@ -152,7 +152,7 @@ export default async function CiblePage({
         <div className="space-y-5 lg:col-span-2">
           {/* Relance avec raison (§13.6) */}
           <section className="card p-5">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+            <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
               Relance
             </h2>
             {r.raison ? (
@@ -188,7 +188,7 @@ export default async function CiblePage({
 
           {/* Capture (§13.5) */}
           <section className="card p-5">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+            <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
               Capturer une touche
             </h2>
             <p className="mb-3 mt-1 text-xs text-blanc-muted">
@@ -200,7 +200,7 @@ export default async function CiblePage({
 
           {/* Journal (§13.5) */}
           <section className="card p-5">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+            <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
               Journal ({touches.length})
             </h2>
             <div className="mt-3 space-y-3">
@@ -238,7 +238,7 @@ export default async function CiblePage({
 
           {isEntreprise && (
             <section className="card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+              <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
                 Sélection & recherche
               </h2>
               <p className="mt-2 text-xs font-medium text-blanc-muted">Raison de sélection</p>
@@ -266,7 +266,7 @@ export default async function CiblePage({
 
           {/* Appuis (§13.4) */}
           <section className="card p-5">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+            <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
               Appuis ({appuis.length})
             </h2>
             <div className="mt-3 space-y-3">
@@ -314,7 +314,7 @@ export default async function CiblePage({
 
           {/* Signaux */}
           <section className="card p-5">
-            <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+            <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
               Signaux ({signals.length})
             </h2>
             <div className="mt-3 space-y-3">
@@ -336,7 +336,7 @@ export default async function CiblePage({
 
           {cible.sujets.length > 0 && (
             <section className="card p-5">
-              <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+              <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
                 Sujets
               </h2>
               <div className="mt-3 flex flex-wrap gap-1.5">

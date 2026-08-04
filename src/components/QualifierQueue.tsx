@@ -137,7 +137,7 @@ export function QualifierQueue({ show, cibles, genres }: { show: Show; cibles: C
               Archiver
             </button>
             <div className="flex w-full flex-wrap items-center gap-2 border-t border-noir-600 pt-2">
-              <span className="text-[11px] uppercase tracking-wide text-blanc-muted">Référence</span>
+              <span className="text-[11px] tracking-normal text-blanc-muted">Référence</span>
               <select
                 value={r?.genre !== undefined ? r.genre ?? "" : c.genre ?? ""}
                 onChange={(e) => majRef(c.id, { genre: e.target.value || null })}

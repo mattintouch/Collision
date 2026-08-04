@@ -98,7 +98,7 @@ export function BoardDnd({
     }
     if (groupBy === "watchlist") {
       const keys = Array.from(new Set(cibles.flatMap((c) => c.watchlist_keys ?? []))).sort();
-      const cols: Column[] = keys.map((k) => ({ key: k, title: k.toUpperCase(), match: (c) => (c.watchlist_keys ?? []).includes(k) }));
+      const cols: Column[] = keys.map((k) => ({ key: k, title: k, match: (c) => (c.watchlist_keys ?? []).includes(k) }));
       cols.push({ key: "__none", title: "Sans tag", match: (c) => (c.watchlist_keys ?? []).length === 0 });
       return cols;
     }
@@ -301,7 +301,7 @@ export function BoardDnd({
             onClick={() => toggleWl(k)}
             className={clsx("chip", wlFilter.has(k) ? "border-transparent bg-jaune text-noir-900" : "border-jaune/40 text-jaune hover:bg-jaune/10")}
           >
-            {k.toUpperCase()}
+            {k}
           </button>
         ))}
         <button
@@ -320,7 +320,7 @@ export function BoardDnd({
 
       {/* Barre d'actions groupées */}
       {selected.size > 0 && (
-        <div className="sticky top-16 z-30 mb-4 flex flex-wrap items-center gap-2 rounded-card border border-jaune/40 bg-noir-800 px-3 py-2">
+        <div className="sticky top-16 z-30 mb-4 flex flex-wrap items-center gap-2 rounded-card border border-jaune/40 bg-noir-800 px-3 py-2 shadow-card">
           <span className="text-sm font-medium">{selected.size} sélectionnée{selected.size > 1 ? "s" : ""}</span>
           <button onClick={() => runArchive(selIds)} disabled={pending} className="btn-ghost px-2 py-1 text-sm">
             Archiver
@@ -408,7 +408,7 @@ export function BoardDnd({
 
       {/* Annuler le dernier archivage de masse (visible même sans sélection). */}
       {selected.size === 0 && lastArchived.length > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-card border border-noir-600 bg-noir-800 px-3 py-2 text-sm">
+        <div className="mb-4 flex items-center gap-3 rounded-card border border-noir-600 bg-noir-800 px-3 py-2 text-sm shadow-card">
           <span className="text-blanc-muted">{lastArchived.length} fiche(s) archivée(s).</span>
           <button onClick={undoArchive} disabled={pending} className="btn-ghost px-2 py-1 text-sm text-jaune">
             Annuler l&apos;archivage
@@ -447,7 +447,7 @@ export function BoardDnd({
                     </button>
                   )}
                   <div>
-                    <h2 className="font-display text-sm font-semibold uppercase tracking-wide">{col.title}</h2>
+                    <h2 className="font-display text-sm font-semibold tracking-normal">{col.title}</h2>
                     {col.hint && <p className="text-xs text-blanc-muted">{col.hint}</p>}
                   </div>
                   {canReorder && (
@@ -558,7 +558,7 @@ function CardMenu({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={(e) => { e.preventDefault(); setOpen(false); }} />
-          <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-lg border border-noir-600 bg-noir-800 text-sm shadow-xl">
+          <div className="absolute right-0 z-20 mt-1 w-48 overflow-hidden rounded-control border border-noir-600 bg-noir-800 text-sm shadow-raised">
             <div className="px-3 pt-2 label" style={{ fontSize: "10px" }}>Priorité</div>
             <div className="flex gap-1 px-3 pb-2 pt-1">
               {[1, 2, 3, 4, 5].map((n) => (

@@ -121,9 +121,9 @@ export const CONSEIL_LABELS: Record<Resurgence["conseil"], string> = {
 };
 
 export const SHOW_ACCENTS: Record<string, string> = {
-  gdiy: "#1FB46A",
-  ccg: "#3B82F6",
-  fleurons: "#B45CFF",
+  gdiy: "#29B37C",
+  ccg: "#4B8EF7",
+  fleurons: "#A879F0",
 };
 
 // ── Audit live 28/06 ────────────────────────────────────────────────────────

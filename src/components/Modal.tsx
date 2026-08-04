@@ -7,11 +7,13 @@ export function Modal({
   onClose,
   title,
   children,
+  maxWidthClassName = "max-w-lg",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  maxWidthClassName?: string;
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -29,7 +31,7 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className="card mt-12 w-full max-w-lg p-6"
+        className={`card mt-12 w-full p-6 ${maxWidthClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

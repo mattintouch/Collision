@@ -1,21 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Source_Sans_3, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 
-// Couche GDIY (03/08) : Source Sans 3 (UI + corps) + IBM Plex Mono
-// (micro-labels, compteurs, dates), alignées sur les fiches.
-const sans = Source_Sans_3({
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  variable: "--font-sans",
-  display: "swap",
-});
-const mono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-mono",
-  display: "swap",
-});
+// Couche soft (04/08) : police système (SF/Segoe UI/Roboto), --font-sans et
+// --font-mono déclarées dans globals.css. Plus de webfont pour l'interface.
 
 export const metadata: Metadata = {
   title: "Magellan — Collision",
@@ -30,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#FBFAF7",
+  themeColor: "#F7F7F5",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -42,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="fr">
       <body>{children}</body>
     </html>
   );

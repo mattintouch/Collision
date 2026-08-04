@@ -1,7 +1,7 @@
 // /fiches : index des fiches de préparation. Invité, show, statut, date
 // d'enregistrement, commentaires ouverts, carnet disponible (A3.2 : même
 // requête que l'outil MCP list_fiches, via fichesOverview, pas de logique
-// parallèle). Même système visuel GDIY que la fiche.
+// parallèle). Même système visuel Magellan (soft, 04/08) que la fiche.
 
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase/service";
@@ -12,25 +12,30 @@ import { fichesOverview } from "@/lib/fiche/store";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
-const T_COND = "'Tungsten Condensed', 'Arial Narrow', sans-serif";
-const T_COMP = "'Tungsten Compressed', 'Tungsten Condensed', 'Arial Narrow', sans-serif";
+const MONO = "var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace";
+const SANS = "var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 
 const STATUT_LABEL: Record<string, string> = {
-  draft: "DRAFT",
-  en_challenge: "EN CHALLENGE",
-  finale: "FINALE",
-  verrouillee: "VERROUILLÉE",
+  draft: "Draft",
+  en_challenge: "En challenge",
+  finale: "Finale",
+  verrouillee: "Verrouillée",
 };
 
 function dateLabel(d: string | null): string {
-  if (!d) return "DATE À CALER";
+  if (!d) return "Date à caler";
   return new Date(d)
-    .toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Paris" })
-    .toUpperCase();
+    .toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "Europe/Paris" });
 }
 
-const chip: React.CSSProperties = { fontFamily: MONO, fontSize: 11, letterSpacing: "0.1em", padding: "5px 10px", flexShrink: 0 };
+const chip: React.CSSProperties = {
+  fontFamily: MONO,
+  fontSize: 12,
+  letterSpacing: "0em",
+  padding: "5px 12px",
+  borderRadius: 999,
+  flexShrink: 0,
+};
 
 export default async function FichesIndexPage() {
   const sb = createServiceClient();
@@ -58,38 +63,53 @@ export default async function FichesIndexPage() {
   }
 
   return (
-    <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px 96px 20px", minHeight: "100vh" }}>
+    <main style={{ maxWidth: 860, margin: "0 auto", padding: "0 20px 96px 20px", minHeight: "100vh", background: "#F7F7F5" }}>
       <header style={{ paddingTop: 40 }}>
-        <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0.16em", color: "#6B6B65" }}>PRÉPARATION D&apos;ÉPISODES</div>
-        <h1 style={{ fontFamily: T_COMP, fontWeight: 700, fontSize: "clamp(64px, 12vw, 120px)", lineHeight: 0.85, textTransform: "uppercase", margin: "14px 0 0 0" }}>Fiches</h1>
+        <div style={{ fontFamily: MONO, fontSize: 12, letterSpacing: "0em", color: "#6B6862" }}>Préparation d&apos;épisodes</div>
+        <h1 style={{ fontFamily: SANS, fontWeight: 600, fontSize: "clamp(32px, 5vw, 40px)", lineHeight: 1.15, letterSpacing: "-0.021em", color: "#37352F", margin: "8px 0 0 0" }}>Fiches</h1>
       </header>
 
-      <div style={{ display: "flex", flexDirection: "column", marginTop: 32, borderTop: "2px solid #000" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 32 }}>
         {rows.length === 0 && (
-          <p style={{ fontSize: 15, color: "#6B6B65", padding: "18px 0" }}>
+          <p style={{ fontSize: 15, color: "#6B6862", padding: "18px 0" }}>
             Aucune fiche pour l&apos;instant. Créer une fiche : outil MCP create_fiche (show, cible).
           </p>
         )}
         {rows.map(({ fiche: f, show_slug, commentaires_ouverts, carnet_disponible }) => (
-          <Link key={f.id} href={`/fiches/${f.slug}`} style={{ display: "flex", alignItems: "baseline", gap: 16, padding: "16px 4px", borderBottom: "1px solid #D9D9D4", textDecoration: "none", flexWrap: "wrap" }}>
-            <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6B65", flexShrink: 0, width: 110 }}>{dateLabel(f.date_enregistrement)}</span>
-            <span style={{ fontFamily: T_COND, fontWeight: 700, fontSize: 30, lineHeight: 1, textTransform: "uppercase", flex: 1, minWidth: 200 }}>
+          <Link
+            key={f.id}
+            href={`/fiches/${f.slug}`}
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 16,
+              padding: "14px 18px",
+              borderRadius: 14,
+              border: "1px solid #E8E6E0",
+              background: "#FFFFFF",
+              boxShadow: "0 1px 2px rgba(55,53,47,.04), 0 1px 3px rgba(55,53,47,.06)",
+              textDecoration: "none",
+              flexWrap: "wrap",
+            }}
+          >
+            <span style={{ fontFamily: MONO, fontSize: 12, color: "#6B6862", flexShrink: 0, width: 110 }}>{dateLabel(f.date_enregistrement)}</span>
+            <span style={{ fontFamily: SANS, fontWeight: 600, fontSize: 18, lineHeight: 1.3, color: "#37352F", flex: 1, minWidth: 200 }}>
               {f.invite_nom}
-              {show_slug && <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 400, letterSpacing: "0.1em", color: "#6B6B65", marginLeft: 10 }}>{show_slug.toUpperCase()}</span>}
+              {show_slug && <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 400, color: "#9B978E", marginLeft: 10 }}>{show_slug}</span>}
             </span>
             {carnet_disponible && (
-              <span style={{ ...chip, border: "1px solid #E63946", color: "#E63946" }}>CARNET</span>
+              <span style={{ ...chip, border: "1px solid #E0525F", color: "#E0525F" }}>Carnet</span>
             )}
             {commentaires_ouverts > 0 && (
-              <span style={{ ...chip, border: "1px solid #6B6B65", color: "#464641" }}>{commentaires_ouverts} COMM.</span>
+              <span style={{ ...chip, border: "1px solid #DCD9D1", color: "#6B6862" }}>{commentaires_ouverts} comm.</span>
             )}
             {incompletes.has(f.id) && (
-              <span style={{ ...chip, background: "#E63946", color: "#FFF" }}>INCOMPLÈTE</span>
+              <span style={{ ...chip, background: "#E0525F", color: "#FFF" }}>Incomplète</span>
             )}
-            <span style={{ ...chip, ...(f.statut === "verrouillee" || f.statut === "finale" ? { background: "#000", color: "#FFF" } : { border: "1px solid #000" }) }}>
-              {STATUT_LABEL[f.statut] ?? f.statut.toUpperCase()}
+            <span style={{ ...chip, ...(f.statut === "verrouillee" || f.statut === "finale" ? { background: "#37352F", color: "#FFF" } : { border: "1px solid #DCD9D1", color: "#6B6862" }) }}>
+              {STATUT_LABEL[f.statut] ?? f.statut}
             </span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: "#6B6B65", flexShrink: 0 }}>V{f.version}</span>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: "#9B978E", flexShrink: 0 }}>v{f.version}</span>
           </Link>
         ))}
       </div>

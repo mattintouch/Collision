@@ -1,10 +1,9 @@
-/* Système GDIY v3.1 (handoff design du 03/08) : Tungsten pour les titres,
-   Source Sans 3 pour la lecture, IBM Plex Mono pour les labels, palette
-   papier/encre. Portée limitée au segment /fiches. Hi-fi : couleurs,
-   typographie, espacements et états sont définitifs. Aucun border-radius
-   (sauf le point REC). */
-
-@import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+/* Système soft (04/08, remplace le papier/encre du 03/08) : police système
+   pour les titres et la lecture, mono système pour les timings/nombres/zg_,
+   palette warm grey / ambre. Portée limitée au segment /fiches. Tout est
+   arrondi (voir tailwind rounded-card/control/chip), chaque carte porte une
+   ombre légère. Tungsten reste disponible (voir @font-face ci-dessous) pour
+   un usage artwork GDIY hors chrome d'interface — non utilisé ici. */
 
 @font-face {
   font-family: "Tungsten Condensed";
@@ -25,27 +24,27 @@
   font-display: swap;
 }
 
-/* Tokens du handoff (référence : README du bundle design). */
+/* Tokens de la couche soft (référence : README du design system). */
 .gdiy {
-  --paper: #fbfaf7;
-  --ink: #141414;
-  --ink-invert: #f5f2ec;
-  --sub: #8a857d;
-  --sub-strong: #5c5850;
-  --hairline: #e8e5df;
-  --hairline-soft: #f0ede7;
-  --muted-bar: #c9c4bb;
-  --jaune: #f4c435;
-  --rouge: #e63946;
-  --live-bg: #0f0f0e;
-  --live-card: #141414;
-  --live-hairline: #26241f;
-  --live-sub: #99948c;
-  --live-note: #b8b2a8;
-  --zg-text: #8a6e10;
-  --current-topic: #f7f3e6;
+  --paper: #f7f7f5;
+  --ink: #37352f;
+  --ink-invert: #ffffff;
+  --sub: #9b978e;
+  --sub-strong: #6b6862;
+  --hairline: #e8e6e0;
+  --hairline-soft: #f0efea;
+  --muted-bar: #ded9d0;
+  --jaune: #f2c14e;
+  --rouge: #e0525f;
+  --live-bg: #1c1b19;
+  --live-card: #262421;
+  --live-hairline: #3a3833;
+  --live-sub: #a8a29a;
+  --live-note: #c9c4bb;
+  --zg-text: #9a7418;
+  --current-topic: #fbf6e9;
 
-  font-family: "Source Sans 3", system-ui, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
@@ -81,8 +80,8 @@ html { scroll-behavior: smooth; }
 /* Tâche 8 (handoff 24/07) : clignotement du bouton RÉGIE quand des messages
    non lus attendent et que la régie est fermée. */
 @keyframes gdiy-blink {
-  0%, 49% { background: #E63946; color: #fff; }
-  50%, 100% { background: #141414; color: #fff; }
+  0%, 49% { background: #E0525F; color: #fff; }
+  50%, 100% { background: #37352F; color: #fff; }
 }
 
 /* Alerte de saisie (C2 du 27/07) : bandeau de la régie quand un autre

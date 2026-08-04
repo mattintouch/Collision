@@ -68,7 +68,7 @@ export function RecordingActions({
 
   return (
     <section className="card p-5">
-      <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+      <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
         Enregistrement
       </h2>
 

@@ -39,7 +39,7 @@ export function SettingsForm({
   return (
     <div className="space-y-6">
       <section className="card p-5">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+        <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
           Compte
         </h2>
         <p className="mt-2 text-sm">{email}</p>
@@ -47,7 +47,7 @@ export function SettingsForm({
       </section>
 
       <section className="card p-5">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+        <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
           Show par défaut
         </h2>
         <p className="mb-3 mt-1 text-xs text-blanc-muted">
@@ -73,7 +73,7 @@ export function SettingsForm({
       </section>
 
       <section className="card p-5">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+        <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
           Session
         </h2>
         <button onClick={signOut} className="btn-ghost mt-3">

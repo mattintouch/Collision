@@ -92,7 +92,7 @@ export function ContactsSection({
   return (
     <section className="card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-display text-sm font-semibold uppercase tracking-wide text-blanc-muted">
+        <h2 className="font-display text-sm font-semibold tracking-normal text-blanc-muted">
           Contacts ({contacts.length})
         </h2>
         <div className="flex gap-1">

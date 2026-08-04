@@ -283,7 +283,7 @@ export function EpisodePublicationForm({
           onClick={enregistrer}
           disabled={pending || lectureSeule}
           className="rounded-xl px-5 py-2.5 text-sm font-semibold text-noir-900"
-          style={{ background: "var(--accent-gradient, #1FB46A)" }}
+          style={{ background: "var(--accent-gradient, #F2C14E)" }}
         >
           {pending ? "Enregistrement..." : lectureSeule ? "Lecture seule (verrouillé)" : "Enregistrer la publication"}
         </button>

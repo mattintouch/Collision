@@ -9,27 +9,27 @@ import {
 } from "@/lib/domain";
 
 const ADVICE: Record<Resurgence["conseil"], { icon: string; cls: string; bg: string }> = {
-  relancer: { icon: "→", cls: "text-relancer", bg: "rgba(31,180,106,.12)" },
-  passer_par_appui: { icon: "↳", cls: "text-appui", bg: "rgba(29,111,216,.1)" },
-  attendre: { icon: "◷", cls: "text-blanc-muted", bg: "rgba(20,20,20,.04)" },
+  relancer: { icon: "→", cls: "text-relancer", bg: "rgba(31,157,107,.12)" },
+  passer_par_appui: { icon: "↳", cls: "text-appui", bg: "rgba(59,130,246,.1)" },
+  attendre: { icon: "◷", cls: "text-blanc-muted", bg: "rgba(55,53,47,.04)" },
 };
-const PRIO_DOT: Record<Priorite, string> = { haute: "#8A6E10", moyenne: "#5C5850", basse: "#8A857D" };
+const PRIO_DOT: Record<Priorite, string> = { haute: "#E2AD33", moyenne: "#6B6862", basse: "#9B978E" };
 
 // Badges du score (le « signal frais » est déjà rendu par le bloc dédié, on
 // l'omet ici pour ne pas doublonner).
 const BADGE_STYLE: Record<string, { color: string; border: string; bg: string }> = {
-  "fenêtre de relance": { color: "#1FB46A", border: "rgba(31,180,106,.35)", bg: "rgba(31,180,106,.1)" },
-  "risque d'abandon": { color: "#C2601E", border: "rgba(194,96,30,.45)", bg: "rgba(194,96,30,.1)" },
-  "relais actionnable": { color: "#1D6FD8", border: "rgba(29,111,216,.45)", bg: "rgba(29,111,216,.1)" },
-  "estival ☀": { color: "#8A6E10", border: "rgba(180,150,30,.5)", bg: "rgba(244,196,53,.22)" },
-  "à reporter (sept.)": { color: "#5C5850", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
-  "gagné": { color: "#5C5850", border: "rgba(154,160,172,.3)", bg: "rgba(154,160,172,.08)" },
+  "fenêtre de relance": { color: "#29B37C", border: "rgba(41,179,124,.35)", bg: "rgba(41,179,124,.1)" },
+  "risque d'abandon": { color: "#D0803F", border: "rgba(208,128,63,.45)", bg: "rgba(208,128,63,.1)" },
+  "relais actionnable": { color: "#3B82F6", border: "rgba(59,130,246,.45)", bg: "rgba(59,130,246,.1)" },
+  "estival ☀": { color: "#E2AD33", border: "rgba(226,173,51,.5)", bg: "rgba(242,193,78,.22)" },
+  "à reporter (sept.)": { color: "#6B6862", border: "rgba(155,151,142,.3)", bg: "rgba(155,151,142,.08)" },
+  "gagné": { color: "#6B6862", border: "rgba(155,151,142,.3)", bg: "rgba(155,151,142,.08)" },
 };
 
 function scoreColor(s: number): string {
-  if (s >= 60) return "#8A6E10";
-  if (s >= 40) return "#5C5850";
-  return "#8A857D";
+  if (s >= 60) return "#E2AD33";
+  if (s >= 40) return "#6B6862";
+  return "#9B978E";
 }
 
 // A3.3 : stades « programmé ou au delà » — la carte affiche le lien direct vers
@@ -56,7 +56,7 @@ export function TargetCard({
     ? [cible.secteur, cible.pays].filter(Boolean).join(" · ")
     : [cible.role, cible.organisation].filter(Boolean).join(" · ");
   const froid = cible.voie === "froid";
-  const voieColor = froid ? "#1D6FD8" : "#C2601E";
+  const voieColor = froid ? "#3B82F6" : "#D0803F";
   const advice = ADVICE[r.conseil];
   const shownBadges = (badges ?? []).filter((b) => b !== "signal frais" && BADGE_STYLE[b]);
 
@@ -75,7 +75,7 @@ export function TargetCard({
               />
             )}
             <div className="min-w-0">
-              <h3 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{cible.nom}</h3>
+              <h3 className="truncate text-[15px] font-semibold tracking-[-0.014em]">{cible.nom}</h3>
               {subtitle && <p className="truncate text-[12.5px] text-blanc-muted">{subtitle}</p>}
             </div>
           </div>
@@ -83,15 +83,15 @@ export function TargetCard({
             className="chip mono shrink-0"
             style={{
               color: voieColor,
-              borderColor: froid ? "rgba(29,111,216,.4)" : "rgba(194,96,30,.4)",
-              background: froid ? "rgba(29,111,216,.08)" : "rgba(194,96,30,.08)",
+              borderColor: froid ? "rgba(59,130,246,.4)" : "rgba(208,128,63,.4)",
+              background: froid ? "rgba(59,130,246,.08)" : "rgba(208,128,63,.08)",
               fontSize: "9.5px",
               fontWeight: 600,
-              letterSpacing: ".1em",
+              letterSpacing: ".02em",
             }}
           >
             <span className="inline-block h-[5px] w-[5px] rounded-full" style={{ background: voieColor }} />
-            {VOIE_LABELS[cible.voie].toUpperCase()}
+            {VOIE_LABELS[cible.voie]}
           </span>
         </div>
 
@@ -99,22 +99,22 @@ export function TargetCard({
         <div className="meta flex flex-wrap items-center gap-x-[13px] gap-y-1">
           {score != null && (
             <span className="mono inline-flex items-center gap-1" style={{ color: scoreColor(score) }} title="Score d'actionnabilité">
-              <span style={{ fontSize: "8.5px", letterSpacing: ".12em", opacity: 0.7 }}>SCORE</span>
+              <span style={{ fontSize: "8.5px", letterSpacing: ".02em", opacity: 0.7 }}>Score</span>
               <span style={{ fontWeight: 700 }}>{score}</span>
             </span>
           )}
           {cible.note_priorite != null && (
-            <span style={{ color: "#8A6E10" }}>★ P{cible.note_priorite}</span>
+            <span style={{ color: "#E2AD33" }}>★ P{cible.note_priorite}</span>
           )}
           {cible.stage_label && <span>{cible.stage_label}</span>}
           {/* Statut de référence (0045) : affiché seulement quand il porte une
               valeur fine posée à la main, différente du libellé d'étape. */}
           {cible.statut_ref && cible.statut_ref !== cible.stage_label && (
-            <span style={{ color: "#1D6FD8" }}>{cible.statut_ref}</span>
+            <span style={{ color: "#3B82F6" }}>{cible.statut_ref}</span>
           )}
           {(cible.social_score ?? 0) > 0 && (
-            <span className="mono" title="Score social (schéma de référence)" style={{ color: "#5C5850" }}>
-              <span style={{ fontSize: "8.5px", letterSpacing: ".12em", opacity: 0.7 }}>SOCIAL </span>
+            <span className="mono" title="Score social (schéma de référence)" style={{ color: "#6B6862" }}>
+              <span style={{ fontSize: "8.5px", letterSpacing: ".02em", opacity: 0.7 }}>Social </span>
               <span style={{ fontWeight: 700 }}>{cible.social_score}</span>
             </span>
           )}
@@ -128,10 +128,10 @@ export function TargetCard({
                 window.location.assign(lienFiche);
               }}
               className="chip mono cursor-pointer"
-              style={{ color: "#1FB46A", borderColor: "rgba(31,180,106,.35)", background: "rgba(31,180,106,.1)", fontSize: "9.5px", fontWeight: 700, letterSpacing: ".08em" }}
+              style={{ color: "#29B37C", borderColor: "rgba(41,179,124,.35)", background: "rgba(41,179,124,.1)", fontSize: "9.5px", fontWeight: 700, letterSpacing: ".02em" }}
               title="Fiche de préparation"
             >
-              FICHE »
+              Fiche »
             </button>
           )}
           <span className="inline-flex items-center gap-1">
@@ -143,10 +143,10 @@ export function TargetCard({
             <span>{cible.nb_appuis} appui{cible.nb_appuis > 1 ? "s" : ""}</span>
           )}
           {(cible.watchlist_keys ?? []).map((w) => (
-            <span key={w} style={{ color: "#8A6E10" }}>{w.toUpperCase()}</span>
+            <span key={w} style={{ color: "#E2AD33" }}>{w}</span>
           ))}
-          {cible.premiere_neige && <span style={{ color: "#1D6FD8" }}>PREMIÈRE NEIGE</span>}
-          {cible.tag_investisseur && <span style={{ color: "#1FB46A" }}>INVESTISSEUR</span>}
+          {cible.premiere_neige && <span style={{ color: "#3B82F6" }}>Première neige</span>}
+          {cible.tag_investisseur && <span style={{ color: "#29B37C" }}>Investisseur</span>}
         </div>
 
         {/* Badges du score (fenêtre de relance, estival, relais…) */}
@@ -158,7 +158,7 @@ export function TargetCard({
                 <span
                   key={b}
                   className="chip mono"
-                  style={{ color: st.color, borderColor: st.border, background: st.bg, fontSize: "9px", fontWeight: 600, letterSpacing: ".04em" }}
+                  style={{ color: st.color, borderColor: st.border, background: st.bg, fontSize: "9px", fontWeight: 600, letterSpacing: ".02em" }}
                 >
                   {b}
                 </span>
@@ -173,8 +173,8 @@ export function TargetCard({
             className="relative rounded-[10px] p-[11px] pl-[14px]"
             style={
               cible.signal_frais
-                ? { background: "linear-gradient(90deg,rgba(244,196,53,.18),rgba(244,196,53,.04))", border: "1px solid rgba(180,150,30,.35)" }
-                : { background: "rgba(20,20,20,.03)", border: "1px solid var(--line)" }
+                ? { background: "linear-gradient(90deg,rgba(242,193,78,.18),rgba(242,193,78,.04))", border: "1px solid rgba(226,173,51,.35)" }
+                : { background: "rgba(55,53,47,.03)", border: "1px solid var(--line)" }
             }
           >
             {cible.signal_frais && (
@@ -182,11 +182,11 @@ export function TargetCard({
             )}
             <div
               className="label"
-              style={cible.signal_frais ? { color: "#8A6E10", fontSize: "9px", letterSpacing: ".16em" } : { color: "#8A857D", fontSize: "9px" }}
+              style={cible.signal_frais ? { color: "#E2AD33", fontSize: "9px" } : { color: "#9B978E", fontSize: "9px" }}
             >
               {cible.signal_frais ? "● Signal frais" : "Pourquoi maintenant"}
             </div>
-            <p className="mt-1 text-[13px] leading-[1.35]" style={{ color: cible.signal_frais ? "#141414" : "#464641" }}>
+            <p className="mt-1 text-[13px] leading-[1.35]" style={{ color: cible.signal_frais ? "#37352F" : "#6B6862" }}>
               {r.raison}
             </p>
             <span className={`mono mt-[9px] inline-flex items-center gap-1 rounded-[7px] px-[9px] py-[5px] text-[10.5px] font-medium ${advice.cls}`} style={{ background: advice.bg }}>
@@ -196,7 +196,7 @@ export function TargetCard({
         )}
 
         {/* 4 — Pied */}
-        <div className="meta flex items-center justify-between" style={{ color: "#8A857D" }}>
+        <div className="meta flex items-center justify-between" style={{ color: "#9B978E" }}>
           <span>
             {cible.jours_depuis_touche !== null ? `Dernière touche · ${cible.jours_depuis_touche} j` : "Jamais touché"}
           </span>
