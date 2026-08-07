@@ -1,7 +1,9 @@
 // Endpoint MCP RESTREINT pour le client de boucle Vadim (contrat VADIM-CONTRAT.md,
-// Option B). Il n'enregistre QUE les outils de la boucle (LOOP_TOOLS) : lectures
-// + log_touche + update_cible + add_appui. Les outils destructifs/admin sont
-// PHYSIQUEMENT absents de cet endpoint — frontière dure pour un client machine.
+// Option B). Il n'enregistre QUE les outils de LOOP_TOOLS, réduits le 04/08 aux
+// six utiles : find_cible et get_dossier en lecture, add_appui,
+// add_appui_contact, log_touche et feedback en écriture additive. Les outils
+// destructifs, admin, de parcours de masse et update_cible sont PHYSIQUEMENT
+// absents de cet endpoint, frontière dure pour un client machine.
 // Même auth OAuth que l'endpoint principal.
 import { createMcpHandler, experimental_withMcpAuth } from "mcp-handler";
 import { verifyToken } from "@/lib/mcp/oauth";
@@ -25,7 +27,7 @@ const authed = experimental_withMcpAuth(
     if (!bearer) return undefined;
     const claims = (await verifyToken(bearer)) as Record<string, unknown> | null;
     if (!claims || claims.typ !== "access") return undefined;
-    // Vadim écrit les 3 outils autorisés (tous non destructifs) : scope write.
+    // Vadim écrit les 4 outils autorisés (tous additifs) : scope write.
     // L'endpoint n'enregistre de toute façon aucun outil destructif (LOOP_TOOLS).
     return {
       token: bearer,

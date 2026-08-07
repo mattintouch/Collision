@@ -256,10 +256,16 @@ async function auditWrite(tool: string, actor: string, payload: unknown, ok: boo
 }
 
 /** Sous-ensemble d'outils exposé au client de boucle Vadim (endpoint /api/loop/mcp).
- *  Lecture + les 3 écritures du contrat, AUCUN outil destructif/admin. */
+ *  Décision Matthieu du 04/08 : réduction aux SIX outils utiles à la boucle.
+ *  Retirés de l'allowlist : list_shows, list_cibles et daily_five (parcours de
+ *  masse, remplacés par la résolution nominative de find_cible) et surtout
+ *  update_cible, seule écriture qui touchait le dossier lui-même. Ce qui reste :
+ *  deux lectures et quatre écritures additives (un appui, une coordonnée
+ *  d'appui, une touche, une demande produit). AUCUN outil destructif ni admin,
+ *  physiquement absents de cet endpoint. */
 export const LOOP_TOOLS = [
-  "list_shows", "list_cibles", "find_cible", "get_dossier", "daily_five",
-  "log_touche", "update_cible", "add_appui",
+  "find_cible", "get_dossier",
+  "add_appui", "add_appui_contact", "log_touche",
   // Chantier 1 : Vadim et l'équipe peuvent poser une demande produit.
   // Aucun autre droit d'écriture ajouté (garde-fou du brief §2.6).
   "feedback",
