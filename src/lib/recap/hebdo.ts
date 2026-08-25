@@ -34,6 +34,9 @@ export interface MouvementCible {
   statut: string;  // « enregistrement calé le 28 juillet » / « en progression » ...
   allies: string[];
   rang: 1 | 2 | 3; // 1 validés, 2 urgents en progression, 3 notables
+  /** Demande Matthieu du 25/08 : lien vers la fiche de préparation de
+   *  l'épisode, posé sur les invités confirmés (rang 1) quand elle existe. */
+  fiche_url?: string | null;
 }
 
 export interface EchecCause {
@@ -388,6 +391,16 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
   }
   const alliesDe = (cid: string) => dedoublonneAllies(alliesPar.get(cid) ?? []).slice(0, 4);
 
+  // Fiches de préparation des cibles concernées : le lien part dans la
+  // section A pour chaque invité confirmé (rang 1). Best-effort.
+  const fichePar = new Map<string, string>();
+  if (idsConcernes.length) {
+    try {
+      const { data: fs } = await sb.from("fiches").select("cible_id, slug").in("cible_id", idsConcernes);
+      for (const f of ((fs ?? []) as { cible_id: string; slug: string }[])) fichePar.set(f.cible_id, `${appUrl()}/fiches/${f.slug}`);
+    } catch { /* la section A vit sans les liens */ }
+  }
+
   const ETAPES_HAUTES = new Set(["confirme", "programme", "enregistre", "publie", "produit"]);
   let mouvements: MouvementCible[] = [];
   for (const [cid, f] of flags) {
@@ -407,7 +420,7 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
       etape = f.nouvelleEtape && c.stage_label ? `passée à ${c.stage_label.toLowerCase()}` : (c.stage_label ?? "en pipeline").toLowerCase();
       statut = f.appuiAjoute ? "allié ajouté cette semaine" : "en progression";
     }
-    mouvements.push({ nom: c.nom, organisation: c.organisation, etape, statut, allies: alliesDe(cid), rang });
+    mouvements.push({ nom: c.nom, organisation: c.organisation, etape, statut, allies: alliesDe(cid), rang, fiche_url: rang === 1 ? fichePar.get(cid) ?? null : null });
   }
 
   /* ── A2, sandbox, et candidats faibles requalifiés (2e) : un candidat sans
@@ -627,7 +640,7 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
   const a: string[] = [];
   for (const m of data.mouvements) {
     const allies = m.allies.length ? m.allies.map(esc).join(", ") : "aucun";
-    a.push(li(`<b>${esc(m.nom)}</b>${m.organisation ? ` (${esc(m.organisation)})` : ""}, ${esc(m.etape)}, ${esc(m.statut)}. Alliés : ${allies}.`));
+    a.push(li(`<b>${esc(m.nom)}</b>${m.organisation ? ` (${esc(m.organisation)})` : ""}, ${esc(m.etape)}, ${esc(m.statut)}. Alliés : ${allies}.${m.fiche_url ? ` <a href="${esc(m.fiche_url)}" style="color:#1D6FD8">Fiche de préparation</a>` : ""}`));
   }
   if (!a.length) a.push(li("Aucun mouvement prioritaire cette semaine."));
   const partieA = [

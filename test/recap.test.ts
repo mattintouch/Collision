@@ -9,7 +9,7 @@ import {
 const data: RecapData = {
   depuis: "2026-07-20T00:00:00Z",
   mouvements: [
-    { nom: "Fanny Jaulin", organisation: "Orakl Oncology", etape: "programmée", statut: "enregistrement calé le 28 juillet", allies: ["Louise Vidal", "Marc Petit"], rang: 1 },
+    { nom: "Fanny Jaulin", organisation: "Orakl Oncology", etape: "programmée", statut: "enregistrement calé le 28 juillet", allies: ["Louise Vidal", "Marc Petit"], rang: 1, fiche_url: "https://magellan.collision.studio/fiches/fanny-jaulin" },
     { nom: "Ariel Benzaquen", organisation: null, etape: "passée à contacté", statut: "allié ajouté cette semaine", allies: [], rang: 2 },
     { nom: "Zoé Nguyen", organisation: "Alan", etape: "qualifiée", statut: "mouvement cette semaine", allies: ["Paul Roux"], rang: 3 },
   ],
@@ -83,6 +83,14 @@ describe("récap hebdo v2 — A, mouvements prioritaires", () => {
     const zoe = html.indexOf("Zoé Nguyen");
     expect(fanny).toBeLessThan(ariel);
     expect(ariel).toBeLessThan(zoe);
+  });
+
+  it("un invité confirmé porte le lien vers sa fiche de préparation, les autres non", () => {
+    const { html } = buildRecapEmail(data);
+    expect(html).toContain('href="https://magellan.collision.studio/fiches/fanny-jaulin"');
+    expect(html).toContain(">Fiche de préparation</a>");
+    // Un seul lien de fiche : Ariel et Zoé n'en portent pas.
+    expect((html.match(/Fiche de préparation/g) ?? []).length).toBe(1);
   });
 
   it("section explicite quand aucun mouvement", () => {
