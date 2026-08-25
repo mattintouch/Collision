@@ -246,9 +246,10 @@ async function autoAttachAppuiContacts(
   return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
-/** Outils destructifs : exigent le scope admin (décision #6). set_role (P0 du
- *  25/08) est dans la liste : la gestion des rôles est une opération admin. */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock", "set_role"]);
+/** Outils destructifs : exigent le scope admin (décision #6). set_role et
+ *  fusionner_cibles (chantier doublons du 25/08) sont dans la liste : gestion
+ *  des rôles et fusion de fiches sont des opérations admin. */
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock", "set_role", "fusionner_cibles"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -2360,6 +2361,45 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       }
       const etat = await etatBudgetLecture(sb);
       return text({ ok: true, override: a.actif, mois: new Date().toISOString().slice(0, 7), depense_estimee_eur: etat.depense_eur === null ? null : Number(etat.depense_eur.toFixed(2)), plafond_eur: etat.plafond_eur });
+    }
+  );
+
+  // P1 bis du chantier doublons (25/08) : fusion de deux fiches en UNE
+  // transaction (fonction plpgsql fusionner_cibles, migration 0049). Même
+  // double verrou admin que set_role : scope W() plus claim role du jeton.
+  W(
+    "fusionner_cibles",
+    "FUSIONNE deux cibles doublonnées du même show (admin) : appuis, touches, coordonnées et folk_id rapatriés vers la survivante en une seule transaction, la survivante gagne sur les champs remplis des deux côtés, les valeurs identiques ne sont jamais dupliquées. L'absorbée est ARCHIVÉE avec une note pointant la survivante, jamais supprimée. Intentions : résorber un doublon détecté (create_cible doublon: true, scan du récap).",
+    {
+      show: z.string(),
+      survivante: z.string().describe("nom ou id de la cible qui reste"),
+      absorbee: z.string().describe("nom ou id de la cible fusionnée puis archivée"),
+    },
+    { destructiveHint: true, idempotentHint: false },
+    async (a, extra) => {
+      const roleAppelant = extra?.authInfo?.extra?.role ?? null;
+      if (roleAppelant !== "admin") {
+        return text({ error: "Cette opération demande le rôle admin, vérifié sur le jeton de l'appelant. Adresse-toi à Matthieu." });
+      }
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const surv = await resolveCible(sb, sid, a.survivante);
+      if (!surv) return text({ error: `Cible survivante « ${a.survivante} » introuvable ou ambiguë (donner l'id).` });
+      const abso = await resolveCible(sb, sid, a.absorbee);
+      if (!abso) return text({ error: `Cible absorbée « ${a.absorbee} » introuvable ou ambiguë (donner l'id).` });
+      if (surv.id === abso.id) return text({ error: "survivante et absorbée sont la même cible." });
+      const { data, error } = await sb.rpc("fusionner_cibles", { survivante: surv.id, absorbee: abso.id });
+      if (error) {
+        if (/fusionner_cibles/.test(error.message) && /function|schema/i.test(error.message)) {
+          return text({ error: "Fonction fusionner_cibles absente : appliquer la migration 0049, puis réessayer.", cause: "migration_0049_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      // Synchro Folk best-effort : la survivante a pu hériter d'un folk_id et
+      // de nouvelles coordonnées.
+      kickFolkSync(surv.id);
+      return text({ ok: true, rapport: data, survivante: { id: surv.id, nom: surv.nom }, absorbee: { id: abso.id, nom: abso.nom, statut: "archivée, note de renvoi posée" } });
     }
   );
 

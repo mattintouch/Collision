@@ -7,7 +7,7 @@ describe("LOOP_TOOLS (endpoint Vadim)", () => {
   const forbidden = [
     "delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "enrich_cible",
     "enrich_colonne", "validate_cible", "create_cible", "add_contact", "attach_resolved_contacts",
-    "update_appui", "set_episode_lock", "budget_override", "cancel_episode", "set_role",
+    "update_appui", "set_episode_lock", "budget_override", "cancel_episode", "set_role", "fusionner_cibles",
     // Réduction du 04/08 : parcours de masse et écriture sur le dossier lui-même.
     "list_shows", "list_cibles", "daily_five", "update_cible",
   ];
