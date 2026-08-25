@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildRecapEmail, normaliseCause, promptCorrection,
   nomsProches, dedoublonneAllies, retireCiblesDesAllies, statutValide, vaAuSandbox,
+  demandesSemaine, stockDemandes, ageJours,
   type RecapData, type MouvementCible,
 } from "../src/lib/recap/hebdo";
 
@@ -23,10 +24,18 @@ const data: RecapData = {
   cout: { semaine_eur: 2.92, mois_eur: 3.43, plafond_eur: 200 },
   prompt_correction: null,
   backlog: [
-    { id: "b1a2c3d4e5f6a7b8", auteur: "clemence@stefani.fr", contenu: "Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC", contexte: {} },
-    { id: "z9y8x7w6v5u4t3s2", auteur: "clemence@stefani.fr", contenu: "Ajouter un filtre par ville", contexte: {} },
+    { id: "b1a2c3d4e5f6a7b8", auteur: "clemence@stefani.fr", contenu: "Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC", contexte: {}, type: "feature", resume: "Afficher sur la régie les saisies faites sur la fiche pendant le REC, pour que les deux opérateurs se voient écrire.", created_at: "2026-07-22T09:00:00Z" },
+    { id: "z9y8x7w6v5u4t3s2", auteur: "clemence@stefani.fr", contenu: "Ajouter un filtre par ville", contexte: {}, type: "bug", resume: "Le filtre par ville manque au board.", created_at: "2026-07-01T09:00:00Z" },
   ],
-  mega_prompt: null,
+  livraisons: [
+    { resume: "La fiche de préparation se relit en un clin d'oeil : le brief d'attaque tient en 9 lignes en haut de fiche.", url: "https://github.com/mattintouch/Collision/pull/41" },
+    { resume: "Le récap du lundi devient plus court et actionnable.", url: null },
+  ],
+  livraisons_incompletes: false,
+  demandes_semaine: [
+    { id: "b1a2c3d4e5f6a7b8", auteur: "clemence@stefani.fr", contenu: "Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC", contexte: {}, type: "feature", resume: "Afficher sur la régie les saisies faites sur la fiche pendant le REC, pour que les deux opérateurs se voient écrire.", created_at: "2026-07-22T09:00:00Z" },
+  ],
+  stock: { total: 9, anciens: 3 },
 };
 
 /** Texte visible de l'email : blocs pre exclus (prompts, tirets autorisés),
@@ -36,15 +45,17 @@ function texteVisible(html: string): string {
 }
 
 describe("récap hebdo v2 — structure", () => {
-  it("produit exactement trois sections, A puis B puis C", () => {
+  it("v3 : produit exactement quatre sections, A puis B puis C puis D", () => {
     const { html } = buildRecapEmail(data);
-    expect((html.match(/<h2/g) ?? []).length).toBe(3);
+    expect((html.match(/<h2/g) ?? []).length).toBe(4);
     const a = html.indexOf("A. Ce qui a bougé");
     const b = html.indexOf("B. Échecs et coûts");
-    const c = html.indexOf("C. Demandes produit");
+    const c = html.indexOf("C. Magellan cette semaine");
+    const d = html.indexOf("D. Demandes produit");
     expect(a).toBeGreaterThan(-1);
     expect(b).toBeGreaterThan(a);
     expect(c).toBeGreaterThan(b);
+    expect(d).toBeGreaterThan(c);
   });
 
   it("la signature « Collision Productions » est seule sur sa ligne, en clôture", () => {
@@ -90,7 +101,6 @@ describe("récap hebdo v2 — règle des tirets", () => {
     const avecPrompts: RecapData = {
       ...data,
       prompt_correction: "Découpe la recherche web en sous-requêtes plus courtes.",
-      mega_prompt: "Contexte : la console de fiche est temps réel.",
     };
     const { html } = buildRecapEmail(avecPrompts);
     const texte = texteVisible(html).replace("Nadia Fares - Hugo Lippens - Sarah Ourahmoune", " ");
@@ -127,37 +137,99 @@ describe("récap hebdo v2 — B, échecs et coûts", () => {
   });
 });
 
-describe("récap hebdo v2 — C, demandes produit", () => {
-  it("demandes brutes verbatim, groupées par auteur, identifiant visible", () => {
+describe("récap hebdo v3 — C, Magellan cette semaine", () => {
+  it("liste les livraisons en langage utilisateur, avec le lien détail discret", () => {
     const { html } = buildRecapEmail(data);
-    expect((html.match(/clemence@stefani\.fr/g) ?? []).length).toBe(1); // un seul groupe
-    expect(html).toContain("Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC");
-    expect(html).toContain("(id : b1a2c3d4)");
-    expect(html).toContain("(id : z9y8x7w6)");
+    expect(html).toContain("le brief d'attaque tient en 9 lignes");
+    expect(html).toContain('href="https://github.com/mattintouch/Collision/pull/41"');
   });
 
-  it("le pied d'action utilise un identifiant réel et cite triage_backlog", () => {
+  it("une seule ligne explicite quand aucune livraison, jamais de section vide silencieuse", () => {
+    const { html } = buildRecapEmail({ ...data, livraisons: [] });
+    expect(html).toContain("Aucune livraison cette semaine.");
+  });
+
+  it("mention discrète quand GitHub était indisponible", () => {
+    expect(buildRecapEmail(data).html).not.toContain("sans l'accès GitHub");
+    const { html } = buildRecapEmail({ ...data, livraisons_incompletes: true });
+    expect(html).toContain("elle peut être incomplète");
+  });
+});
+
+describe("récap hebdo v3 — D, demandes produit", () => {
+  it("affiche le résumé 2 lignes, l'auteur et l'âge, JAMAIS le verbatim complet", () => {
     const { html } = buildRecapEmail(data);
-    expect(html).toContain("passe l'item b1a2c3d4 en a_faire");
-    expect(html).toContain("rejette l'item b1a2c3d4");
-    expect(html).toContain("triage_backlog");
+    expect(html).toContain("pour que les deux opérateurs se voient écrire.");
+    expect(html).toContain("clemence@stefani.fr");
+    expect(html).not.toContain("Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC");
   });
 
-  it("le méga-prompt s'affiche en bloc unique quand il existe", () => {
-    const { html } = buildRecapEmail({ ...data, mega_prompt: "Contexte : la console est temps réel." });
-    expect(html).toContain("Prompt consolidé à coller dans Claude Code");
-    expect(html).toContain("Contexte : la console est temps réel.");
+  it("seuls les items de demandes_semaine paraissent en détail : le stock reste une ligne", () => {
+    const { html } = buildRecapEmail(data);
+    expect(html).not.toContain("Le filtre par ville manque au board.");
+    expect(html).toContain("9 demandes en attente de triage, dont 3 de plus de 2 semaines");
+    expect(html).toContain("/backlog");
   });
 
-  it("section explicite et pied d'action absent quand aucune demande", () => {
-    const { html } = buildRecapEmail({ ...data, backlog: [], mega_prompt: null });
-    expect(html).toContain("Aucune demande nouvelle");
-    expect(html).not.toContain("passe l'item");
+  it("chaque item porte Valider, Rejeter (claude.ai préremplis) et Voir le détail ancré", () => {
+    const { html } = buildRecapEmail(data);
+    expect(html).toContain(`https://claude.ai/new?q=${encodeURIComponent("passe l'item b1a2c3d4 en a_faire")}`);
+    expect(html).toContain(`https://claude.ai/new?q=${encodeURIComponent("rejette l'item b1a2c3d4")}`);
+    expect(html).toContain("/backlog#b1a2c3d4");
+    expect(html).toContain(">Valider</a>");
+    expect(html).toContain(">Rejeter</a>");
+    expect(html).toContain(">Voir le détail</a>");
   });
 
-  it("échappe le HTML des contenus (anti-injection)", () => {
-    const piege: RecapData = { ...data, backlog: [{ id: "b2c3d4e5f6a7", auteur: "x", contenu: "<script>alert(1)</script>", contexte: {} }] };
+  it("le pied de page tient en une phrase et le méga-prompt a disparu", () => {
+    const { html } = buildRecapEmail(data);
+    expect(html).toContain("ouvrent une conversation Claude préremplie");
+    expect(html).not.toContain("Prompt consolidé");
+    expect(html).not.toContain("triage_backlog");
+  });
+
+  it("backlog à jour : ligne dédiée quand le stock est vide, section explicite sans demande", () => {
+    const { html } = buildRecapEmail({ ...data, demandes_semaine: [], stock: { total: 0, anciens: 0 } });
+    expect(html).toContain("Aucune demande nouvelle cette semaine.");
+    expect(html).toContain("Le backlog est à jour");
+  });
+
+  it("échappe le HTML des résumés (anti-injection)", () => {
+    const piege: RecapData = {
+      ...data,
+      demandes_semaine: [{ id: "b2c3d4e5f6a7", auteur: "x", contenu: "y", contexte: {}, resume: "<script>alert(1)</script>", created_at: "2026-07-22T09:00:00Z" }],
+    };
     expect(buildRecapEmail(piege).html).not.toContain("<script>alert(1)</script>");
+  });
+
+  it("longueur : l'email complet du fixture reste sous 4 000 caractères hors prompts", () => {
+    const { html } = buildRecapEmail(data);
+    expect(html.replace(/<pre[\s\S]*?<\/pre>/g, "").length).toBeLessThan(4000);
+  });
+});
+
+describe("récap hebdo v3 — helpers de la section D", () => {
+  const items = [
+    { id: "a".repeat(12), auteur: "x", contenu: "récente", contexte: {}, type: "feature", created_at: "2026-07-19T00:00:00Z" },
+    { id: "b".repeat(12), auteur: "x", contenu: "note récente", contexte: {}, type: "note", created_at: "2026-07-21T00:00:00Z" },
+    { id: "c".repeat(12), auteur: "x", contenu: "vieille demande", contexte: {}, type: "bug", created_at: "2026-06-01T00:00:00Z" },
+    { id: "d".repeat(12), auteur: "x", contenu: "sans type ni date", contexte: {} },
+  ];
+
+  it("demandesSemaine garde la fenêtre et exclut TOUJOURS les notes", () => {
+    const r = demandesSemaine(items, "2026-07-14T00:00:00Z");
+    expect(r.map((i) => i.contenu)).toEqual(["récente"]);
+  });
+
+  it("stockDemandes compte hors notes, avec les anciens au delà de 14 jours", () => {
+    const maintenant = new Date("2026-07-21T00:00:00Z").getTime();
+    expect(stockDemandes(items, maintenant)).toEqual({ total: 3, anciens: 1 });
+  });
+
+  it("ageJours arrondit au jour plein et tolère l'absence de date", () => {
+    const maintenant = new Date("2026-07-21T12:00:00Z").getTime();
+    expect(ageJours("2026-07-19T00:00:00Z", maintenant)).toBe(2);
+    expect(ageJours(undefined, maintenant)).toBe(0);
   });
 });
 

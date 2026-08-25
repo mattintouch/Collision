@@ -1,20 +1,22 @@
-// Récap hebdomadaire v2 (brief du 24/07) : un document ACTIONNABLE, qui nomme
-// les gens et les fiches, structure A / B / C.
-//   A « ce qui a bougé » : mouvements prioritaires nommés (validés, puis
-//     urgents en progression, puis notables), chaque ligne avec les alliés ;
-//     puis le sandbox, un paragraphe unique de noms à faible enjeu.
-//   B « échecs et coûts » : chaque échec nomme sa fiche et sa cause ; coûts ;
-//     un prompt de correction SEULEMENT sur échec systématique.
-//   C « demandes produit » : les demandes brutes verbatim par personne, puis
-//     UN méga-prompt prêt à coller qui a déjà tranché, puis le pied d'action
-//     avec les vrais identifiants.
+// Récap hebdomadaire v3 (décisions Matthieu du 25/08) : un document
+// ACTIONNABLE et COURT (cible : moins de 4 000 caractères), structure A/B/C/D.
+//   A « ce qui a bougé » : mouvements prioritaires nommés (inchangé v2).
+//   B « échecs et coûts » : causes nommées, coûts, prompt de correction
+//     seulement sur échec systématique (inchangé v2).
+//   C « Magellan cette semaine » : ce qui a été LIVRÉ, résumé en langage
+//     utilisateur (PR mergées + items livre, cf. livraisons.ts).
+//   D « demandes produit » : SEULS les items de la semaine, résumés en 2
+//     lignes (colonne resume, lot 4), avec liens Valider / Rejeter (claude.ai
+//     prérempli) et Voir le détail (/backlog). Le stock est UNE ligne de
+//     compteur : fini le stock réimprimé verbatim chaque lundi.
 // Style : AUCUN tiret dans l'email, sauf les séparateurs du sandbox (demande
 // explicite de Matthieu). Envoi via l'identité Vadim, destinataires
 // RECAP_EMAILS sinon staff des shows.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
-import { assurerResumes } from "./resume";
+import { assurerResumes, tronqueProprement } from "./resume";
+import { collecteLivraisons, type Livraison } from "./livraisons";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
 import { estivalActif, isPlaceholder } from "../domain";
 import { evaluerCouverture } from "../editorial";
@@ -60,8 +62,16 @@ export interface RecapData {
   echecs: EchecCause[];
   cout: { semaine_eur: number; mois_eur: number; plafond_eur: number } | null;
   prompt_correction: string | null;
+  /** Le stock complet des items nouveau (pour le triage proposé du cron et
+   *  les compteurs) : l'email n'en imprime plus le verbatim. */
   backlog: DemandeBrute[];
-  mega_prompt: string | null;
+  /** Section C v3 : les livraisons de la semaine en langage utilisateur. */
+  livraisons: Livraison[];
+  livraisons_incompletes: boolean;
+  /** Section D v3 : les seuls items de la semaine (feature, bug, correction). */
+  demandes_semaine: DemandeBrute[];
+  /** Ligne de stock : total en attente de triage, dont anciens (> 14 jours). */
+  stock: { total: number; anciens: number };
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -183,34 +193,36 @@ export function vaAuSandbox(c: { archetype: string | null; priorite: string | nu
   return !c.archetype && (c.priorite ?? "").toLowerCase() !== "haute" && c.nb_allies === 0;
 }
 
-/** C2 : le méga-prompt, un seul bloc qui réorganise, déduplique et clarifie
- *  toutes les demandes de la semaine, points flous DÉJÀ tranchés. Repli null
- *  (l'email affiche alors les demandes brutes seules). */
-async function construireMegaPrompt(items: DemandeBrute[]): Promise<string | null> {
-  if (!items.length || !hasAnthropicKey()) return null;
-  try {
-    const client = new Anthropic();
-    const model = process.env.RECAP_PROMPT_MODEL ?? "claude-sonnet-4-6";
-    const liste = items.map((i) => `[${i.auteur ?? "inconnu"}] ${i.contenu}${Object.keys(i.contexte ?? {}).length ? `\nContexte : ${JSON.stringify(i.contexte)}` : ""}`).join("\n\n");
-    const res = await client.messages.create({
-      model,
-      max_tokens: 2000,
-      system: [
-        "Tu écris LE prompt d'implémentation hebdomadaire pour Claude Code sur Magellan (moteur de conquête d'invités podcast, Next.js + Supabase, console de fiche temps réel livrée en PR 7 avec canal Realtime et présence).",
-        "Entrée : les demandes produit brutes de la semaine. Sortie : UN SEUL prompt consolidé, prêt à coller, qui réorganise, déduplique et clarifie, et qui TRANCHE les points flous (décisions de spécification numérotées, valeurs par défaut raisonnables, critères d'acceptation mesurables).",
-        "Structure : Contexte (2 à 4 phrases), Décisions de spécification tranchées (liste numérotée), Critères d'acceptation (concrets, avec seuils).",
-        "Style impératif : pas d'emoji, AUCUN tiret (ni cadratin ni trait d'union en début de ligne, listes numérotées uniquement), pas de « on », sujet verbe complément, français sobre.",
-        'Réponds UNIQUEMENT en JSON : {"prompt": "le bloc complet"}.',
-      ].join("\n"),
-      messages: [{ role: "user", content: liste }],
-    });
-    const texte = res.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n");
-    const json = extractJson<{ prompt?: string }>(texte);
-    const prompt = json?.prompt?.trim();
-    return prompt || null;
-  } catch {
-    return null;
-  }
+/* ── Logique v3 des sections C et D : helpers purs (testés). Le méga-prompt
+      hebdomadaire du v2 disparaît : la section D vit de résumés et de liens,
+      le texte complet vit sur /backlog, et le prompt consolidé recopiait le
+      stock entier dans l'email chaque semaine (cause n°2 du problème). */
+
+const JOURS_STOCK_ANCIEN = 14;
+
+/** Section D : les seuls items AFFICHÉS en détail, créés dans la fenêtre,
+ *  encore en statut nouveau côté requête, de type feature, bug ou correction.
+ *  Les notes ne paraissent JAMAIS (décision 5 du 25/08). Un item sans type
+ *  (migration 0048 non appliquée) vaut feature. */
+export function demandesSemaine(backlog: DemandeBrute[], depuisIso: string): DemandeBrute[] {
+  return backlog.filter((i) => (i.type ?? "feature") !== "note" && (i.created_at ?? "") >= depuisIso);
+}
+
+/** Ligne de stock : N demandes (hors notes) en attente de triage, dont M de
+ *  plus de deux semaines. */
+export function stockDemandes(backlog: DemandeBrute[], maintenant = Date.now()): { total: number; anciens: number } {
+  const demandes = backlog.filter((i) => (i.type ?? "feature") !== "note");
+  const seuil = maintenant - JOURS_STOCK_ANCIEN * 24 * 3600 * 1000;
+  return {
+    total: demandes.length,
+    anciens: demandes.filter((i) => i.created_at && new Date(i.created_at).getTime() < seuil).length,
+  };
+}
+
+/** Âge en jours d'un item, pour l'affichage D. */
+export function ageJours(createdAt: string | undefined, maintenant = Date.now()): number {
+  if (!createdAt) return 0;
+  return Math.max(0, Math.floor((maintenant - new Date(createdAt).getTime()) / 86_400_000));
 }
 
 /** Compile le récap v2. Chaque source est best-effort : une table absente ou
@@ -477,8 +489,20 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     for (const i of backlog) i.resume = resumes.get(i.id) ?? i.resume ?? null;
   } catch { /* le récap part sans résumés */ }
 
-  /* ── C2, méga-prompt (repli null : l'email vit sans). */
-  const mega_prompt = await construireMegaPrompt(backlog);
+  /* ── C v3, livraisons de la semaine (GitHub + items livre, jamais bloquant). */
+  let livraisons: Livraison[] = [];
+  let livraisons_incompletes = false;
+  try {
+    const c = await collecteLivraisons(sb, depuis);
+    livraisons = c.livraisons;
+    livraisons_incompletes = c.incomplet;
+  } catch {
+    livraisons_incompletes = true;
+  }
+
+  /* ── D v3, demandes de la semaine et ligne de stock. */
+  const demandes_semaine = demandesSemaine(backlog, depuis);
+  const stock = stockDemandes(backlog);
 
   /* ── Notes de plateau et besoins (inchangés du v1, défensifs). */
   let notes: RecapData["notes"] = [];
@@ -513,7 +537,7 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     cout = { semaine_eur: coutSemaine, mois_eur: coutMois, plafond_eur: plafondEur() };
   }
 
-  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, mega_prompt };
+  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, livraisons, livraisons_incompletes, demandes_semaine, stock };
 }
 
 /** Triage proposé par item (écrit en commentaire du backlog par le cron,
@@ -554,7 +578,13 @@ function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Corps HTML v2 : trois parties A / B / C, aucun tiret hors sandbox. */
+/** Base des liens console dans l'email (page /backlog). */
+const appUrl = () => (process.env.APP_URL ?? "https://magellan.collision.studio").replace(/\/+$/, "");
+/** Conversation Claude préremplie (liens Valider / Rejeter de la section D). */
+export const lienClaude = (q: string) => `https://claude.ai/new?q=${encodeURIComponent(q)}`;
+
+/** Corps HTML v3 : quatre parties A / B / C / D, aucun tiret hors sandbox.
+ *  Cible de longueur : moins de 4 000 caractères hors semaine exceptionnelle. */
 export function buildRecapEmail(data: RecapData): { subject: string; html: string } {
   const semaine = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", timeZone: "Europe/Paris" });
   const subject = `Magellan, récap hebdo du ${semaine}`;
@@ -598,29 +628,47 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
       : "",
   ].join("");
 
-  /* C. Demandes produit */
-  const parAuteur = new Map<string, DemandeBrute[]>();
-  for (const d of data.backlog) {
-    const cle = d.auteur ?? "inconnu";
-    parAuteur.set(cle, [...(parAuteur.get(cle) ?? []), d]);
-  }
-  const c: string[] = [];
-  for (const [auteur, demandes] of parAuteur) {
-    c.push(`<p style="margin:8px 0 2px 0"><b>${esc(auteur)}</b></p><ul style="padding-left:18px">${demandes
-      .map((d) => li(`« ${esc(d.contenu)} » (id : ${esc(d.id.slice(0, 8))})`))
-      .join("")}</ul>`);
-  }
-  if (!c.length) c.push(`<p>Aucune demande nouvelle cette semaine.</p>`);
-  const premierId = data.backlog[0]?.id.slice(0, 8);
+  /* C. Magellan cette semaine : les livraisons en langage utilisateur. */
+  const lignesC = data.livraisons.map((l) =>
+    li(`${esc(l.resume)}${l.url ? ` <a href="${esc(l.url)}" style="color:#8A857D;font-size:12px;text-decoration:none">détail</a>` : ""}`)
+  );
   const partieC = [
-    `<h2 style="font-size:17px">C. Demandes produit</h2>`,
-    c.join(""),
-    data.mega_prompt
-      ? `<p style="margin:10px 0 0 0"><b>Prompt consolidé à coller dans Claude Code</b> (demandes réorganisées, dédupliquées, points flous tranchés) :</p>${pre(data.mega_prompt)}`
+    `<h2 style="font-size:17px">C. Magellan cette semaine</h2>`,
+    lignesC.length
+      ? `<ul style="padding-left:18px">${lignesC.join("")}</ul>`
+      : `<p>Aucune livraison cette semaine.</p>`,
+    data.livraisons_incompletes
+      ? `<p style="color:#8a8d88;font-size:12px;margin:4px 0 0 0">Liste établie sans l'accès GitHub, elle peut être incomplète.</p>`
       : "",
-    premierId
-      ? `<p style="margin:12px 0 0 0">Pour actionner une demande : dans une conversation Claude, écris « passe l'item ${esc(premierId)} en a_faire » pour l'accepter, ou « rejette l'item ${esc(premierId)} » pour la refuser. Claude met le backlog à jour via triage_backlog. L'identifiant de chaque demande figure à côté d'elle dans la liste.</p>`
-      : "",
+  ].join("");
+
+  /* D. Demandes produit : les items de la semaine seuls, résumés, avec les
+     liens d'action en un clic. Le stock est une ligne de compteur. */
+  const backlogUrl = `${appUrl()}/backlog`;
+  const d: string[] = [];
+  for (const item of data.demandes_semaine) {
+    const id8 = item.id.slice(0, 8);
+    const type = item.type ?? "feature";
+    const resume = (item.resume ?? "").trim() || tronqueProprement(item.contenu);
+    const age = ageJours(item.created_at);
+    const liens = [
+      `<a href="${esc(lienClaude(`passe l'item ${id8} en a_faire`))}" style="color:#177A4C;font-weight:600">Valider</a>`,
+      `<a href="${esc(lienClaude(`rejette l'item ${id8}`))}" style="color:#E63946;font-weight:600">Rejeter</a>`,
+      `<a href="${esc(`${backlogUrl}#${id8}`)}" style="color:#1D6FD8">Voir le détail</a>`,
+    ].join(" &nbsp;·&nbsp; ");
+    d.push(li(
+      `${type !== "feature" ? `<b>[${esc(type)}]</b> ` : ""}${esc(resume)}<br/>` +
+      `<span style="color:#8a8d88;font-size:12px">${esc(item.auteur ?? "inconnu")}, il y a ${age} jour${age > 1 ? "s" : ""}</span><br/>${liens}`
+    ));
+  }
+  const ligneStock = data.stock.total > 0
+    ? `<a href="${esc(backlogUrl)}" style="color:#1B1D1E">${data.stock.total} demande${data.stock.total > 1 ? "s" : ""} en attente de triage${data.stock.anciens > 0 ? `, dont ${data.stock.anciens} de plus de 2 semaines` : ""}</a>.`
+    : `Le backlog est à jour : <a href="${esc(backlogUrl)}" style="color:#1B1D1E">aucune demande en attente de triage</a>.`;
+  const partieD = [
+    `<h2 style="font-size:17px">D. Demandes produit</h2>`,
+    d.length ? `<ul style="padding-left:18px">${d.join("")}</ul>` : `<p>Aucune demande nouvelle cette semaine.</p>`,
+    `<p style="margin:10px 0 0 0">${ligneStock}</p>`,
+    `<p style="color:#8a8d88;font-size:12px;margin:12px 0 0 0">Les liens Valider et Rejeter ouvrent une conversation Claude préremplie, à envoyer telle quelle ou à compléter ; le triage manuel reste « passe l'item xxxxxxxx en a_faire » dans Claude.</p>`,
   ].join("");
 
   const html = [
@@ -628,6 +676,7 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
     partieA,
     partieB,
     partieC,
+    partieD,
     `<p style="color:#8a8d88;font-size:12px;margin-top:24px">Collision Productions</p>`,
     `</body></html>`,
   ].join("");

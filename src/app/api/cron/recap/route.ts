@@ -34,7 +34,15 @@ async function run(req: Request): Promise<Response> {
     if (!to.length) return Response.json({ ok: false, error: "Aucun destinataire (RECAP_EMAILS ou staff des shows)." }, { status: 500 });
     if (!hasGmailSend()) return Response.json({ ok: false, error: "Envoi Gmail indisponible (délégation)." }, { status: 500 });
     const r = await sendGmail({ to, subject, html });
-    return Response.json({ ok: r.ok, envoye_a: to, items_backlog: data.backlog.length, detail: r.detail });
+    return Response.json({
+      ok: r.ok,
+      envoye_a: to,
+      items_backlog: data.backlog.length,
+      demandes_semaine: data.demandes_semaine.length,
+      livraisons: data.livraisons.length,
+      longueur_html: html.length,
+      detail: r.detail,
+    });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
