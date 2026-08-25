@@ -102,9 +102,22 @@ async function resolveEpisodePublication(sb: SB, ref: string, show?: string): Pr
   return (data as unknown as Record<string, unknown>) ?? null;
 }
 
-async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom: string) {
-  const found = await resolveCible(sb, show.id, nom);
-  if (found) return found;
+/** P1 du chantier doublons (25/08, cas des quatre fiches Harari) : les cibles
+ *  du show portant le MÊME NOM NORMALISÉ (casse, accents, espaces multiples),
+ *  archivées comprises. Tri : non archivées d'abord, puis la plus ancienne
+ *  (la fiche d'origine prime sur ses copies). */
+async function doublonsParNom(sb: SB, sid: string, nom: string): Promise<{ id: string; nom: string; archive: boolean; created_at: string }[]> {
+  const voulu = normName(nom);
+  if (!voulu) return [];
+  const { data } = await sb.from("cibles").select("id, nom, archive, created_at").eq("show_id", sid).limit(3000);
+  return (((data ?? []) as { id: string; nom: string; archive: boolean; created_at: string }[]))
+    .filter((c) => normName(c.nom) === voulu)
+    .sort((a, b) => Number(a.archive) - Number(b.archive) || a.created_at.localeCompare(b.created_at));
+}
+
+/** Création brute d'une cible au premier stage (réservée au force:true de
+ *  create_cible : homonyme volontaire, aucune réutilisation). */
+async function creeCible(sb: SB, show: { id: string; type_pipe: string }, nom: string) {
   const { data: stage } = await sb
     .from("stages").select("id").eq("show_id", show.id).order("position").limit(1).maybeSingle();
   const { data } = await sb
@@ -120,6 +133,17 @@ async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom:
     .select("id, nom")
     .single();
   return (data as { id: string; nom: string }) ?? null;
+}
+
+async function ensureCible(sb: SB, show: { id: string; type_pipe: string }, nom: string) {
+  const found = await resolveCible(sb, show.id, nom);
+  if (found) return found;
+  // P1 : plus JAMAIS de création silencieuse d'un homonyme. La résolution
+  // ilike rate sur un accent ou un espace double (c'est ainsi que les quatre
+  // Harari sont nés) : le filet normalisé réutilise l'existant.
+  const doublons = await doublonsParNom(sb, show.id, nom);
+  if (doublons.length) return { id: doublons[0].id, nom: doublons[0].nom };
+  return creeCible(sb, show, nom);
 }
 
 /** Résout des clés/libellés de watchlist en ids ; signale les inconnus. */
@@ -672,6 +696,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         date: z.string().optional().describe("date ISO (défaut : maintenant)"),
       }).optional().describe("première touche à journaliser avec la fiche"),
       is_test: z.boolean().optional().describe("cible de test : exclue des stats, du score et de la sélection du jour"),
+      force: z.boolean().optional().describe("créer QUAND MÊME malgré un homonyme existant (homonymes réels volontaires uniquement)"),
     },
     { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a) => {
@@ -689,15 +714,31 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         if (!st) return text({ error: `Étape inconnue : ${a.stage}` });
         patch.stage_id = (st as { id: string }).id;
       }
-      // Transparence : create_cible réutilise un homonyme existant (même archivé)
-      // au lieu d'échouer. On détecte l'état AVANT pour l'annoncer (reused/was_archived).
-      const pre = await resolveCible(sb, show.id, a.nom);
+      // P1 du chantier doublons (25/08) : détection AVANT toute écriture, sur
+      // nom normalisé (casse, accents, espaces multiples) + show, archivées
+      // comprises. En cas de match sans force, RIEN n'est créé ni modifié :
+      // l'appelant reçoit l'UUID existant et décide (update_cible, ou
+      // force:true pour un homonyme réel volontaire).
+      const doublons = await doublonsParNom(sb, show.id, a.nom);
+      if (doublons.length && !a.force) {
+        const principal = doublons[0];
+        return text({
+          doublon: true,
+          cible_id: principal.id,
+          nom_existant: principal.nom,
+          archive: principal.archive,
+          candidats: doublons.map((x) => ({ id: x.id, nom: x.nom, archive: x.archive })),
+          avertissement: `Une cible au même nom existe déjà sur ce show : rien n'a été créé ni modifié. Pour compléter la fiche existante : update_cible sur ${principal.id}. Pour créer un homonyme réel volontaire : rappeler avec force: true.`,
+        });
+      }
+      const pre = a.force ? null : await resolveCible(sb, show.id, a.nom);
       let was_archived = false;
       if (pre) {
         const { data: preRow } = await sb.from("cibles").select("archive").eq("id", pre.id).maybeSingle();
         was_archived = !!(preRow as { archive?: boolean } | null)?.archive;
       }
-      const c = await ensureCible(sb, show, a.nom);
+      // force:true : création brute assumée, aucune réutilisation d'homonyme.
+      const c = a.force ? await creeCible(sb, show, a.nom) : await ensureCible(sb, show, a.nom);
       if (!c) return text({ error: "Création échouée" });
       delete patch.nom; // déjà posé par ensureCible
       if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
