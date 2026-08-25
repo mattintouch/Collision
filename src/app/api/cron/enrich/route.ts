@@ -10,6 +10,7 @@ import { processEnrichmentJobs } from "@/lib/enrichment/jobs";
 import { prendreVerrou, rendreVerrou } from "@/lib/enrichment/verrou";
 import { createServiceClient } from "@/lib/supabase/service";
 import { refreshFolkMirror } from "@/lib/folk/mirror";
+import { reparerFolkOrphelins } from "@/lib/folk/reparation";
 import { cronAutorise } from "@/lib/cron-auth";
 
 export const runtime = "nodejs";
@@ -34,11 +35,15 @@ async function run(req: Request): Promise<Response> {
   }
   try {
     // Miroir Folk (S4) : une fois par jour, dans la fenêtre 06h00-06h05 UTC
-    // (l'ancien horaire quotidien), best-effort.
+    // (l'ancien horaire quotidien), best-effort. Puis réparation des folk_id
+    // orphelins (P2 du chantier doublons du 25/08) : les fusions côté Folk ne
+    // cassent plus le rattachement en silence.
     const d = new Date();
-    const mirror = d.getUTCHours() === 6 && d.getUTCMinutes() < 5 ? await refreshFolkMirror() : "hors fenêtre quotidienne";
+    const fenetreQuotidienne = d.getUTCHours() === 6 && d.getUTCMinutes() < 5;
+    const mirror = fenetreQuotidienne ? await refreshFolkMirror() : "hors fenêtre quotidienne";
+    const reparation = fenetreQuotidienne ? await reparerFolkOrphelins(sb) : undefined;
     const r = await processEnrichmentJobs({ max: 20, budgetMs: BUDGET_MS });
-    return Response.json({ ok: true, folk_mirror: mirror, ...r });
+    return Response.json({ ok: true, folk_mirror: mirror, ...(reparation ? { folk_reparation: { orphelins: reparation.orphelins, repares: reparation.repares.length, ambigus: reparation.ambigus.length } } : {}), ...r });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   } finally {
