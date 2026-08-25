@@ -14,6 +14,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
+import { assurerResumes } from "./resume";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
 import { estivalActif, isPlaceholder } from "../domain";
 import { evaluerCouverture } from "../editorial";
@@ -42,6 +43,11 @@ export interface DemandeBrute {
   auteur: string | null;
   contenu: string;
   contexte: Record<string, unknown>;
+  /** Lot 2 (0048) : feature, bug, correction ou note ; absent avant migration. */
+  type?: string;
+  /** Lot 4 (0048) : résumé court persisté, garanti par assurerResumes. */
+  resume?: string | null;
+  created_at?: string;
 }
 
 export interface RecapData {
@@ -405,7 +411,10 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     .select("objectif, statut, error, cible_id, updated_at")
     .gte("updated_at", depuisPrecedente)
     .limit(1000);
-  const rows = (jobs ?? []) as { objectif: string; statut: string; error: string | null; cible_id: string | null; updated_at: string }[];
+  // Les lignes recap:* sont de la pure télémétrie de coût (résumés du récap,
+  // 0048) : elles comptent dans les coûts B2, jamais dans les générations B1.
+  const rows = ((jobs ?? []) as { objectif: string; statut: string; error: string | null; cible_id: string | null; updated_at: string }[])
+    .filter((j) => !j.objectif.startsWith("recap:"));
   const semaine = rows.filter((j) => j.updated_at >= depuis);
   const precedente = rows.filter((j) => j.updated_at < depuis);
   const failed = semaine.filter((j) => j.statut === "failed" && j.error);
@@ -439,14 +448,34 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     precedente.filter((j) => j.statut === "failed" && j.error).map((j) => ({ cause: normaliseCause(j.error ?? "") }))
   );
 
-  /* ── C1, demandes brutes. */
-  const { data: items } = await sb
-    .from("product_backlog")
-    .select("id, auteur, contenu, contexte")
-    .eq("statut", "nouveau")
-    .order("created_at")
-    .limit(50);
-  const backlog = ((items ?? []) as DemandeBrute[]);
+  /* ── C1, demandes brutes. Colonnes type et resume (0048) défensives :
+        repli sans elles tant que la migration n'est pas appliquée. */
+  let backlog: DemandeBrute[] = [];
+  {
+    const enrichi = await sb
+      .from("product_backlog")
+      .select("id, auteur, contenu, contexte, created_at, type, resume")
+      .eq("statut", "nouveau")
+      .order("created_at")
+      .limit(50);
+    if (!enrichi.error) {
+      backlog = (enrichi.data ?? []) as DemandeBrute[];
+    } else {
+      const { data: items } = await sb
+        .from("product_backlog")
+        .select("id, auteur, contenu, contexte, created_at")
+        .eq("statut", "nouveau")
+        .order("created_at")
+        .limit(50);
+      backlog = ((items ?? []) as DemandeBrute[]);
+    }
+  }
+  // Lot 4 : chaque item porte un résumé court persistant (généré au modèle
+  // rapide au premier passage, fallback troncature). Jamais bloquant.
+  try {
+    const resumes = await assurerResumes(sb, backlog);
+    for (const i of backlog) i.resume = resumes.get(i.id) ?? i.resume ?? null;
+  } catch { /* le récap part sans résumés */ }
 
   /* ── C2, méga-prompt (repli null : l'email vit sans). */
   const mega_prompt = await construireMegaPrompt(backlog);

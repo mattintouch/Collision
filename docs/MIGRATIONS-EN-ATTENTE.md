@@ -45,6 +45,12 @@
   avec Louis (dispo sous 4 jours), le rebranchement avance en parallèle.
 
 ## En attente
+- `0048_backlog_type_resume.sql` : colonnes type (CHECK feature, bug,
+  correction, note, défaut feature) et resume sur product_backlog, avec
+  backfill des items existants ; enrichment_jobs.cible_id nullable et objectif
+  élargi à recap:* (télémétrie des résumés du récap). Chantier récap du 25/08,
+  lots 2 et 4. Le code est défensif dans les deux sens : sans la migration, le
+  typage retombe sur feature et les résumés vivent en mémoire sans persistance.
 - `0047_clemence_admin.sql` : profiles.type admin pour clemence@collision.studio
   (P0 du chantier doublons du 25/08). APRÈS application, Clémence réautorise son
   connecteur Claude : le rôle est figé dans le jeton à l'émission, l'ancien
