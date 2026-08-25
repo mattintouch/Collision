@@ -69,3 +69,15 @@ supabase/migrations/      # schéma, RLS, fonctions
 supabase/seed.sql         # 3 shows + cibles de test
 mcp-server/               # serveur MCP
 ```
+
+## Documents de référence
+
+Le dossier `docs/` porte les briefs, les états et les principes. Deux entrées
+de référence durables :
+
+1. `docs/ETAT-VADIM-AOUT-2026.md` : état de l'accès de l'agent Vadim à
+   Magellan (jeton, coupe-circuit, garde-fous), valide jusqu'à la table
+   mcp_agents.
+2. `docs/PRINCIPES-SURFACES-AGENTS.md` : principe des deux surfaces d'outils
+   selon la provenance du déclencheur (Telegram de confiance, email non
+   fiable), référence pour toute nouvelle surface d'agent.
