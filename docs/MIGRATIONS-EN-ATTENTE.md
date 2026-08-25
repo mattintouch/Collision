@@ -44,23 +44,16 @@
   (projections de référence). Reste : spot check de 10 cibles et 5 épisodes
   avec Louis (dispo sous 4 jours), le rebranchement avance en parallèle.
 
+- Chantiers du 25/08 (récap + doublons Harari), appliquées par Matt le 25/08
+  dans l'ordre : `0047_clemence_admin.sql` (profil admin de Clémence, son
+  connecteur Claude reste à reconnecter pour réémettre son jeton),
+  `0048_backlog_type_resume.sql` (typage + résumés du backlog, télémétrie
+  recap:*), `0049_fusionner_cibles.sql` (fonction de fusion). Vérifications du
+  25/08 : critère P1 bis tenu en production (fusion de deux fiches de test,
+  zéro touche perdue, zéro dupliquée, absorbée archivée avec note), copies
+  Harari 215ce4f6 et c86b5529 fusionnées dans 1dcf77bb.
+
 ## En attente
-- `0049_fusionner_cibles.sql` : fonction plpgsql fusionner_cibles(survivante,
-  absorbee) en une transaction (P1 bis du chantier doublons du 25/08) : champs
-  comblés (la survivante gagne), appuis, touches, contacts et folk_id
-  rapatriés sans doublon, absorbée archivée avec note de renvoi. Extension
-  unaccent activée. Sans la migration, l'outil MCP fusionner_cibles répond
-  « appliquer la migration 0049 ».
-- `0048_backlog_type_resume.sql` : colonnes type (CHECK feature, bug,
-  correction, note, défaut feature) et resume sur product_backlog, avec
-  backfill des items existants ; enrichment_jobs.cible_id nullable et objectif
-  élargi à recap:* (télémétrie des résumés du récap). Chantier récap du 25/08,
-  lots 2 et 4. Le code est défensif dans les deux sens : sans la migration, le
-  typage retombe sur feature et les résumés vivent en mémoire sans persistance.
-- `0047_clemence_admin.sql` : profiles.type admin pour clemence@collision.studio
-  (P0 du chantier doublons du 25/08). APRÈS application, Clémence réautorise son
-  connecteur Claude : le rôle est figé dans le jeton à l'émission, l'ancien
-  jeton reste interne jusqu'à réémission.
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 
