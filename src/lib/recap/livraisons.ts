@@ -36,15 +36,18 @@ export function fusionneSources(prs: SourceLivraison[], itemsLivre: SourceLivrai
   return [...prs, ...itemsLivre.filter((i) => !i.url || !urls.has(i.url))];
 }
 
-/** PR mergées sur main dans la fenêtre. Lance en cas d'indisponibilité
- *  (pas de jeton, réseau, quota) : l'appelant bascule en mode dégradé. */
+/** PR mergées sur main dans la fenêtre. Le dépôt est PUBLIC : l'appel part
+ *  sans authentification quand GITHUB_TOKEN est absent (limite de débit plus
+ *  basse, largement suffisante pour un appel hebdomadaire ; le jeton reste
+ *  utile en cas de limite atteinte sur les IP partagées de Vercel, ou si le
+ *  dépôt passe privé). Lance en cas d'indisponibilité (réseau, quota) :
+ *  l'appelant bascule en mode dégradé. */
 async function prsMergees(depuisIso: string): Promise<SourceLivraison[]> {
   const token = process.env.GITHUB_TOKEN;
-  if (!token) throw new Error("GITHUB_TOKEN absent");
   const res = await fetch(
     `https://api.github.com/repos/${GITHUB_REPO()}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=50`,
     {
-      headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" },
+      headers: { accept: "application/vnd.github+json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
       signal: AbortSignal.timeout(8000),
     }
   );
