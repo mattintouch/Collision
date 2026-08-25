@@ -7,6 +7,7 @@ import type { CibleEnrichie } from "../types";
 import { createServiceClient } from "../supabase/service";
 import { folkAddAlly, folkAddEmail, folkAddPhone, folkLogTouche } from "../folk/write";
 import { kickFolkSync } from "../folk/sync";
+import { CLE_FOLK_REPARATION } from "../folk/reparation";
 import { hasFolkKey, fetchFolkGroups } from "../folk/client";
 import { checkGmail } from "../gmail";
 import { resolveContact, normName, type ResolvedContact } from "../contacts/resolve";
@@ -1063,6 +1064,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       statut_ref: z.string().optional().describe("statut de référence fin (valeurs de ref_statuts, domaine contact_statut) ; attention : un changement de stage le resynchronise"),
       date_relance: z.string().optional().describe("date de relance (ISO, AAAA-MM-JJ)"),
       date_contact: z.string().optional().describe("date de contact (ISO, AAAA-MM-JJ)"),
+      folk_id: z.string().optional().describe("P2 doublons : fixe MANUELLEMENT le rattachement Folk (tranche un match ambigu) ; chaîne vide pour détacher"),
     },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
@@ -1071,6 +1073,18 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      // P2 : rattachement Folk manuel, hors kindAwarePatch. Vérifié contre le
+      // miroir (avertissement seulement : le miroir peut avoir un jour de
+      // retard sur une fiche Folk toute neuve).
+      let avertissement_folk: string | undefined;
+      if (a.folk_id !== undefined) {
+        if (a.folk_id === "") {
+          // pose plus bas via le patch
+        } else {
+          const { data: connu } = await sb.from("folk_people").select("id, nom").eq("id", a.folk_id).maybeSingle();
+          if (!connu) avertissement_folk = `folk_id ${a.folk_id} inconnu du miroir folk_people : posé quand même (fiche Folk récente ?), à vérifier.`;
+        }
+      }
       const { data: row } = await sb.from("cibles").select("kind").eq("id", target.id).single();
       const currentKind = ((row as { kind?: string } | null)?.kind ?? "personne") as string;
       const kind = a.kind ?? currentKind; // type visé après MAJ → sert à la validation
@@ -1098,6 +1112,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         patch.stage_id = (st as { id: string }).id;
       }
       if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
+      if (a.folk_id !== undefined) patch.folk_id = a.folk_id || null; // P2 (hors kindAwarePatch)
       // Schéma de référence : genre et statut_ref se valident contre la table
       // ref_statuts (liste vide = contrôle désactivé, la table fait foi).
       for (const [champ, domaine] of [["genre", "genre"], ["statut_ref", "contact_statut"]] as const) {
@@ -1124,11 +1139,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         modifie.push("watchlist");
       }
       // Synchro continue vers Folk (tâche 2) : un champ possédé par Magellan
-      // a changé, la fiche Folk suit en tâche de fond.
-      if (modifie.some((c) => ["role", "organisation", "secteur", "pays", "ville", "nom"].includes(c))) {
+      // a changé, la fiche Folk suit en tâche de fond. Un rattachement folk_id
+      // posé à la main (P2) déclenche aussi la synchro : la fiche Folk visée
+      // reçoit les coordonnées de la cible et le lien se matérialise.
+      if (modifie.some((c) => ["role", "organisation", "secteur", "pays", "ville", "nom", "folk_id"].includes(c))) {
         kickFolkSync(target.id);
       }
-      return text({ ok: true, cible: target.nom, cible_id: target.id, modifie });
+      return text({ ok: true, cible: target.nom, cible_id: target.id, modifie, ...(avertissement_folk ? { avertissement_folk } : {}) });
     }
   );
 
@@ -2400,6 +2417,19 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // de nouvelles coordonnées.
       kickFolkSync(surv.id);
       return text({ ok: true, rapport: data, survivante: { id: surv.id, nom: surv.nom }, absorbee: { id: abso.id, nom: abso.nom, statut: "archivée, note de renvoi posée" } });
+    }
+  );
+
+  RT(
+    "list_folk_ambigus",
+    "Rapport de la dernière réparation des rattachements Folk (P2 doublons, job quotidien après le miroir de 06h) : les cibles dont le folk_id ne résout plus (fusion côté Folk) réparées automatiquement, et surtout les cas AMBIGUS (zéro ou plusieurs candidats au même nom) à trancher à la main via update_cible folk_id. C'est la source du digest quotidien de Vadim (19h) : plus aucun rattachement ne casse en silence. Intentions : lister les rattachements Folk à arbitrer.",
+    {},
+    { readOnlyHint: true },
+    async () => {
+      const sb = createServiceClient();
+      const { data } = await sb.from("system_state").select("value, updated_at").eq("key", CLE_FOLK_REPARATION).maybeSingle();
+      if (!data) return text({ rapport: null, note: "Aucune réparation enregistrée : le job tourne dans la fenêtre quotidienne de 06h UTC." });
+      return text({ rapport: (data as { value: unknown }).value, mis_a_jour: (data as { updated_at: string }).updated_at });
     }
   );
 
