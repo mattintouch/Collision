@@ -17,6 +17,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
 import { assurerResumes, tronqueProprement } from "./resume";
 import { collecteLivraisons, type Livraison } from "./livraisons";
+import { normName } from "../contacts/resolve";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
 import { estivalActif, isPlaceholder } from "../domain";
 import { evaluerCouverture } from "../editorial";
@@ -72,6 +73,8 @@ export interface RecapData {
   demandes_semaine: DemandeBrute[];
   /** Ligne de stock : total en attente de triage, dont anciens (> 14 jours). */
   stock: { total: number; anciens: number };
+  /** P3 doublons (25/08) : groupes de cibles actives au même nom normalisé. */
+  doublons: GroupeDoublon[];
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -223,6 +226,24 @@ export function stockDemandes(backlog: DemandeBrute[], maintenant = Date.now()):
 export function ageJours(createdAt: string | undefined, maintenant = Date.now()): number {
   if (!createdAt) return 0;
   return Math.max(0, Math.floor((maintenant - new Date(createdAt).getTime()) / 86_400_000));
+}
+
+/* ── P3 du chantier doublons (25/08) : scan hebdomadaire des doublons. */
+
+export interface GroupeDoublon { show: string; nom: string; ids: string[] }
+
+/** Groupes de cibles actives au même nom NORMALISÉ (normName : casse,
+ *  accents, espaces) sur le même show. Seuls les groupes de 2 et plus
+ *  ressortent : ce sont les fusions à proposer dans le récap (PURE, testée). */
+export function groupesDoublons(cibles: { show: string; nom: string; id: string }[]): GroupeDoublon[] {
+  const parCle = new Map<string, GroupeDoublon>();
+  for (const c of cibles) {
+    const cle = `${c.show}|${normName(c.nom)}`;
+    const g = parCle.get(cle) ?? { show: c.show, nom: c.nom, ids: [] };
+    g.ids.push(c.id);
+    parCle.set(cle, g);
+  }
+  return [...parCle.values()].filter((g) => g.ids.length >= 2).sort((a, b) => b.ids.length - a.ids.length);
 }
 
 /** Compile le récap v2. Chaque source est best-effort : une table absente ou
@@ -504,6 +525,17 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
   const demandes_semaine = demandesSemaine(backlog, depuis);
   const stock = stockDemandes(backlog);
 
+  /* ── P3 doublons : scan hebdomadaire nom normalisé + show (actives). */
+  let doublonsScan: GroupeDoublon[] = [];
+  try {
+    const { data: shows } = await sb.from("shows").select("id, slug");
+    const slugs = new Map(((shows ?? []) as { id: string; slug: string }[]).map((s) => [s.id, s.slug]));
+    const { data: toutes } = await sb.from("cibles").select("id, nom, show_id").eq("archive", false).limit(5000);
+    doublonsScan = groupesDoublons(
+      (((toutes ?? []) as { id: string; nom: string; show_id: string }[])).map((c) => ({ id: c.id, nom: c.nom, show: slugs.get(c.show_id) ?? c.show_id }))
+    );
+  } catch { /* le récap part sans le scan */ }
+
   /* ── Notes de plateau et besoins (inchangés du v1, défensifs). */
   let notes: RecapData["notes"] = [];
   try {
@@ -537,7 +569,7 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     cout = { semaine_eur: coutSemaine, mois_eur: coutMois, plafond_eur: plafondEur() };
   }
 
-  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, livraisons, livraisons_incompletes, demandes_semaine, stock };
+  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, livraisons, livraisons_incompletes, demandes_semaine, stock, doublons: doublonsScan };
 }
 
 /** Triage proposé par item (écrit en commentaire du backlog par le cron,
@@ -625,6 +657,12 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
     `<h2 style="font-size:17px">B. Échecs et coûts</h2><ul style="padding-left:18px">${b.join("")}</ul>`,
     data.prompt_correction
       ? `<p style="margin:6px 0 0 0"><b>Échec systématique détecté.</b> Prompt de correction à coller dans Claude Code :</p>${pre(data.prompt_correction)}`
+      : "",
+    data.doublons.length
+      ? `<p style="margin:10px 0 0 0"><b>Doublons détectés</b> (même nom, même show) : ${data.doublons
+          .slice(0, 5)
+          .map((g) => `${esc(g.nom)} (${esc(g.show.toUpperCase())}, ${g.ids.length} fiches, <a href="${esc(lienClaude(`fusionne les doublons de ${g.nom} sur ${g.show} : garde la fiche la plus complète comme survivante`))}" style="color:#1D6FD8">fusionner</a>)`)
+          .join(" ; ")}.</p>`
       : "",
   ].join("");
 

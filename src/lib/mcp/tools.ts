@@ -327,7 +327,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // Gating (décision #6). Fail-open uniquement si aucun scope présent (jeton
       // legacy) : sinon on exige le scope. destructif → admin, écriture → write.
       if (scopes.length && !scopes.includes(need)) {
-        const denial = text({ error: `Accès refusé : rôle « ${need} » requis pour ${name}.` });
+        // P3 doublons (25/08) : une erreur de droits ROUTE au lieu de refuser sec.
+        const denial = text({
+          error: `Cette opération (${name}) demande le rôle ${need === "admin" ? "admin" : "interne (écriture)"}. Adresse-toi à Matthieu pour obtenir le rôle ou lui demander d'exécuter l'opération.`,
+        });
         await auditWrite(name, actor, a, false, `accès refusé (scope ${need} manquant)`);
         return denial;
       }
@@ -505,11 +508,12 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT(
     "find_cible",
-    "Cherche une cible par nom dans un show et renvoie id + résumé. Intentions : vérifier si une personne / entreprise existe déjà, éviter un doublon avant create_cible, retrouver l'id d'une fiche. Sans tirer toute la liste.",
+    "Cherche une cible par nom dans un show et renvoie id + résumé. Les cibles ARCHIVÉES sont exclues par défaut (include_archived: true pour les voir, chaque ligne porte alors son drapeau archive). Intentions : vérifier si une personne / entreprise existe déjà, éviter un doublon avant create_cible, retrouver l'id d'une fiche. Sans tirer toute la liste.",
     {
       show: z.string(),
       cible: z.string().optional().describe("nom ou fragment de nom"),
       query: z.string().optional().describe("alias de `cible` (déprécié)"),
+      include_archived: z.boolean().optional().describe("inclure les cibles archivées (défaut false)"),
     },
     { readOnlyHint: true },
     async (a) => {
@@ -518,14 +522,17 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!needle) return text({ error: "Préciser `cible` (nom ou fragment)." });
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
-      const { data, error } = await sb
+      // P3 doublons (25/08) : les archivées sortent par défaut, comme partout.
+      let q = sb
         .from("cibles_enrichies")
-        .select("id, nom, kind, role, organisation, secteur, pays, stage_key, archetype")
+        .select("id, nom, kind, role, organisation, secteur, pays, stage_key, archetype, archive")
         .eq("show_id", sid)
         .ilike("nom", `%${needle}%`)
         .limit(15);
+      if (!a.include_archived) q = q.eq("archive", false);
+      const { data, error } = await q;
       if (error) return text({ error: error.message });
-      return text({ count: (data ?? []).length, cibles: data });
+      return text({ count: (data ?? []).length, cibles: data, ...(a.include_archived ? {} : { note: "archivées exclues (include_archived: true pour les voir)" }) });
     }
   );
 

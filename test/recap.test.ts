@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildRecapEmail, normaliseCause, promptCorrection,
   nomsProches, dedoublonneAllies, retireCiblesDesAllies, statutValide, vaAuSandbox,
-  demandesSemaine, stockDemandes, ageJours,
+  demandesSemaine, stockDemandes, ageJours, groupesDoublons,
   type RecapData, type MouvementCible,
 } from "../src/lib/recap/hebdo";
 
@@ -36,6 +36,7 @@ const data: RecapData = {
     { id: "b1a2c3d4e5f6a7b8", auteur: "clemence@stefani.fr", contenu: "Rendre visibles depuis la régie les saisies faites sur la fiche pendant le REC", contexte: {}, type: "feature", resume: "Afficher sur la régie les saisies faites sur la fiche pendant le REC, pour que les deux opérateurs se voient écrire.", created_at: "2026-07-22T09:00:00Z" },
   ],
   stock: { total: 9, anciens: 3 },
+  doublons: [],
 };
 
 /** Texte visible de l'email : blocs pre exclus (prompts, tirets autorisés),
@@ -205,6 +206,31 @@ describe("récap hebdo v3 — D, demandes produit", () => {
   it("longueur : l'email complet du fixture reste sous 4 000 caractères hors prompts", () => {
     const { html } = buildRecapEmail(data);
     expect(html.replace(/<pre[\s\S]*?<\/pre>/g, "").length).toBeLessThan(4000);
+  });
+});
+
+describe("P3 doublons — scan hebdomadaire et rendu", () => {
+  it("groupe par nom normalisé et par show, singletons écartés, plus gros groupes d'abord", () => {
+    const g = groupesDoublons([
+      { show: "gdiy", nom: "Yuval Noah Harari", id: "a" },
+      { show: "gdiy", nom: "yuval  noah HARARI", id: "b" },
+      { show: "gdiy", nom: "Yuval Noah Harari", id: "c" },
+      { show: "ccg", nom: "Yuval Noah Harari", id: "d" },
+      { show: "gdiy", nom: "Rafaèle Tordjman", id: "e" },
+      { show: "gdiy", nom: "Rafaele Tordjman", id: "f" },
+      { show: "gdiy", nom: "Ben Smith", id: "g" },
+    ]);
+    expect(g).toHaveLength(2);
+    expect(g[0].ids).toEqual(["a", "b", "c"]);
+    expect(g[1].ids).toEqual(["e", "f"]);
+  });
+
+  it("l'email propose la fusion en un clic, rien quand le pipeline est propre", () => {
+    expect(buildRecapEmail(data).html).not.toContain("Doublons détectés");
+    const { html } = buildRecapEmail({ ...data, doublons: [{ show: "gdiy", nom: "Yuval Noah Harari", ids: ["a", "b", "c"] }] });
+    expect(html).toContain("Doublons détectés");
+    expect(html).toContain("Yuval Noah Harari (GDIY, 3 fiches");
+    expect(html).toContain(`https://claude.ai/new?q=${encodeURIComponent("fusionne les doublons de Yuval Noah Harari sur gdiy : garde la fiche la plus complète comme survivante")}`);
   });
 });
 
