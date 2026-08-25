@@ -2200,9 +2200,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "feedback",
-    "Pose une demande d'évolution ou un constat produit dans le backlog Magellan (une ligne suffit). Le contexte est capté automatiquement : acteur du jeton, dernier outil appelé, cible concernée si fournie. Compilé chaque lundi dans le récap hebdo avec un triage proposé. Intentions : signaler un manque, proposer une amélioration, noter un irritant à chaud.",
+    "Pose une demande d'évolution ou un constat produit dans le backlog Magellan (une ligne suffit). CHOISIS LE BON TYPE : feature pour une demande d'évolution (défaut), bug pour un dysfonctionnement, correction pour une correction de donnée à exécuter, note pour un document d'état ou de cadrage (les notes ne paraissent jamais dans les demandes produit du récap). Le contexte est capté automatiquement : acteur du jeton, dernier outil appelé, cible concernée si fournie. Compilé chaque lundi dans le récap hebdo. Intentions : signaler un manque, proposer une amélioration, noter un irritant à chaud, déposer un document d'état.",
     {
       texte: z.string().describe("la demande ou le constat, en clair"),
+      type: z.enum(["feature", "bug", "correction", "note"]).optional().describe("défaut feature ; note = document d'état ou de cadrage, hors demandes produit"),
       cible: z.string().optional().describe("nom ou id de la cible concernée, le cas échéant"),
     },
     { destructiveHint: false, idempotentHint: false },
@@ -2225,13 +2226,16 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         if (dernier) contexte.dernier_outil = (dernier as { tool: string }).tool;
       } catch { /* contexte best-effort */ }
       if (a.cible) contexte.cible = a.cible;
-      const { data, error } = await sb
-        .from("product_backlog")
-        .insert({ auteur: acteur, source: "mcp_feedback", contenu: a.texte, contexte, statut: "nouveau" })
-        .select("id")
-        .single();
-      if (error) return text({ error: error.message });
-      return text({ ok: true, backlog_id: (data as { id: string }).id, detail: "Noté au backlog. Compilé dans le récap du lundi." });
+      const type = a.type ?? "feature";
+      const ligne = { auteur: acteur, source: "mcp_feedback", contenu: a.texte, contexte, statut: "nouveau" };
+      // Typage (lot 2 du chantier récap) : best-effort tant que la migration
+      // 0048 n'est pas appliquée (repli sans la colonne, défaut feature).
+      let res = await sb.from("product_backlog").insert({ ...ligne, type }).select("id").single();
+      if (res.error && /column|type/i.test(res.error.message)) {
+        res = await sb.from("product_backlog").insert(ligne).select("id").single();
+      }
+      if (res.error) return text({ error: res.error.message });
+      return text({ ok: true, backlog_id: (res.data as { id: string }).id, type, detail: "Noté au backlog. Compilé dans le récap du lundi." });
     }
   );
 
