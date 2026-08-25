@@ -222,8 +222,9 @@ async function autoAttachAppuiContacts(
   return { attaches: rows.map((x) => `${x.kind}: ${x.valeur}`), resolution: r };
 }
 
-/** Outils destructifs : exigent le scope admin (décision #6). */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock"]);
+/** Outils destructifs : exigent le scope admin (décision #6). set_role (P0 du
+ *  25/08) est dans la liste : la gestion des rôles est une opération admin. */
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock", "set_role"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -2314,6 +2315,45 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       }
       const etat = await etatBudgetLecture(sb);
       return text({ ok: true, override: a.actif, mois: new Date().toISOString().slice(0, 7), depense_estimee_eur: etat.depense_eur === null ? null : Number(etat.depense_eur.toFixed(2)), plafond_eur: etat.plafond_eur });
+    }
+  );
+
+  // P0 du chantier doublons (25/08) : gestion des rôles applicatifs. DOUBLE
+  // verrou, indépendant du scope : en plus du gating admin de W() (scopes du
+  // jeton), le handler REFUSE tout appelant dont le claim role du jeton n'est
+  // pas admin, vérifié CÔTÉ SERVEUR sur extra.authInfo (jamais un paramètre
+  // client). Un jeton legacy sans claim role passe le fail-open des scopes
+  // mais est refusé ici. Jamais dans LOOP_TOOLS. Chaque appel est journalisé
+  // par W() dans mcp_audit ; le detail porte le changement (avant vers après).
+  W(
+    "set_role",
+    "Change le RÔLE APPLICATIF d'un membre (profiles.type) : admin, interne ou externe. Réservé aux admins (vérification serveur sur le jeton de l'appelant). ATTENTION : le rôle est figé dans chaque jeton MCP à son émission, le nouveau rôle ne prend effet qu'à la prochaine connexion du connecteur de la personne. Chaque changement est journalisé (qui, quand, quel changement). Intentions : donner ou retirer les droits admin d'un membre de l'équipe.",
+    {
+      email: z.string().describe("email du membre (profiles.email)"),
+      role: z.enum(["admin", "interne", "externe"]).describe("nouveau rôle applicatif"),
+    },
+    { destructiveHint: true, idempotentHint: true },
+    async (a, extra) => {
+      const roleAppelant = extra?.authInfo?.extra?.role ?? null;
+      if (roleAppelant !== "admin") {
+        return text({ error: "Cette opération demande le rôle admin, vérifié sur le jeton de l'appelant. Adresse-toi à Matthieu." });
+      }
+      const sb = createServiceClient();
+      const email = a.email.trim().toLowerCase();
+      const { data: profil } = await sb.from("profiles").select("id, email, type").ilike("email", email).maybeSingle();
+      if (!profil) return text({ error: `Aucun profil pour « ${email} » : la personne doit s'être connectée au moins une fois à Magellan.` });
+      const avant = (profil as { type: string }).type;
+      if (avant === a.role) {
+        return text({ ok: true, email, role: a.role, detail: `rôle inchangé (déjà ${a.role})` });
+      }
+      const { error } = await sb.from("profiles").update({ type: a.role }).eq("id", (profil as { id: string }).id);
+      if (error) return text({ error: error.message });
+      return text({
+        ok: true,
+        email,
+        detail: `rôle de ${email} : ${avant} vers ${a.role}`,
+        prise_effet: "à la prochaine émission de jeton : la personne doit reconnecter son connecteur Claude, les jetons déjà émis gardent l'ancien rôle jusqu'à expiration",
+      });
     }
   );
 

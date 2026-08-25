@@ -45,6 +45,10 @@
   avec Louis (dispo sous 4 jours), le rebranchement avance en parallèle.
 
 ## En attente
+- `0047_clemence_admin.sql` : profiles.type admin pour clemence@collision.studio
+  (P0 du chantier doublons du 25/08). APRÈS application, Clémence réautorise son
+  connecteur Claude : le rôle est figé dans le jeton à l'émission, l'ancien
+  jeton reste interne jusqu'à réémission.
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 
