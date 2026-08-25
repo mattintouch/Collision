@@ -30,7 +30,7 @@ describe("requiredScope", () => {
     // Les trois passent par W(), donc chaque appel est journalisé dans
     // mcp_audit (acteur, horodatage, payload, résultat) : la demande de
     // journalisation de budget_override et set_episode_lock est structurelle.
-    for (const t of ["set_role", "budget_override", "set_episode_lock"]) {
+    for (const t of ["set_role", "fusionner_cibles", "budget_override", "set_episode_lock"]) {
       expect(requiredScope(t, {})).toBe("admin");
     }
   });

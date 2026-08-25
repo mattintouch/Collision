@@ -45,6 +45,12 @@
   avec Louis (dispo sous 4 jours), le rebranchement avance en parallèle.
 
 ## En attente
+- `0049_fusionner_cibles.sql` : fonction plpgsql fusionner_cibles(survivante,
+  absorbee) en une transaction (P1 bis du chantier doublons du 25/08) : champs
+  comblés (la survivante gagne), appuis, touches, contacts et folk_id
+  rapatriés sans doublon, absorbée archivée avec note de renvoi. Extension
+  unaccent activée. Sans la migration, l'outil MCP fusionner_cibles répond
+  « appliquer la migration 0049 ».
 - `0048_backlog_type_resume.sql` : colonnes type (CHECK feature, bug,
   correction, note, défaut feature) et resume sur product_backlog, avec
   backfill des items existants ; enrichment_jobs.cible_id nullable et objectif
