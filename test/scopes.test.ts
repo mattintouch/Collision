@@ -26,6 +26,14 @@ describe("requiredScope", () => {
       expect(requiredScope(t, {})).toBe("admin");
     }
   });
+  it("P0 du 25/08 : la gestion des rôles et les deux outils admin journalisés exigent admin", () => {
+    // Les trois passent par W(), donc chaque appel est journalisé dans
+    // mcp_audit (acteur, horodatage, payload, résultat) : la demande de
+    // journalisation de budget_override et set_episode_lock est structurelle.
+    for (const t of ["set_role", "budget_override", "set_episode_lock"]) {
+      expect(requiredScope(t, {})).toBe("admin");
+    }
+  });
   it("enrich exige admin seulement si apply=true", () => {
     expect(requiredScope("enrich_cible", {})).toBe("write");
     expect(requiredScope("enrich_cible", { apply: true })).toBe("admin");
