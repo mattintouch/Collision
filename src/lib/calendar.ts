@@ -253,6 +253,93 @@ export async function deleteCalendarEvent(
   }
 }
 
+export interface CalendarEventDetails {
+  id?: string;
+  status?: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  htmlLink?: string;
+  start?: { dateTime?: string; date?: string; timeZone?: string };
+  end?: { dateTime?: string; date?: string; timeZone?: string };
+  attendees?: { email: string; responseStatus?: string; optional?: boolean; organizer?: boolean; self?: boolean; resource?: boolean; displayName?: string }[];
+}
+
+/** Lit un événement complet (cycle de vie des invitations, backlog 62b38c35).
+ *  `introuvable` distingue la référence morte (404/410) d'une vraie erreur. */
+export async function getCalendarEvent(
+  eventId: string
+): Promise<{ ok: boolean; detail: string; event?: CalendarEventDetails; introuvable?: boolean }> {
+  const token = await calendarBearer(null);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (res.status === 404 || res.status === 410) return { ok: false, detail: "Événement introuvable côté Google (référence morte).", introuvable: true };
+    if (!res.ok) {
+      const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+      return { ok: false, detail: `${g.message} — ${g.action}` };
+    }
+    return { ok: true, detail: "Événement lu.", event: (await res.json()) as CalendarEventDetails };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** PATCH générique d'un événement : seuls les champs passés changent
+ *  (contrainte 1 : jamais de delete puis create). sendUpdates est TOUJOURS
+ *  explicite (contrainte 2) : all quand notify, none sinon. */
+export async function patchCalendarEvent(
+  eventId: string,
+  body: Record<string, unknown>,
+  notify: boolean
+): Promise<{ ok: boolean; detail: string; htmlLink?: string }> {
+  const token = await calendarBearer(null);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active." };
+  try {
+    const send = notify ? "all" : "none";
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=${send}`,
+      { method: "PATCH", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    if (!res.ok) {
+      const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+      return { ok: false, detail: `${g.message} — ${g.action}` };
+    }
+    const data = (await res.json()) as { htmlLink?: string };
+    return { ok: true, detail: "Événement mis à jour.", htmlLink: data.htmlLink };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier" };
+  }
+}
+
+/** Événements du calendrier de l'organisateur sur une fenêtre (détection de
+ *  conflit studio, contrainte 6). singleEvents aplatit les récurrences. */
+export async function listCalendarEvents(
+  timeMinISO: string,
+  timeMaxISO: string
+): Promise<{ ok: boolean; detail: string; items: CalendarEventDetails[] }> {
+  const token = await calendarBearer(null);
+  if (!token) return { ok: false, detail: "Pas de connexion Google active.", items: [] };
+  try {
+    const params = new URLSearchParams({ timeMin: timeMinISO, timeMax: timeMaxISO, singleEvents: "true", maxResults: "50" });
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) {
+      const g = parseGoogleError(res.status, await res.text().catch(() => ""), "Calendar");
+      return { ok: false, detail: `${g.message} — ${g.action}`, items: [] };
+    }
+    const data = (await res.json()) as { items?: CalendarEventDetails[] };
+    return { ok: true, detail: "Événements listés.", items: data.items ?? [] };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Erreur calendrier", items: [] };
+  }
+}
+
 /** Déplace un événement (report) : nouveaux start/end. */
 export async function updateCalendarEventTimes(
   providerToken: string | null | undefined,

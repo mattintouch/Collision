@@ -38,8 +38,9 @@ import {
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
 import { FICHE_GROUPES, FICHE_JOB_PREFIX, enqueueFicheGeneration, type FicheGroupe } from "../fiche/generation";
-import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar } from "../calendar";
+import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar, getCalendarEvent, patchCalendarEvent, listCalendarEvents } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
+import { parisVersUtcIso, heureMuraleParis, dureeMinutes, fenetreStudio, conflitsStudio, fusionneParticipants, TZ_PARIS } from "../episode/gestion-invitation";
 import { buildInviteMail, buildStaffMail, type MailLang } from "../episode/prep-mail";
 import { sendGmail, hasGmailSend, gmailSender } from "../gmail";
 import { buildVcard, isUsefulCard, vcfFileName, type VcfPerson } from "../vcf";
@@ -1366,6 +1367,236 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         details.push({ episode_id: ep.id, events });
       }
       return text({ ok: true, annules: rows.length, details });
+    }
+  );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Cycle de vie des invitations (backlog 62b38c35, 25/08). Il manquait les
+  // deux bouts : MODIFIER une invitation sans annuler puis recréer (le duo
+  // cancel_episode + validate_cible envoyait un mail d'ANNULATION à l'invité),
+  // et SUPPRIMER la seule invitation en conservant l'épisode et sa prépa.
+  // Contrôle d'accès : mêmes règles que validate_cible (scope write).
+  // ───────────────────────────────────────────────────────────────────────────
+
+  W(
+    "update_invitation",
+    "MODIFIE l'invitation d'enregistrement existante d'un épisode par PATCH Google Calendar : les participants reçoivent une MISE À JOUR, jamais une annulation, et leurs réponses (RSVP) sont préservées. Patche uniquement les champs passés : titre, description, start_iso (heure de Paris), duree_min, lieu, ajouter_participants, retirer_participants (le retiré reçoit une annulation individuelle, les autres rien). La réservation studio (-1h/+1h) suit le nouveau créneau ; conflit avec une autre réservation = échec explicite, rien n'est modifié. Si les horaires ou le lieu changent sans description explicite, le corps est régénéré depuis le gabarit. simulation: true montre le diff et qui serait notifié SANS rien écrire. Intentions : corriger une durée ou un horaire, ajouter un participant, sans mail d'annulation.",
+    {
+      episode: z.string().describe("id, numéro ou nom d'invité (même résolution que get_episode)"),
+      show: z.string().optional(),
+      titre: z.string().optional().describe("titre de l'événement"),
+      description: z.string().optional().describe("corps de l'invitation (prime sur la régénération)"),
+      start_iso: z.string().optional().describe("nouvelle date et heure de début, interprétée en Europe/Paris"),
+      duree_min: z.number().optional().describe("nouvelle durée en minutes"),
+      lieu: z.string().optional(),
+      ajouter_participants: z.array(z.string()).optional().describe("emails à ajouter"),
+      retirer_participants: z.array(z.string()).optional().describe("emails à retirer (annulation individuelle)"),
+      notifier: z.boolean().optional().describe("défaut true : les participants reçoivent la mise à jour"),
+      simulation: z.boolean().optional().describe("défaut false : renvoie le diff sans écrire"),
+    },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const ep = await resolveEpisodePublication(sb, a.episode, a.show);
+      if (!ep) return text({ error: `Épisode « ${a.episode} » introuvable.` });
+      const { data: row } = await sb
+        .from("episodes")
+        .select("id, nom, cible_id, show_id, gcal_event_id, gcal_studio_event_id, date_enregistrement")
+        .eq("id", ep.id as string)
+        .maybeSingle();
+      const epRow = row as { id: string; nom: string; cible_id: string | null; show_id: string; gcal_event_id: string | null; gcal_studio_event_id: string | null; date_enregistrement: string | null } | null;
+      if (!epRow) return text({ error: "Épisode introuvable." });
+      if (!epRow.gcal_event_id) return text({ error: "Cet épisode n'a pas d'invitation : validate_cible avec start_iso en crée une." });
+
+      const lu = await getCalendarEvent(epRow.gcal_event_id);
+      if (!lu.ok || !lu.event) {
+        return text({
+          error: lu.introuvable
+            ? "L'invitation référencée n'existe plus côté Google (référence morte) : delete_invitation nettoie les identifiants, puis validate_cible recrée proprement."
+            : `Lecture de l'invitation impossible : ${lu.detail}`,
+        });
+      }
+      const ev = lu.event;
+      const startActuel = ev.start?.dateTime ? new Date(ev.start.dateTime).toISOString() : null;
+      const endActuel = ev.end?.dateTime ? new Date(ev.end.dateTime).toISOString() : null;
+      if (!startActuel || !endActuel) return text({ error: "Événement sans horaires exploitables (événement journée entière ?)." });
+
+      // Horaires : start_iso interprété en Europe/Paris (contrainte 5).
+      const nouveauStart = a.start_iso ? parisVersUtcIso(a.start_iso) : startActuel;
+      if (isNaN(new Date(nouveauStart).getTime())) return text({ error: "start_iso invalide." });
+      const dureeActuelle = dureeMinutes(startActuel, endActuel);
+      const nouvelleDuree = a.duree_min ?? dureeActuelle;
+      if (nouvelleDuree <= 0) return text({ error: "duree_min invalide." });
+      const nouveauEnd = new Date(new Date(nouveauStart).getTime() + nouvelleDuree * 60_000).toISOString();
+      const horairesChangent = nouveauStart !== startActuel || nouvelleDuree !== dureeActuelle;
+      const lieuChange = a.lieu !== undefined && a.lieu.trim() !== (ev.location ?? "");
+      const nouveauLieu = a.lieu !== undefined ? (a.lieu.trim() || DEFAULT_LIEU) : (ev.location ?? DEFAULT_LIEU);
+
+      // Participants : fusion avec RSVP préservés (contrainte 3).
+      const { attendees, ajoutes, retires } = fusionneParticipants(ev.attendees ?? [], a.ajouter_participants ?? [], a.retirer_participants ?? []);
+      const participantsChangent = ajoutes.length > 0 || retires.length > 0;
+
+      // Corps (contrainte 7) : description passée prime ; sinon régénération
+      // depuis le gabarit quand les horaires ou le lieu changent.
+      let description = a.description;
+      if (description === undefined && (horairesChangent || lieuChange)) {
+        let ficheLink: string | null = null;
+        if (epRow.cible_id) {
+          const { data: fRow } = await sb.from("fiches").select("slug").eq("cible_id", epRow.cible_id).maybeSingle();
+          if ((fRow as { slug?: string } | null)?.slug) ficheLink = fichePageUrl((fRow as { slug: string }).slug);
+        }
+        let langue = "fr";
+        if (epRow.cible_id) {
+          const { data: pbRow } = await sb.from("cibles").select("playbook").eq("id", epRow.cible_id).maybeSingle();
+          if (String(((pbRow as { playbook?: { langue?: string } } | null)?.playbook?.langue) ?? "").toLowerCase().startsWith("en")) langue = "en";
+        }
+        const { data: sRow } = await sb.from("shows").select("slug").eq("id", epRow.show_id).maybeSingle();
+        description = buildEventDescription({
+          show_nom: ((sRow as { slug?: string } | null)?.slug ?? "gdiy").toUpperCase(),
+          invite_nom: epRow.nom,
+          duree_min: nouvelleDuree,
+          lieu: nouveauLieu,
+          fiche_url: ficheLink,
+        }, langue as "fr" | "en");
+      }
+
+      // Studio (contrainte 6) : la réservation suit, conflit = échec AVANT
+      // toute écriture, avec le détail.
+      const studioSuit = !!epRow.gcal_studio_event_id && horairesChangent;
+      const fenetre = studioSuit ? fenetreStudio(nouveauStart, nouvelleDuree) : null;
+      if (fenetre && epRow.gcal_studio_event_id) {
+        const liste = await listCalendarEvents(fenetre.startISO, fenetre.endISO);
+        if (!liste.ok) return text({ error: `Contrôle de conflit studio impossible, rien n'a été modifié : ${liste.detail}` });
+        const conflits = conflitsStudio(liste.items, fenetre, [epRow.gcal_event_id, epRow.gcal_studio_event_id]);
+        if (conflits.length) {
+          return text({
+            error: "Conflit studio : le nouveau créneau chevauche une autre réservation. Rien n'a été modifié.",
+            conflits: conflits.map((c) => ({ id: c.id, titre: c.summary, debut: c.start?.dateTime, fin: c.end?.dateTime })),
+          });
+        }
+      }
+
+      // Patch : uniquement les champs qui changent (contrainte 1).
+      const patchEvent: Record<string, unknown> = {};
+      if (a.titre?.trim() && a.titre.trim() !== ev.summary) patchEvent.summary = a.titre.trim();
+      if (description !== undefined && description !== ev.description) patchEvent.description = description;
+      if (lieuChange) patchEvent.location = nouveauLieu;
+      if (horairesChangent) {
+        patchEvent.start = { dateTime: heureMuraleParis(nouveauStart), timeZone: TZ_PARIS };
+        patchEvent.end = { dateTime: heureMuraleParis(nouveauEnd), timeZone: TZ_PARIS };
+      }
+      if (participantsChangent) patchEvent.attendees = attendees;
+      if (!Object.keys(patchEvent).length) {
+        return text({ ok: true, detail: "Rien à modifier : les champs passés ne changent rien à l'invitation." });
+      }
+
+      const notifier = a.notifier !== false;
+      const diff = {
+        evenement: {
+          avant: { titre: ev.summary, debut: startActuel, fin: endActuel, duree_min: dureeActuelle, lieu: ev.location, participants: (ev.attendees ?? []).map((p) => ({ email: p.email, reponse: p.responseStatus })) },
+          apres: { titre: (patchEvent.summary as string) ?? ev.summary, debut: nouveauStart, fin: nouveauEnd, duree_min: nouvelleDuree, lieu: nouveauLieu, participants: attendees.map((p) => ({ email: p.email, reponse: p.responseStatus ?? "conservée telle quelle" })), corps_regenere: a.description === undefined && description !== undefined },
+        },
+        studio: fenetre ? { suit_le_creneau: true, nouvelle_fenetre: fenetre } : { suit_le_creneau: false },
+        notifications: notifier
+          ? { mise_a_jour: attendees.map((p) => p.email), annulation_individuelle: retires }
+          : { desactivees: true, note: "notifier: false, personne ne reçoit la mise à jour ; un retiré ne reçoit pas non plus d'annulation" },
+      };
+      if (a.simulation) return text({ simulation: true, detail: "Aucune écriture.", ...diff });
+
+      const patchRes = await patchCalendarEvent(epRow.gcal_event_id, patchEvent, notifier);
+      if (!patchRes.ok) return text({ error: `Échec du patch de l'invitation, rien d'autre n'a été modifié : ${patchRes.detail}` });
+      let studioNote = "réservation inchangée";
+      if (fenetre && epRow.gcal_studio_event_id) {
+        const sRes = await patchCalendarEvent(
+          epRow.gcal_studio_event_id,
+          { start: { dateTime: heureMuraleParis(fenetre.startISO), timeZone: TZ_PARIS }, end: { dateTime: heureMuraleParis(fenetre.endISO), timeZone: TZ_PARIS } },
+          false
+        );
+        studioNote = sRes.ok ? "réservation studio recalée (-1h/+1h)" : `réservation studio NON recalée : ${sRes.detail}`;
+      }
+      if (horairesChangent) {
+        await sb.from("episodes").update({ date_enregistrement: nouveauStart }).eq("id", epRow.id);
+      }
+      return text({ ok: true, episode_id: epRow.id, ...diff, studio_resultat: studioNote, event_link: patchRes.htmlLink });
+    }
+  );
+
+  W(
+    "delete_invitation",
+    "SUPPRIME l'invitation Google Calendar d'un épisode et, par défaut, la réservation studio, SANS toucher à l'épisode ni à la fiche (toute la différence avec cancel_episode) : l'épisode survit et un validate_cible ultérieur recrée une invitation propre. Les identifiants sont effacés en base (pas de référence morte) UNIQUEMENT si la suppression Google a réussi. Idempotent : sans invitation, succès explicite. notifier (défaut true) : les participants reçoivent l'annulation. simulation: true montre qui la recevrait, sans rien écrire. Intentions : effacer une invitation en double ou fantôme en conservant l'épisode et le travail de prépa.",
+    {
+      episode: z.string().describe("id, numéro ou nom d'invité (même résolution que get_episode)"),
+      show: z.string().optional(),
+      liberer_studio: z.boolean().optional().describe("défaut true : supprime aussi la réservation studio"),
+      notifier: z.boolean().optional().describe("défaut true : les participants reçoivent l'annulation"),
+      simulation: z.boolean().optional().describe("défaut false : montre qui recevrait l'annulation, sans écrire"),
+    },
+    { destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const ep = await resolveEpisodePublication(sb, a.episode, a.show);
+      if (!ep) return text({ error: `Épisode « ${a.episode} » introuvable.` });
+      const { data: row } = await sb
+        .from("episodes")
+        .select("id, nom, gcal_event_id, gcal_studio_event_id")
+        .eq("id", ep.id as string)
+        .maybeSingle();
+      const epRow = row as { id: string; nom: string; gcal_event_id: string | null; gcal_studio_event_id: string | null } | null;
+      if (!epRow) return text({ error: "Épisode introuvable." });
+
+      const notifier = a.notifier !== false;
+      const libererStudio = a.liberer_studio !== false;
+      if (!epRow.gcal_event_id && !epRow.gcal_studio_event_id) {
+        return text({ ok: true, deja_sans_invitation: true, detail: "Aucune invitation ni réservation référencée sur cet épisode : rien à supprimer, l'épisode et sa fiche sont intacts." });
+      }
+
+      // Destinataires de l'annulation (contrainte 10) : lus AVANT de tirer.
+      let destinataires: { email: string; reponse?: string }[] = [];
+      if (epRow.gcal_event_id) {
+        const lu = await getCalendarEvent(epRow.gcal_event_id);
+        if (lu.ok && lu.event) destinataires = (lu.event.attendees ?? []).map((p) => ({ email: p.email, reponse: p.responseStatus }));
+      }
+      if (a.simulation) {
+        return text({
+          simulation: true,
+          detail: "Aucune écriture.",
+          supprimerait: { invitation: !!epRow.gcal_event_id, reservation_studio: libererStudio && !!epRow.gcal_studio_event_id },
+          annulation_envoyee_a: notifier ? destinataires : [],
+          notifications_desactivees: !notifier,
+          episode: "resterait intact (épisode et fiche conservés, identifiants effacés en base)",
+        });
+      }
+
+      const patch: Record<string, unknown> = {};
+      const details: string[] = [];
+      let complet = true;
+      if (epRow.gcal_event_id) {
+        const r = await deleteCalendarEvent(null, epRow.gcal_event_id, notifier);
+        if (r.ok) {
+          patch.gcal_event_id = null;
+          details.push(notifier ? `invitation supprimée, annulation envoyée à ${destinataires.length} participant(s)` : "invitation supprimée sans notification");
+        } else {
+          complet = false;
+          details.push(`invitation NON supprimée (${r.detail}) : identifiant conservé pour réessayer`);
+        }
+      }
+      if (libererStudio && epRow.gcal_studio_event_id) {
+        const r = await deleteCalendarEvent(null, epRow.gcal_studio_event_id, false);
+        if (r.ok) {
+          patch.gcal_studio_event_id = null;
+          details.push("réservation studio libérée");
+        } else {
+          complet = false;
+          details.push(`réservation studio NON libérée (${r.detail}) : identifiant conservé`);
+        }
+      }
+      if (Object.keys(patch).length) await sb.from("episodes").update(patch).eq("id", epRow.id);
+      return text({
+        ok: complet,
+        episode_id: epRow.id,
+        details,
+        episode: "intact : épisode et fiche conservés, un validate_cible ultérieur recrée une invitation propre",
+      });
     }
   );
 
