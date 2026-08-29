@@ -158,3 +158,22 @@ describe("buildVcf", () => {
     expect(v).toContain("A\\,B");
   });
 });
+
+describe("idées éditoriales — injection dans la génération (chantier du 27/08)", async () => {
+  const { blocIdees } = await import("../src/lib/fiche/generation");
+
+  it("le bloc impose l'intégration et porte type, texte et source", () => {
+    const bloc = blocIdees([
+      { type: "question", texte: "Lui faire raconter la nuit du closing raté de 2019", source_url: null },
+      { type: "source", texte: "Vidéo Konbini où il détaille sa routine", source_url: "https://youtube.com/watch?v=x" },
+    ]);
+    expect(bloc).toContain("à INTÉGRER OBLIGATOIREMENT");
+    expect(bloc).toContain("JAMAIS ignorée en silence");
+    expect(bloc).toContain("[question] Lui faire raconter la nuit du closing raté de 2019");
+    expect(bloc).toContain("[source] Vidéo Konbini où il détaille sa routine (source : https://youtube.com/watch?v=x)");
+  });
+
+  it("aucun bloc quand le backlog est vide", async () => {
+    expect(blocIdees([])).toBe("");
+  });
+});

@@ -54,6 +54,11 @@
   Harari 215ce4f6 et c86b5529 fusionnées dans 1dcf77bb.
 
 ## En attente
+- `0050_idees_editoriales.sql` : table idees_editoriales, le backlog éditorial
+  au niveau cible (chantier du 27/08 : add_idee, list_idees, injection dans
+  generate_fiche avec passage en integree, compte dans get_dossier). Le code
+  est défensif : sans la migration, add_idee et list_idees répondent
+  « appliquer la migration 0050 » et la génération tourne sans injection.
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 

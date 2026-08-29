@@ -26,7 +26,7 @@ import { kindAwarePatch, mapKindConstraintError } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, SECTIONS_OBLIGATOIRES, canonicalSectionId, parseSectionsParam } from "../fiche/sections";
-import { SECTION_CONTRACTS, isEmptyContent } from "../fiche/schema";
+import { SECTION_CONTRACTS, isEmptyContent, safeUrl } from "../fiche/schema";
 import {
   FICHE_STATUTS,
   resolveFiche,
@@ -83,6 +83,26 @@ async function resolveCible(sb: SB, sid: string, ref: string) {
     .limit(2);
   const rows = (data ?? []) as { id: string; nom: string }[];
   return rows.length === 1 ? rows[0] : null;
+}
+
+/** Résolution uniforme nom OU id (convention du débrief du 13/08, comme
+ *  log_touche et add_appui) : la cible unique, ou la LISTE DES CANDIDATS
+ *  quand le nom est ambigu, pour un refus explicite sans choix silencieux.
+ *  Ne crée JAMAIS de cible. */
+async function resolveCibleOuCandidats(
+  sb: SB,
+  sid: string,
+  ref: string
+): Promise<{ cible: { id: string; nom: string } } | { candidats: { id: string; nom: string; archive: boolean }[] }> {
+  const unique = await resolveCible(sb, sid, ref);
+  if (unique) return { cible: unique };
+  const { data } = await sb
+    .from("cibles")
+    .select("id, nom, archive")
+    .eq("show_id", sid)
+    .ilike("nom", `%${ref}%`)
+    .limit(6);
+  return { candidats: ((data ?? []) as { id: string; nom: string; archive: boolean }[]) };
 }
 
 /** Résout un épisode pour le domaine publication : id, numéro, ou nom
@@ -594,6 +614,17 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         .limit(1)
         .maybeSingle();
 
+      // Idées éditoriales en backlog (chantier du 27/08, défensif avant 0050).
+      let idees_en_backlog = 0;
+      try {
+        const { count, error: errIdees } = await sb
+          .from("idees_editoriales")
+          .select("id", { count: "exact", head: true })
+          .eq("cible_id", cid)
+          .eq("statut", "backlog");
+        if (!errIdees) idees_en_backlog = count ?? 0;
+      } catch { /* migration 0050 non appliquée */ }
+
       return text({
         cible: c.data,
         appuis: appuisWithContacts,
@@ -602,7 +633,105 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         contacts: contacts.data,
         contacts_externes,
         dernier_enrichissement: enr ?? null,
+        idees_en_backlog,
       });
+    }
+  );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Backlog éditorial au niveau CIBLE (chantier du 27/08, migration 0050) :
+  // les idées naissent bien avant la fiche (une vidéo repérée, une question,
+  // un angle) et suivaient dans cibles.note sans structure. Elles vivent ici
+  // et suivent la cible jusqu'à la fiche : generate_fiche injecte le backlog
+  // dans les groupes angles et deroule, puis le passe en integree.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  W(
+    "add_idee",
+    "Pose une IDÉE ÉDITORIALE sur une cible, AVANT la fiche (question à poser, angle, citation repérée, source à lire). L'idée vit en backlog et suit la cible : à la génération de la fiche, elle est injectée dans les questions et les angles puis passée en integree, jamais ignorée en silence. Résolution de la cible par nom ou id ; nom ambigu = refus avec la liste des candidats, JAMAIS de création de cible. Idempotent : même texte déjà en backlog sur la cible = l'existante est renvoyée. Intentions : capter une idée à chaud (vidéo repérée, question, angle) longtemps avant la préparation.",
+    {
+      show: z.string(),
+      cible: z.string().describe("nom ou id de la cible (jamais créée)"),
+      type: z.enum(["question", "angle", "citation", "source"]).optional().describe("défaut question"),
+      texte: z.string().describe("l'idée, en clair"),
+      source_url: z.string().optional().describe("lien d'origine (vidéo, article)"),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a, extra) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const r = await resolveCibleOuCandidats(sb, sid, a.cible);
+      if (!("cible" in r)) {
+        return text({
+          error: r.candidats.length
+            ? `Cible « ${a.cible} » ambiguë : préciser l'id. Aucune cible n'est créée.`
+            : `Cible « ${a.cible} » introuvable. Aucune cible n'est créée (create_cible d'abord si elle doit exister).`,
+          candidats: r.candidats,
+        });
+      }
+      const texte = a.texte.trim();
+      if (!texte) return text({ error: "texte vide." });
+      // Idempotence : même texte normalisé déjà en backlog sur la cible.
+      try {
+        const { data: existantes } = await sb
+          .from("idees_editoriales")
+          .select("id, texte")
+          .eq("cible_id", r.cible.id)
+          .eq("statut", "backlog")
+          .limit(200);
+        const norme = normName(texte);
+        const deja = ((existantes ?? []) as { id: string; texte: string }[]).find((i) => normName(i.texte) === norme);
+        if (deja) return text({ ok: true, deja: true, idee_id: deja.id, detail: "Idée identique déjà en backlog sur cette cible : rien d'ajouté." });
+      } catch { /* contrôle d'idempotence best-effort */ }
+      const auteur = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? "inconnu";
+      const { data, error } = await sb
+        .from("idees_editoriales")
+        .insert({ cible_id: r.cible.id, type: a.type ?? "question", texte, source_url: safeUrl(a.source_url) ?? null, auteur, statut: "backlog" })
+        .select("id")
+        .single();
+      if (error) {
+        if (/idees_editoriales/.test(error.message)) {
+          return text({ error: "Table idees_editoriales absente : appliquer la migration 0050, puis réessayer.", cause: "migration_0050_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      return text({ ok: true, idee_id: (data as { id: string }).id, cible: r.cible.nom, cible_id: r.cible.id, type: a.type ?? "question", detail: "En backlog : injectée dans la fiche à la prochaine génération, puis passée en integree." });
+    }
+  );
+
+  RT(
+    "list_idees",
+    "Liste les idées éditoriales d'une cible (backlog par défaut : la relecture avant préparation), avec type, texte, source, statut et auteur. Résolution par nom ou id, refus avec candidats si ambigu. Intentions : relire la matière éditoriale avant de générer ou challenger la fiche.",
+    {
+      show: z.string(),
+      cible: z.string().describe("nom ou id"),
+      statut: z.enum(["backlog", "integree", "abandonnee"]).optional().describe("omis = tous les statuts"),
+    },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const sid = await showId(sb, a.show);
+      if (!sid) return text({ error: `Show introuvable: ${a.show}` });
+      const r = await resolveCibleOuCandidats(sb, sid, a.cible);
+      if (!("cible" in r)) {
+        return text({ error: `Cible « ${a.cible} » ${r.candidats.length ? "ambiguë : préciser l'id" : "introuvable"}.`, candidats: r.candidats });
+      }
+      let q = sb
+        .from("idees_editoriales")
+        .select("id, type, texte, source_url, statut, auteur, created_at")
+        .eq("cible_id", r.cible.id)
+        .order("created_at")
+        .limit(200);
+      if (a.statut) q = q.eq("statut", a.statut);
+      const { data, error } = await q;
+      if (error) {
+        if (/idees_editoriales/.test(error.message)) {
+          return text({ error: "Table idees_editoriales absente : appliquer la migration 0050, puis réessayer.", cause: "migration_0050_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      return text({ cible: r.cible.nom, cible_id: r.cible.id, total: (data ?? []).length, idees: data ?? [] });
     }
   );
 
