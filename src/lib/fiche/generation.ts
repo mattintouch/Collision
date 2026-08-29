@@ -241,6 +241,55 @@ async function pendingNotes(sb: SB, ficheId: string): Promise<{ id: string; text
   return (data ?? []) as { id: string; text: string; source: string | null }[];
 }
 
+/* ── Idées éditoriales (chantier du 27/08, migration 0050) : le backlog posé
+      au niveau CIBLE, avant la fiche. Injecté dans les groupes angles et
+      deroule ; passé en integree à la réussite du deroule (le groupe des
+      questions), JAMAIS ignoré en silence : un deroule qui échoue laisse les
+      idées en backlog, elles reviennent au prochain passage. */
+
+export interface IdeeEditoriale { id: string; type: string; texte: string; source_url: string | null }
+
+/** Idées en backlog d'une cible. Défensif : table absente (0050 non
+ *  appliquée) = liste vide, la génération tourne comme avant. */
+async function ideesBacklog(sb: SB, cibleId: string): Promise<IdeeEditoriale[]> {
+  try {
+    const { data, error } = await sb
+      .from("idees_editoriales")
+      .select("id, type, texte, source_url")
+      .eq("cible_id", cibleId)
+      .eq("statut", "backlog")
+      .order("created_at")
+      .limit(100);
+    if (error) return [];
+    return (data ?? []) as IdeeEditoriale[];
+  } catch {
+    return [];
+  }
+}
+
+/** Bloc de prompt des idées (PURE, testée) : l'intégration est OBLIGATOIRE,
+ *  une idée inutilisable telle quelle finit en zone grise, jamais ignorée. */
+export function blocIdees(idees: Pick<IdeeEditoriale, "type" | "texte" | "source_url">[]): string {
+  if (!idees.length) return "";
+  return `\n\nIDÉES ÉDITORIALES DE L'ÉQUIPE (backlog posé avant la fiche, à INTÉGRER OBLIGATOIREMENT : chaque idée doit se retrouver dans une question, un topic, un clip ou un angle ; une idée inutilisable telle quelle devient un item de zone grise avec son origine, JAMAIS ignorée en silence) :\n${idees
+    .map((i) => `- [${i.type}] ${i.texte}${i.source_url ? ` (source : ${i.source_url})` : ""}`)
+    .join("\n")}`;
+}
+
+/** Passe en integree les idées injectées, à la réussite du deroule. */
+async function marqueIdeesIntegrees(sb: SB, idees: IdeeEditoriale[]): Promise<void> {
+  if (!idees.length) return;
+  try {
+    await sb
+      .from("idees_editoriales")
+      .update({ statut: "integree" })
+      .in("id", idees.map((i) => i.id))
+      .eq("statut", "backlog");
+  } catch {
+    /* jamais bloquant : au pire les idées reviennent au prochain passage */
+  }
+}
+
 // usageOut (chantier 3) : accumulateur de tokens MUTÉ au fil des appels, y
 // compris quand le groupe échoue ensuite (les tokens ont été consommés).
 export interface FicheJobOpts { model?: string; maxSearches?: number; usageOut?: WebSearchUsage }
@@ -371,10 +420,11 @@ export async function processFicheGroupe(
     const notesTxt = notes.length
       ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notes.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
       : "";
+    const ideesTxt = blocIdees(await ideesBacklog(sb, cible.id));
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<AnglesJson>(
       systemFor("Mission : les APPRENTISSAGES (section reine) et le PERSONNEL. Apprentissages : 5 à 8 SYSTÈMES, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype ; les points de DÉCISION structurants (les décisions datées qui ont fait décrocher sa trajectoire de celle de ses pairs) sont des apprentissages à part entière, formulés comme décisions. Pour chaque système, trois puces COURTES de 2 lignes maximum : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin. Personnel, deux sous-blocs : l'ENTOURAGE (mentors, associés, coachs, rencontres pivots, ennemis utiles : pour chaque personne, son rôle, ce qu'elle éclaire, ce qu'il faut pré-confirmer avec elle avant plateau) et les DONNÉES CACHÉES (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal ; chaque item SOURCÉ, ou pointé zg s'il vient d'une note interne non vérifiée)."),
-      `${intro}${dejaPose}${notesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      `${intro}${dejaPose}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -409,6 +459,8 @@ export async function processFicheGroupe(
   }
 
   if (groupe === "deroule") {
+    const idees = await ideesBacklog(sb, cible.id);
+    const ideesTxt = blocIdees(idees);
     const notes = await pendingNotes(sb, fiche.id);
     const notesTxt = notes.length
       ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notes.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
@@ -425,7 +477,7 @@ export async function processFicheGroupe(
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<DerouleJson>(
       systemFor("Mission : le TL;DR, les TOPICS et les CLIPS. TL;DR : le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL), phrases courtes, une idée par ligne, NEUF labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. TOPICS : la conversation reste NATURELLE, jamais scriptée ; ouvre sur le TERRAIN CONNU (les questions qu'il a déjà eues partout : la réponse rodée en une ligne ET le dépassement prévu, « tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant ») ; puis 5 à 8 topics, chacun avec son titre, son gate time (début et fin en minutes sur un épisode de 150), son intention en UNE ligne de 200 caractères, ses questions cœur NUMÉROTÉES EN CONTINU sur toute la fiche (01, 02, 03... d'un topic à l'autre, pas de plafond : peu si peu, beaucoup si beaucoup d'exceptionnelles) et ses sous-notes tactiques (RELANCE, CHIFFRE À EXIGER, TERRAIN GLISSANT, 200 caractères max). Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. Dosage : 60 % mécanique personnelle, 20 % domaine SUBORDONNÉ à l'individu, 20 % leçons transférables nommées ; au plus 3 questions sur 10 sur le domaine ; toute réponse philosophique attendue = prévoir la relance mécanisme + date. Une tension entre deux faits publics vérifiés rattachable à un topic devient son intention ou une relance. CLIPS : une dizaine de questions courtes, frontales, fun et partageables (ressorts : argent, échec, contre_pied, confession) ; les QUESTIONS QUI FÂCHENT (adossées à une polémique publique documentée, jamais une insinuation) ferment la liste. AUCUNE question ne vit à deux endroits (topics, clips, terrain connu, apprentissages). ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés) porte un identifiant court zg_motcle ; les notes et cartes POINTENT cet identifiant (« ZG: motcle, consigne en moins de 90 caractères »), elles ne recopient JAMAIS le texte complet."),
-      `${intro}${dejaPose}${appTxt}${dejaQTxt}${notesTxt}\n\nRenvoie un objet JSON : {\n  "tldr": [NEUF, dans cet ordre : {"label": "Qui|Fait d'armes|Fil rouge|Le comment|Polémique|Pourquoi maintenant|Piège|Levier|État d'esprit", "texte": "une idée, phrases courtes"}] (1200 caractères au total),\n  "terrain_connu": [3 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "debut_min": 0, "fin_min": 25, "intention": "une ligne, 200 caractères max", "questions": [{"num": "01 (continu sur toute la fiche)", "texte": "courte, tutoiement, sans point final, adossée à un fait", "note": "RELANCE : ... · CHIFFRE À EXIGER : ... (200 caractères max)", "zg": "motcle (si un point non tranché)"}]}],\n  "clips": [{"question": "courte, frontale, partageable, tutoiement", "ressort": "argent|echec|contre_pied|confession", "clip": "la réaction visée", "zg": "motcle (si point non tranché)", "fache": true pour une question qui fâche (adossée à une polémique documentée)}] (les questions qui fâchent EN FIN de liste),\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      `${intro}${dejaPose}${appTxt}${dejaQTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "tldr": [NEUF, dans cet ordre : {"label": "Qui|Fait d'armes|Fil rouge|Le comment|Polémique|Pourquoi maintenant|Piège|Levier|État d'esprit", "texte": "une idée, phrases courtes"}] (1200 caractères au total),\n  "terrain_connu": [3 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "debut_min": 0, "fin_min": 25, "intention": "une ligne, 200 caractères max", "questions": [{"num": "01 (continu sur toute la fiche)", "texte": "courte, tutoiement, sans point final, adossée à un fait", "note": "RELANCE : ... · CHIFFRE À EXIGER : ... (200 caractères max)", "zg": "motcle (si un point non tranché)"}]}],\n  "clips": [{"question": "courte, frontale, partageable, tutoiement", "ressort": "argent|echec|contre_pied|confession", "clip": "la réaction visée", "zg": "motcle (si point non tranché)", "fache": true pour une question qui fâche (adossée à une polémique documentée)}] (les questions qui fâchent EN FIN de liste),\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -490,6 +542,11 @@ export async function processFicheGroupe(
     if (nouveaux.length && notes.length) {
       await sb.from("fiche_notes").update({ integrated: true }).in("id", notes.map((n) => n.id));
     }
+    // Idées éditoriales : passées en integree SEULEMENT ici, après l'écriture
+    // des sections du deroule (le groupe des questions). Un échec plus haut a
+    // déjà lancé : les idées restent en backlog et reviennent au prochain
+    // passage, jamais d'oubli silencieux.
+    await marqueIdeesIntegrees(sb, idees);
     const all = lienList(raw.sources);
     await mergeSources(sb, fiche, all);
     sourcesCount = all.length;
