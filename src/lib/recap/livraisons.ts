@@ -11,6 +11,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
+import { tronqueProprement } from "./resume";
 import type { createServiceClient } from "../supabase/service";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -76,9 +77,11 @@ async function itemsLivres(sb: SB, depuisIso: string): Promise<SourceLivraison[]
     .select("id, contenu, pr_url")
     .in("id", [...ids])
     .eq("statut", "livre");
+  // Le titre sert de fallback d'affichage quand le résumé modèle manque
+  // (constat du récap du 31/08 : une coupe brute finissait en plein mot).
   return ((data ?? []) as { id: string; contenu: string; pr_url: string | null }[]).map((i) => ({
     ref: i.id.slice(0, 8),
-    titre: i.contenu.slice(0, 120),
+    titre: tronqueProprement(i.contenu, 120),
     texte: i.contenu.slice(0, 900),
     url: i.pr_url,
   }));
