@@ -59,7 +59,9 @@ export interface PersonnelContent {
   bandeau?: string; // avertissement d'usage (défaut DEFAULT_PERSONNEL_BANDEAU)
   entourage?: { nom: string; role?: string; eclaire?: string; preconfirmer?: string }[];
   donnees_cachees?: { texte: string; source?: string; zg?: string }[];
-  zone_grise?: { id?: string; texte: string; origine?: string }[];
+  /** v4 : `sujet` = libellé court en tête de ligne dans le rendu Zones
+   *  grises ; repli sur l'identifiant nettoyé quand il manque. */
+  zone_grise?: { id?: string; texte: string; origine?: string; sujet?: string }[];
   /** Forme du contrat v2 (éléments personnels publics) : lue par la migration,
    *  plus jamais écrite par la génération v3.1. */
   items?: { texte: string; source: string }[];
@@ -68,7 +70,8 @@ export interface PersonnelContent {
 /** A6 À lire : 5 à 8 sources hiérarchisées, URLs vérifiées à la génération. */
 export type NiveauLecture = "indispensable" | "utile" | "optionnel";
 export interface ALireContent {
-  liens?: { niveau?: NiveauLecture; titre: string; date?: string; temps_lecture?: string; apport?: string; url?: string }[];
+  /** v4 : embargo=true affiche le badge rouge EMBARGO à côté du titre. */
+  liens?: { niveau?: NiveauLecture; titre: string; date?: string; temps_lecture?: string; apport?: string; url?: string; embargo?: boolean }[];
 }
 
 /** Anecdotes sourcées ; cachee=true = bonus bien caché, mis en avant au rendu. */
@@ -82,9 +85,32 @@ export const DEFAULT_PERSONNEL_BANDEAU =
 export interface KpiCard { valeur: string; libelle: string; source?: string; zg?: string }
 export interface ChiffresContent { kpis?: KpiCard[] }
 
-/** 04 Data (v3.1, absorbe chiffres, univers et les pairs de la mécanique) :
- *  cartes KPI sourcées (chiffre non confirmé = pointeur zg, jamais orphelin),
- *  1 à 2 graphiques maximum, sous-bloc Marché et comparables. */
+/** Graph marché v4 : barres CSS pures, valeurs datées et sourcées. Règle
+ *  stricte de génération : une série non sourçable = graph OMIS, jamais
+ *  estimé. `barres_jumelees` = deux valeurs par label (champ valeur2). */
+export interface MarcheGraph {
+  id?: string;
+  titre: string;
+  sous_titre?: string;
+  type?: "barres" | "barres_jumelees";
+  valeurs: {
+    label: string;              // abscisse (année, catégorie)
+    valeur: number;             // hauteur relative
+    affiche: string;            // valeur affichée ("42,3")
+    valeur2?: number;           // barres jumelées : seconde série
+    affiche2?: string;
+    accent?: string;            // "noir" | "rouge" | "jaune" (défaut gris)
+    legende?: string;           // sous-libellé optionnel (cap)
+  }[];
+  legende?: { serie1?: string; serie2?: string }; // barres jumelées
+  callout?: string;             // ce qu'il faut retenir (bordure rouge)
+  source?: string;              // ligne source en mono, OBLIGATOIRE à la génération
+}
+
+/** 04 Data (v3.1, absorbe chiffres, univers et les pairs de la mécanique ;
+ *  v4 : + graphs marché et lexique) : cartes KPI sourcées (chiffre non
+ *  confirmé = pointeur zg, jamais orphelin), 1 à 2 graphiques maximum,
+ *  sous-bloc Marché et comparables. */
 export interface DataContent {
   kpis?: KpiCard[];
   barres?: EntrepriseContent["barres"];
@@ -94,6 +120,12 @@ export interface DataContent {
     texte?: string; // l'essentiel de l'ancien univers en UN paragraphe
     comparables?: { nom: string; position?: string }[]; // une ligne chacun
   };
+  /** v4 : trois cartes graphiques du bloc Marché, adaptées au secteur de
+   *  l'invité. Absent (fiches v3.1) : le bloc retombe sur texte + comparables. */
+  marche_graphs?: MarcheGraph[];
+  /** v4 : 8 à 12 termes du jargon du secteur, définis en une phrase pour
+   *  quelqu'un qui ne vient pas du secteur. */
+  lexique?: { terme: string; definition: string }[];
 }
 
 /** 05 Apprentissages (v3.1, absorbe playbook, divergences et leçon) : 5 à 8
@@ -103,9 +135,16 @@ export interface ApprentissagesContent {
   items?: { titre: string; connu?: string; manque?: string; question?: string }[];
 }
 
-/** 06 Clips (v3.1, remplace questions_reseaux) : questions courtes, frontales,
- *  fun et partageables ; les questions qui fâchent ferment la liste. */
+/** 06 Clickbait (v4, repurpose de la section clips : REMPLACEMENT, règle de
+ *  la brique unique) : exactement 10 questions en deux registres, 5 « qui
+ *  piquent » (jusqu'à la gêne assumée) et 5 « qui font apprendre » (la grille
+ *  de lecture du meilleur de sa catégorie). Tutoiement, pas de guillemets.
+ *  Rétrocompatibilité de LECTURE : les fiches v3.1 au format {questions}
+ *  s'affichent dans l'ancien style tant qu'elles ne sont pas régénérées. */
 export interface ClipsContent {
+  piquantes?: string[];
+  apprentissages?: string[];
+  /** Forme v3.1 (lecture seule, jamais écrite par la génération v4). */
   questions?: { question: string; ressort?: string; clip?: string; meta?: string; zg?: string; fache?: boolean }[];
 }
 
@@ -117,10 +156,27 @@ export interface TopicsContent {
   terrain_connu?: { question: string; reponse?: string; depassement?: string }[];
   topics?: {
     titre: string;
-    debut_min?: number; // gate time, l'unique héritage du séquençage
+    /** v4 : minutage TOLÉRÉ en lecture, plus jamais affiché ni exigé à la
+     *  génération (décision maquette du 31/08). */
+    debut_min?: number;
     fin_min?: number;
     intention?: string; // une ligne, 200 caractères max
-    questions?: { num?: string; texte: string; note?: string; zg?: string }[];
+    /** v4, colonne de fond de la brique : le contexte en un paragraphe. */
+    contexte?: string;
+    /** v4 : dates clés du sujet, une ligne chacune. */
+    dates?: string[];
+    /** v4 : citations exactes de l'invité, sourcées par la recherche. */
+    citations?: string[];
+    /** v4 : chiffre héroïque de la brique (facultatif). */
+    hero?: { valeur: string; libelle: string };
+    /** v4 : éléments listés (tour de table, modèles cités...). */
+    extras?: { titre?: string; items: string[] };
+    /** v4, colonne exploitation : les réflexions tactiques de l'équipe. */
+    reflexions?: string[];
+    /** v4 : brique rendue en pleine largeur (les sujets cœur d'épisode). */
+    pleine_largeur?: boolean;
+    /** v4 : note tactique TOLÉRÉE en lecture, plus affichée ni exigée. */
+    questions?: { num?: string; texte: string; note?: string; zg?: string; clip?: boolean }[];
   }[];
 }
 
@@ -201,15 +257,45 @@ export interface DixQuestionsContent {
 export interface ZoneGriseContent { items?: { id?: string; texte: string; origine?: string }[] }
 export interface FooterContent { texte?: string }
 
-/** Items de la checklist pré-rec (v3.1) : CINQ items fixes, identiques sur
- *  toutes les fiches. La checklist ENTIÈRE cochée déverrouille le REC
- *  (mécanique conservée, décision du 31/07). Les photos vivent au footer. */
+/** Items de la checklist pré-rec (v4, maquette du 31/08) : SEPT gestes fixes,
+ *  identiques sur toutes les fiches. Le REC reste cliquable que la checklist
+ *  soit cochée ou non (décision maquette : plus de verrou). */
 export const DEFAULT_CHECKLIST = [
-  "Mode avion, les deux téléphones",
-  "Café + eau sur la table",
-  "Éteindre la machine à café",
-  "Climatisation OK",
-  "Son et caméras OK",
+  "Mode avion sur les deux téléphones",
+  "Notifications coupées, Slack fermé",
+  "Café et eau sur la table",
+  "La casquette",
+  "Plafonnier éteint",
+  "Check son : deux micros, deux casques",
+  "Prévenir l'invité : on enregistre tout, on coupe au montage",
+];
+
+/** Checklist post-rec (v4) : la bande rouge « Avant de quitter le studio »,
+ *  repliée par défaut. Remplace le footer texte (règle de la brique). */
+export const DEFAULT_CHECKLIST_POST = [
+  "Photos : invité seul, puis avec Matthieu",
+  "Arrêter et vérifier les fichiers audio et vidéo",
+  "Envoyer les rushs sur le drive de l'épisode",
+  "Mémo vocal à l'équipe : ce qui a marché, ce qu'on coupe",
+  "Noter les clips retenus dans le carnet",
+  "Remercier l'invité et caler la date de relecture du montage",
+];
+
+/** Pool fixe des questions générales de l'émission (v4, fold discret en fin
+ *  de fiche) : identiques sur toutes les fiches, jamais générées. */
+export const POOL_QUESTIONS_GENERALES = [
+  "Travailler plus le COMMENT : comment ? comment ? comment ?",
+  "De quoi on va parler · Pourquoi je l'ai invité · Comment je l'ai rencontré · What's in it for me ? · J'attends quoi de cet épisode ?",
+  "Pour commencer, je te propose de te présenter.",
+  "C'est quoi ton obsession en ce moment ? (relancer en répétant avec un point d'interrogation)",
+  "Comment tu progresses ? · Où peut-on te suivre, te contacter ?",
+  "Murmurer à l'oreille de toi-même · Pire nuit blanche · Échec préféré · Livre le plus offert",
+  "Comment tu t'organises au quotidien ?",
+  "Quelle est ta mécanique ? En as-tu une ? Tu as une conviction profonde ?",
+  "Ta north star à toi",
+  "Quelle question te poserais-tu si tu devais t'interviewer ? Quelle question faut-il que je te pose ? Quelle question tu n'aimerais pas que je te pose ?",
+  "Un aspect de ta vie pro où tu voudrais faire mieux · Ta grosse galère du moment",
+  "Qu'est-ce qui fait que cet épisode sera un épisode réussi ?",
 ];
 
 export const DEFAULT_FOOTER =
@@ -262,6 +348,11 @@ export const BUDGETS_V3 = {
   tldr_items: 9,
   polemiques_items: 4,
   polemiques_item_chars: 300,
+  // Contrat v4 (maquette du 31/08) :
+  lexique_min: 8,
+  lexique_max: 12,
+  marche_graphs_max: 3,
+  clickbait_par_registre: 5, // 5 qui piquent + 5 qui font apprendre
 } as const;
 
 /** Identifiant court et stable d'un item de zone grise (règle 6) : dérivé du
@@ -343,6 +434,8 @@ export function clampBudgets(
       break;
     case "data":
       listeMax("kpis", BUDGETS_V3.chiffres_kpis);
+      listeMax("lexique", BUDGETS_V3.lexique_max);
+      listeMax("marche_graphs", BUDGETS_V3.marche_graphs_max);
       {
         const m = c.marche;
         if (m && typeof m === "object") champTexte(m as Record<string, unknown>, "texte", BUDGETS_V3.marche_texte_chars, "data.marche.texte");
@@ -452,22 +545,38 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     barres: { titre: "CA sur 10 ans, Md€", note: "explication courte", source: "documents annuels", valeurs: [{ label: "24", affiche: "9,9", valeur: 9.9, plein: true }] },
     comparaison: { titre: "Croissance comparée", source: "rapports annuels", valeurs: [{ nom: "iliad", affiche: "+125 %", pct: 125, hero: true }] },
     marche: { texte: "L'essentiel du marché en UN paragraphe (900 caractères max).", comparables: [{ nom: "Pair ou concurrent", position: "positionnement relatif de l'invité, une ligne" }] },
+    marche_graphs: [{
+      id: "marche-mondial",
+      titre: "1 · Le box-office mondial n'a jamais retrouvé 2019 (titre en langage clair)",
+      sous_titre: "Recettes mondiales des salles, en milliards de dollars",
+      type: "barres (ou barres_jumelees : deux séries par label, valeur2/affiche2 + legende)",
+      valeurs: [{ label: "2019", valeur: 42.3, affiche: "42,3", accent: "noir (ou rouge, jaune ; défaut gris)", legende: "sous-libellé optionnel" }],
+      callout: "Ce qu'il faut retenir, une à trois phrases (bordure rouge à gauche).",
+      source: "Gower Street Analytics (déc. 2025), Comscore (OBLIGATOIRE : série non sourçable = graph omis)",
+    }],
+    lexique: [{ terme: "Slate", definition: "8 à 12 termes du jargon du secteur, une phrase chacun, écrits pour quelqu'un qui ne vient pas du secteur." }],
   },
   apprentissages: {
     intro: "5 à 8 systèmes. Test : la réponse change la façon de travailler d'un auditeur dès lundi matin.",
     items: [{ titre: "Le pricing comme arme", connu: "ce que les sources établissent, 2 lignes max", manque: "ce qui reste opaque, 2 lignes max", question: "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final" }],
   },
   clips: {
-    questions: [{ question: "Combien tu gagnes vraiment aujourd'hui ?", ressort: "argent (ou echec, contre_pied, confession)", clip: "le chiffre lâché fait l'extrait", zg: "motcle (si la question dépend d'un point non tranché)" }],
+    piquantes: ["5 questions qui piquent (jusqu'à la gêne assumée : héritage, argent personnel, échecs, ce qu'il referait ou pas), tutoiement, pas de guillemets"],
+    apprentissages: ["5 questions qui extraient un apprentissage concret du meilleur de sa catégorie (grille de lecture, règle unique transmissible, habitude contre-intuitive, coût de ses non, comment on entre dans son club)"],
   },
   topics: {
     terrain_connu: [{ question: "Le forfait à 2 euros, comment vous avez fait", reponse: "sa réponse rodée en une ligne", depassement: "tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant" }],
     topics: [{
       titre: "Le titre du topic",
-      debut_min: 0,
-      fin_min: 25,
       intention: "une ligne, 200 caractères max",
-      questions: [{ num: "01 (numérotation CONTINUE sur toute la fiche, pas de plafond)", texte: "question courte, tutoiement, sans point final, adossée à un fait", note: "RELANCE : ... · CHIFFRE À EXIGER : ... · TERRAIN GLISSANT : ... (200 caractères max)", zg: "motcle (pointeur zone grise)" }],
+      contexte: "v4 : le contexte du sujet en un paragraphe (colonne de fond de la brique)",
+      dates: ["v4 : dates clés du sujet, une ligne chacune (« Avril 2012 : Le Prénom »)"],
+      citations: ["v4 : citation exacte de l'invité, sourcée par la recherche"],
+      hero: { valeur: "60 M€ → 1 Md€", libelle: "v4 : chiffre héroïque de la brique (facultatif)" },
+      extras: { titre: "Le tour de table", items: ["v4 : éléments listés (facultatif)"] },
+      reflexions: ["v4 : réflexions tactiques (colonne verte de la brique)"],
+      pleine_largeur: false,
+      questions: [{ num: "01 (numérotation CONTINUE sur toute la fiche, pas de plafond)", texte: "question courte, tutoiement, sans point final, adossée à un fait", clip: true, zg: "motcle (pointeur zone grise)" }],
     }],
   },
   personnel: {
@@ -479,7 +588,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   revue_de_presse: {
     reseaux: [{ label: "X", url: "https://x.com/... (liens DIRECTS selon l'archétype : X, Instagram, LinkedIn, YouTube, profils officiels)" }],
     palmares: [{ date: "2024", texte: "liste exhaustive et datée : titres, exits, récompenses, records" }],
-    a_lire: [{ niveau: "indispensable (ou utile)", titre: "3 entrées MINIMUM, 5 max si le détour se justifie ; la page Wikipedia y figure systématiquement quand elle existe", date: "mars 2025", temps_lecture: "12 min", apport: "l'apport en une ligne, 120 caractères max", url: "https://... (vérifiée, jamais reconstruite)" }],
+    a_lire: [{ niveau: "indispensable (ou utile)", titre: "3 entrées MINIMUM, 5 max si le détour se justifie ; la page Wikipedia y figure systématiquement quand elle existe", date: "mars 2025", temps_lecture: "12 min", apport: "l'apport en une ligne, 120 caractères max", url: "https://... (vérifiée, jamais reconstruite)", embargo: false }],
   },
   // ── sections retirées (données historiques, rollback) ────────────────────
   enjeu: {
@@ -540,6 +649,13 @@ export function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
 }
+/** Bouton photo v4 : recherche Google Images sur le nom EXACT de l'invité,
+ *  entre guillemets, URL encodée (les accents passent en percent-encoding).
+ *  Pas de récupération automatique d'images : un lien, rien d'autre. */
+export function googleImagesUrl(nom: string): string {
+  return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`"${nom.trim()}"`)}`;
+}
+
 /** N'autorise que les URL http(s) (anti javascript:). */
 export function safeUrl(v: unknown): string | undefined {
   const s = asString(v);

@@ -57,10 +57,11 @@ const PROPRIETE_FAITS = [
 
 const GENERATION_AUTHOR = "vadim (génération)";
 
-/** Style maison, répété dans chaque prompt (non négociable, brief §5). */
+/** Style maison, répété dans chaque prompt (non négociable, brief v4 §C5). */
 const STYLE = [
-  "Style d'écriture impératif : pas d'emoji, pas de tiret cadratin ni de double tiret (virgule, point, parenthèse ou deux-points à la place).",
+  "Style d'écriture impératif : pas d'emoji. AUCUN TIRET D'AUCUNE SORTE dans le texte généré : ni tiret cadratin, ni demi-cadratin, ni double tiret, ni tiret de liste, ni flèche. À la place : virgules, parenthèses, deux-points, points médians (·).",
   "Pas de « on » : sujets explicites. Sujet, verbe, complément. Concis, zéro fluff.",
+  "Toute valeur chiffrée est datée et sourcée.",
   "Les questions sont à l'oral, dans la voix de Matthieu : directes, tutoiement, sans guillemets, sans point final, majorité en « comment ».",
 ].join("\n");
 
@@ -154,6 +155,13 @@ interface ChiffresJson {
   kpis?: { valeur?: string; libelle?: string; source?: string; zg?: string }[];
   barres?: { titre?: string; note?: string; source?: string; valeurs?: { label?: string; affiche?: string; valeur?: number; plein?: boolean }[] };
   comparaison?: { titre?: string; source?: string; valeurs?: { nom?: string; affiche?: string; pct?: number; hero?: boolean }[] };
+  marche_graphs?: {
+    titre?: string; sous_titre?: string; type?: string;
+    valeurs?: { label?: string; valeur?: number; affiche?: string; valeur2?: number; affiche2?: string; accent?: string; legende?: string }[];
+    legende?: { serie1?: string; serie2?: string };
+    callout?: string; source?: string;
+  }[];
+  lexique?: { terme?: string; definition?: string }[];
   marche_texte?: string;
   comparables?: { nom?: string; position?: string }[];
   sources?: LienJson[];
@@ -169,9 +177,17 @@ interface AnglesJson {
 interface DerouleJson {
   tldr?: { label?: string; texte?: string }[];
   terrain_connu?: { question?: string; reponse?: string; depassement?: string }[];
-  topics?: { titre?: string; debut_min?: number; fin_min?: number; intention?: string; questions?: { num?: string; texte?: string; note?: string; zg?: string }[] }[];
-  clips?: { question?: string; ressort?: string; clip?: string; zg?: string; fache?: boolean }[];
-  zone_grise?: { id?: string; texte?: string; origine?: string }[];
+  topics?: {
+    titre?: string; intention?: string; contexte?: string;
+    dates?: string[]; citations?: string[];
+    hero?: { valeur?: string; libelle?: string };
+    extras?: { titre?: string; items?: string[] };
+    reflexions?: string[];
+    pleine_largeur?: boolean;
+    questions?: { num?: string; texte?: string; clip?: boolean; zg?: string }[];
+  }[];
+  clickbait?: { piquantes?: string[]; apprentissages?: string[] };
+  zone_grise?: { id?: string; sujet?: string; texte?: string; origine?: string }[];
   sources?: LienJson[];
 }
 
@@ -324,8 +340,8 @@ export async function processFicheGroupe(
 
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
-      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; le PALMARÈS, liste exhaustive et datée des titres, exits, récompenses et records (section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs) ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe."),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "2024", "texte": "titre, exit, récompense ou record, sans point final"}] (liste exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
+      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe."),
+      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -383,8 +399,12 @@ export async function processFicheGroupe(
   if (groupe === "chiffres") {
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<ChiffresJson>(
-      systemFor("Mission : la section DATA, adaptée à l'archétype (CA, marge ou EBITDA, concurrence et marché pour un dirigeant ; ventes et streams pour un artiste ; scores, titres et records pour un sportif). Cartes KPI : 8 à 15 données clés, chacune avec sa valeur, son libellé et sa SOURCE DATÉE ; un chiffre non confirmé porte un pointeur zg (mot-clé) au lieu d'une source, JAMAIS de chiffre orphelin ; UNE SEULE valeur par fait, si les sources divergent retiens la mieux sourcée. Graphiques : 1 à 2 MAXIMUM, seulement si une trajectoire raconte quelque chose (croissance sur 10 ans, comparaison à un pair) ; aucun graphique décoratif. Marché et comparables : l'essentiel du marché en UN paragraphe (900 caractères max), puis les pairs et concurrents nommés, une ligne chacun avec le positionnement relatif de l'invité."),
-      `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15 : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor([
+        "Mission : la section DATA, adaptée à l'archétype (CA, marge ou EBITDA, concurrence et marché pour un dirigeant ; ventes et streams pour un artiste ; scores, titres et records pour un sportif). Cartes KPI : 8 à 15 données clés, chacune avec sa valeur, son libellé et sa SOURCE DATÉE ; un chiffre non confirmé porte un pointeur zg (mot-clé) au lieu d'une source, JAMAIS de chiffre orphelin ; UNE SEULE valeur par fait, si les sources divergent retiens la mieux sourcée ; les TROIS PREMIERS KPI sont les cartes héroïques de la fiche, mets les valeurs les plus fortes en tête. Graphiques de trajectoire : 1 à 2 MAXIMUM, seulement si une trajectoire raconte quelque chose (croissance sur 10 ans, comparaison de deux résultats) ; aucun graphique décoratif. Marché et comparables : l'essentiel du marché en UN paragraphe (900 caractères max), puis les pairs et concurrents nommés, une ligne chacun avec le positionnement relatif de l'invité.",
+        "GRAPHS MARCHÉ (v4, champ marche_graphs) : trois cartes graphiques en barres qui posent le contexte économique du SECTEUR DE L'INVITÉ, adaptées à son secteur (pour un producteur de cinéma le box-office, pour un fondateur SaaS le marché SaaS, etc.). Vise TOUJOURS : 1 graph « taille et trajectoire du marché mondial » (série annuelle sur 7 à 8 ans), 1 graph « la force qui bouscule le secteur » (souvent en barres jumelées : l'ancien monde contre le nouveau), 1 graph « la bascule spécifique France ou Europe » si pertinente. RÈGLE STRICTE : chaque série porte des valeurs DATÉES et SOURCÉES trouvées dans tes recherches ; si une série ne peut pas être sourcée proprement, OMETS le graph plutôt que d'estimer. Chaque graph porte un titre en langage clair (une phrase qui dit ce que montre l'image), un callout qui dit ce qu'il faut retenir, et sa ligne source.",
+        "LEXIQUE (v4, champ lexique) : 8 à 12 termes du jargon du secteur de l'invité, définis en UNE phrase chacun, écrits pour quelqu'un qui ne vient pas du secteur ; privilégie les termes qui reviendront dans l'épisode, ancre les définitions dans le cas de l'invité quand c'est éclairant. INTERDICTION de laisser dans le reste de la fiche un terme de jargon ni défini au lexique ni explicité inline.",
+      ].join("\n\n")),
+      `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15, les 3 plus fortes valeurs EN PREMIER : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_graphs": [0 à 3 : {"titre": "phrase en langage clair", "sous_titre": "unité et périmètre de la série", "type": "barres" ou "barres_jumelees", "valeurs": [{"label": "2019", "valeur": 42.3, "affiche": "42,3", "accent": "noir|rouge|jaune (les points saillants seulement)", "legende": "sous-libellé optionnel", "valeur2"/"affiche2": seconde série si barres_jumelees}], "legende": {"serie1", "serie2"} (si barres_jumelees), "callout": "ce qu'il faut retenir, 1 à 3 phrases", "source": "sources datées, OBLIGATOIRE"}] (série non sourçable = graph OMIS, jamais estimé),\n  "lexique": [8 à 12 : {"terme": "Slate", "definition": "une phrase pour quelqu'un qui ne vient pas du secteur"}],\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -401,6 +421,42 @@ export async function processFicheGroupe(
     if (kpis.length) data.kpis = kpis.slice(0, BUDGETS_V3.chiffres_kpis);
     if (raw.barres?.titre && Array.isArray(raw.barres.valeurs) && raw.barres.valeurs.length) data.barres = raw.barres;
     if (raw.comparaison && Array.isArray(raw.comparaison.valeurs) && raw.comparaison.valeurs.length) data.comparaison = raw.comparaison;
+    // v4 : graphs marché, règle sourcé-ou-omis appliquée AUSSI côté code (un
+    // graph sans source ou sans valeurs est écarté, jamais affiché estimé).
+    const graphs = asArray(raw.marche_graphs, (g) => {
+      const titre = asString(g.titre);
+      const source = asString(g.source);
+      const valeurs = asArray(g.valeurs, (v) => {
+        const label = asString(v.label);
+        const valeur = Number(v.valeur);
+        if (!label || !Number.isFinite(valeur)) return null;
+        return {
+          label, valeur,
+          affiche: asString(v.affiche) ?? String(valeur),
+          ...(Number.isFinite(Number(v.valeur2)) && v.valeur2 !== undefined ? { valeur2: Number(v.valeur2) } : {}),
+          ...(asString(v.affiche2) ? { affiche2: asString(v.affiche2) } : {}),
+          ...(asString(v.accent) ? { accent: asString(v.accent) } : {}),
+          ...(asString(v.legende) ? { legende: asString(v.legende) } : {}),
+        };
+      });
+      if (!titre || !source || valeurs.length < 2) return null;
+      return {
+        titre,
+        ...(asString(g.sous_titre) ? { sous_titre: asString(g.sous_titre) } : {}),
+        type: asString(g.type) === "barres_jumelees" ? "barres_jumelees" : "barres",
+        valeurs,
+        ...(g.legende && typeof g.legende === "object" ? { legende: g.legende } : {}),
+        ...(asString(g.callout) ? { callout: asString(g.callout) } : {}),
+        source,
+      };
+    }).slice(0, BUDGETS_V3.marche_graphs_max);
+    if (graphs.length) data.marche_graphs = graphs;
+    const lexique = asArray(raw.lexique, (x) => {
+      const terme = asString(x.terme);
+      const definition = asString(x.definition);
+      return terme && definition ? { terme, definition } : null;
+    }).slice(0, BUDGETS_V3.lexique_max);
+    if (lexique.length) data.lexique = lexique;
     const marcheTexte = asString(raw.marche_texte);
     const comparables = asArray(raw.comparables, (x) => {
       const nom = asString(x.nom);
@@ -476,8 +532,14 @@ export async function processFicheGroupe(
       : "";
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<DerouleJson>(
-      systemFor("Mission : le TL;DR, les TOPICS et les CLIPS. TL;DR : le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL), phrases courtes, une idée par ligne, NEUF labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit. TOPICS : la conversation reste NATURELLE, jamais scriptée ; ouvre sur le TERRAIN CONNU (les questions qu'il a déjà eues partout : la réponse rodée en une ligne ET le dépassement prévu, « tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant ») ; puis 5 à 8 topics, chacun avec son titre, son gate time (début et fin en minutes sur un épisode de 150), son intention en UNE ligne de 200 caractères, ses questions cœur NUMÉROTÉES EN CONTINU sur toute la fiche (01, 02, 03... d'un topic à l'autre, pas de plafond : peu si peu, beaucoup si beaucoup d'exceptionnelles) et ses sous-notes tactiques (RELANCE, CHIFFRE À EXIGER, TERRAIN GLISSANT, 200 caractères max). Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. Dosage : 60 % mécanique personnelle, 20 % domaine SUBORDONNÉ à l'individu, 20 % leçons transférables nommées ; au plus 3 questions sur 10 sur le domaine ; toute réponse philosophique attendue = prévoir la relance mécanisme + date. Une tension entre deux faits publics vérifiés rattachable à un topic devient son intention ou une relance. CLIPS : une dizaine de questions courtes, frontales, fun et partageables (ressorts : argent, échec, contre_pied, confession) ; les QUESTIONS QUI FÂCHENT (adossées à une polémique publique documentée, jamais une insinuation) ferment la liste. AUCUNE question ne vit à deux endroits (topics, clips, terrain connu, apprentissages). ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés) porte un identifiant court zg_motcle ; les notes et cartes POINTENT cet identifiant (« ZG: motcle, consigne en moins de 90 caractères »), elles ne recopient JAMAIS le texte complet."),
-      `${intro}${dejaPose}${appTxt}${dejaQTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "tldr": [NEUF, dans cet ordre : {"label": "Qui|Fait d'armes|Fil rouge|Le comment|Polémique|Pourquoi maintenant|Piège|Levier|État d'esprit", "texte": "une idée, phrases courtes"}] (1200 caractères au total),\n  "terrain_connu": [3 à 6 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "debut_min": 0, "fin_min": 25, "intention": "une ligne, 200 caractères max", "questions": [{"num": "01 (continu sur toute la fiche)", "texte": "courte, tutoiement, sans point final, adossée à un fait", "note": "RELANCE : ... · CHIFFRE À EXIGER : ... (200 caractères max)", "zg": "motcle (si un point non tranché)"}]}],\n  "clips": [{"question": "courte, frontale, partageable, tutoiement", "ressort": "argent|echec|contre_pied|confession", "clip": "la réaction visée", "zg": "motcle (si point non tranché)", "fache": true pour une question qui fâche (adossée à une polémique documentée)}] (les questions qui fâchent EN FIN de liste),\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "texte": "à faire confirmer par l'invité, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      systemFor([
+        "Mission : le TL;DR, les MAIN TOPICS (briques), le TERRAIN CONNU et le CLICKBAIT. TL;DR : le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL), phrases courtes, une idée par ligne, NEUF labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit.",
+        "TERRAIN CONNU (SYSTÉMATIQUE, exactement 3 items) : les questions qu'il a déjà eues partout, pour chacune sa réponse rodée en une ligne ET le dépassement prévu (« tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant »).",
+        "MAIN TOPICS : la conversation reste NATURELLE, jamais scriptée ; 5 à 8 briques, chacune avec son titre, son CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet), ses DATES CLÉS (une ligne chacune), ses CITATIONS exactes de l'invité quand la recherche en a trouvé, un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique), des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate), ses RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) et ses QUESTIONS cœur NUMÉROTÉES EN CONTINU sur toute la fiche (01, 02, 03... d'une brique à l'autre, pas de plafond : peu si peu, beaucoup si beaucoup d'exceptionnelles). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. La brique CŒUR DE L'ÉPISODE (une ou deux) porte \"pleine_largeur\": true. NI minutage NI notes tactiques : ces champs n'existent plus. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. Dosage : 60 % mécanique personnelle, 20 % domaine SUBORDONNÉ à l'individu, 20 % leçons transférables nommées ; au plus 3 questions sur 10 sur le domaine. Une tension entre deux faits publics vérifiés rattachable à une brique devient une réflexion de la brique.",
+        "CLICKBAIT : EXACTEMENT 10 questions en deux registres. 5 QUI PIQUENT, jusqu'à la gêne assumée : l'héritage, l'argent personnel, les échecs, ce qu'il referait ou pas, chacune adossée à un fait public documenté, jamais une insinuation. 5 QUI FONT APPRENDRE, l'extraction du meilleur de sa catégorie : sa grille de lecture, sa règle unique transmissible, son habitude contre-intuitive, le coût de ses non, comment on entre dans son club. Tutoiement, pas de guillemets, formulations directes. AUCUNE question ne vit à deux endroits (briques, clickbait, terrain connu, apprentissages).",
+        "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
+      ].join("\n\n")),
+      `${intro}${dejaPose}${appTxt}${dejaQTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "tldr": [NEUF, dans cet ordre : {"label": "Qui|Fait d'armes|Fil rouge|Le comment|Polémique|Pourquoi maintenant|Piège|Levier|État d'esprit", "texte": "une idée, phrases courtes"}] (1200 caractères au total),\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "contexte": "un paragraphe", "dates": ["Avril 2012 : Le Prénom"], "citations": ["citation exacte trouvée en recherche"], "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif), "extras": {"titre", "items": ["..."]} (facultatif), "reflexions": [2 à 5 : "lecture tactique de l'équipe"], "pleine_largeur": true (la ou les briques cœur d'épisode), "questions": [{"num": "01 (continu sur toute la fiche)", "texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (candidate réseaux, environ une sur quatre)}]}],\n  "clickbait": {"piquantes": [EXACTEMENT 5 questions qui piquent], "apprentissages": [EXACTEMENT 5 questions qui font apprendre]},\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192
     );
     compte(r.usage);
@@ -491,29 +553,35 @@ export async function processFicheGroupe(
       const question = asString(x.question);
       return question ? { question, reponse: asString(x.reponse), depassement: asString(x.depassement) } : null;
     });
+    const asStrList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && !!s.trim()) : []);
     const topics = asArray(raw.topics, (x) => {
       const titre = asString(x.titre);
       if (!titre) return null;
       const questions = asArray(x.questions, (q) => {
         const texte = asString(q.texte);
-        return texte ? { num: asString(q.num), texte, note: asString(q.note), zg: asString(q.zg) } : null;
+        return texte ? { num: asString(q.num), texte, ...(q.clip === true ? { clip: true } : {}), ...(asString(q.zg) ? { zg: asString(q.zg) } : {}) } : null;
       });
-      const debut = Number(x.debut_min); const fin = Number(x.fin_min);
+      const hero = x.hero && typeof x.hero === "object" ? (x.hero as Content) : null;
+      const heroValeur = hero ? asString(hero.valeur) : undefined;
+      const extras = x.extras && typeof x.extras === "object" ? (x.extras as Content) : null;
+      const extrasItems = extras ? asStrList(extras.items) : [];
       return {
         titre,
-        ...(Number.isFinite(debut) ? { debut_min: debut } : {}),
-        ...(Number.isFinite(fin) ? { fin_min: fin } : {}),
         intention: asString(x.intention),
+        contexte: asString(x.contexte),
+        dates: asStrList(x.dates),
+        citations: asStrList(x.citations),
+        ...(heroValeur ? { hero: { valeur: heroValeur, libelle: asString(hero!.libelle) } } : {}),
+        ...(extrasItems.length ? { extras: { titre: extras ? asString(extras.titre) : undefined, items: extrasItems } } : {}),
+        reflexions: asStrList(x.reflexions),
+        ...(x.pleine_largeur === true ? { pleine_largeur: true } : {}),
         questions,
       };
     });
-    const clips = asArray(raw.clips, (x) => {
-      const question = asString(x.question);
-      if (!question) return null;
-      return { question, ressort: asString(x.ressort), clip: asString(x.clip), zg: asString(x.zg), ...(x.fache === true ? { fache: true } : {}) };
-    });
-    // Les questions qui fâchent ferment la liste (contrat v3.1).
-    clips.sort((a, b) => Number(a.fache === true) - Number(b.fache === true));
+    // Clickbait v4 : deux registres de 5, clampés côté code.
+    const cb = raw.clickbait && typeof raw.clickbait === "object" ? raw.clickbait : {};
+    const piquantes = asStrList(cb.piquantes).slice(0, BUDGETS_V3.clickbait_par_registre);
+    const cbApprentissages = asStrList(cb.apprentissages).slice(0, BUDGETS_V3.clickbait_par_registre);
     // Identifiant court par item de zone grise, unique dans la fiche ; la zone
     // grise vit dans personnel (fusion : les items existants sont conservés).
     const { data: persoRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "personnel").maybeSingle();
@@ -529,11 +597,13 @@ export async function processFicheGroupe(
       const brut = asString(x.id)?.toLowerCase().replace(/[^a-z0-9_]/g, "");
       const id = brut && !idsZg.has(brut) ? brut : idZoneGrise(texte, idsZg);
       idsZg.add(id);
-      return { id, texte, origine: asString(x.origine) };
+      return { id, texte, origine: asString(x.origine), ...(asString(x.sujet) ? { sujet: asString(x.sujet) } : {}) };
     });
     await put("tldr", { items: tldr }, tldr.length > 0);
     await put("topics", { terrain_connu: terrain, topics }, terrain.length > 0 || topics.length > 0);
-    await put("clips", { questions: clips }, clips.length > 0);
+    // v4 : la section clips porte le clickbait (REMPLACEMENT du format
+    // {questions}, règle de la brique unique ; l'ancien format reste lisible).
+    await put("clips", { piquantes, apprentissages: cbApprentissages }, piquantes.length > 0 || cbApprentissages.length > 0);
     await put("personnel", {
       ...perso,
       bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU,

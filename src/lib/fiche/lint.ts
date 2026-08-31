@@ -130,8 +130,9 @@ const cheminExcluChiffres = (sectionId: string, chemin: string) =>
   SECTIONS_SANS_COMPTAGE_CHIFFRES.has(sectionId) || (sectionId === "personnel" && chemin.startsWith("zone_grise"));
 
 /** Où vivent les questions plates de la fiche : section → chemin. Les topics
- *  (imbriqués) et le terrain connu sont extraits à part. Les clés des
- *  contrats précédents restent pour les fiches non migrées. */
+ *  (imbriqués), le terrain connu et le clickbait v4 (listes de chaînes) sont
+ *  extraits à part. Les clés des contrats précédents restent pour les fiches
+ *  non migrées. */
 const CHAMPS_QUESTIONS: Record<string, { liste: string; champ: string }> = {
   clips: { liste: "questions", champ: "question" },
   apprentissages: { liste: "items", champ: "question" },
@@ -140,6 +141,9 @@ const CHAMPS_QUESTIONS: Record<string, { liste: string; champ: string }> = {
   questions_recurrentes: { liste: "items", champ: "question" },
   polemiques: { liste: "items", champ: "question" },
 };
+
+/** Clickbait v4 : les deux registres sont des listes de chaînes. */
+const CHAMPS_CLICKBAIT = ["piquantes", "apprentissages"] as const;
 
 /** Similarité de deux questions normalisées : identiques, incluses l'une dans
  *  l'autre, ou fort recouvrement de mots (Jaccard). Seuil volontairement haut :
@@ -171,6 +175,15 @@ export function doublonsQuestions(sections: Record<string, Content>): QuestionDo
       const v = item && typeof item === "object" ? (item as Content)[spec.champ] : undefined;
       pousse(`${sectionId}[${i}]`, v);
     });
+  }
+  // clickbait v4 : les registres piquantes / apprentissages de clips.
+  const clipsContent = sections.clips;
+  if (clipsContent) {
+    for (const registre of CHAMPS_CLICKBAIT) {
+      const liste = clipsContent[registre];
+      if (!Array.isArray(liste)) continue;
+      liste.forEach((q, i) => pousse(`clips.${registre}[${i}]`, q));
+    }
   }
   // topics (v3.1) : questions cœur imbriquées + terrain connu.
   const topicsContent = sections.topics;

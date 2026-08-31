@@ -160,7 +160,7 @@ const SYSTEM = [
     "PROFONDEUR DES QUESTIONS : chaque question en comment des topics exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis, chiffre à exiger). Une question dont la réponse attendue tiendrait dans un article publié est FAIBLE : reformule la jusqu'à extraire un apprentissage que seul l'invité peut donner. Toute réponse philosophique attendue = prévoir la relance mécanisme + date en note.",
     "GATE TIMES : les topics portent debut_min et fin_min sur un épisode d'environ 150 minutes ; vérifie qu'ils se suivent sans trou ni chevauchement grossier, corrige à la marge sans réinventer le découpage.",
   ].join("\n"),
-  "Style : pas d'emoji, pas de tiret cadratin, pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final.",
+  "Style (v4) : pas d'emoji, AUCUN tiret d'aucune sorte (ni cadratin, ni demi-cadratin, ni tiret de liste, ni flèche : virgule, parenthèse, deux-points ou point médian à la place), pas de « on », sujet verbe complément. Les questions restent à l'oral, tutoiement, sans point final. Dans data, les champs marche_graphs et lexique se conservent tels quels (valeurs sourcées par la recherche) : tu peux corriger une formulation, jamais retirer un graph ni un terme.",
   [
     "Réponds UNIQUEMENT en JSON : {",
     '  "sections": { "<section_id>": <contenu complet corrigé, MÊME structure que le contenu reçu> } (uniquement les sections que tu modifies ; une section déjà conforme est absente),',
@@ -249,6 +249,13 @@ export function appliquerRedaction(
     const c = clampContenu(id, contenu as Content);
     // La passe condense, elle ne vide jamais : refus si l'existant avait du contenu.
     if (isEmptyContent(c) && !isEmptyContent(actuel[id] ?? {})) continue;
+    // v4 : les graphs marché et le lexique appartiennent à la génération
+    // (valeurs sourcées) ; une réécriture de data qui les omet les CONSERVE.
+    if (id === "data") {
+      const av = actuel.data ?? {};
+      if (av.marche_graphs && !c.marche_graphs) c.marche_graphs = av.marche_graphs;
+      if (av.lexique && !c.lexique) c.lexique = av.lexique;
+    }
     admis[id] = c;
   }
   return admis;
