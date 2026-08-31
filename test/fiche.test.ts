@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { generateFicheHtml } from "../src/lib/fiche/generate";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "../src/lib/fiche/sections";
 import { slugify, FICHE_STATUTS } from "../src/lib/fiche/store";
-import { SECTION_CONTRACTS, DEFAULT_CHECKLIST } from "../src/lib/fiche/schema";
+import { SECTION_CONTRACTS, DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST, googleImagesUrl } from "../src/lib/fiche/schema";
 import { suggestQuestionsReseaux } from "../src/lib/fiche/questions";
 import { buildVcf, buildVcard } from "../src/lib/vcf";
 
@@ -41,9 +41,12 @@ describe("catalogue des sections (brief GDIY)", () => {
       expect(SECTION_CONTRACTS[id], `contrat manquant : ${id}`).toBeDefined();
     }
   });
-  it("la checklist par défaut inclut machine à café et climatisation", () => {
-    expect(DEFAULT_CHECKLIST).toContain("Éteindre la machine à café");
-    expect(DEFAULT_CHECKLIST).toContain("Climatisation OK");
+  it("checklists v4 : sept gestes pré-rec, six post-rec (maquette du 31/08)", () => {
+    expect(DEFAULT_CHECKLIST).toHaveLength(7);
+    expect(DEFAULT_CHECKLIST).toContain("Mode avion sur les deux téléphones");
+    expect(DEFAULT_CHECKLIST).toContain("Prévenir l'invité : on enregistre tout, on coupe au montage");
+    expect(DEFAULT_CHECKLIST_POST).toHaveLength(6);
+    expect(DEFAULT_CHECKLIST_POST[0]).toBe("Photos : invité seul, puis avec Matthieu");
   });
 });
 
@@ -156,6 +159,69 @@ describe("buildVcf", () => {
   it("échappe les caractères spéciaux vCard", () => {
     const v = buildVcard({ nom: "Doe; John", organisation: "A,B" });
     expect(v).toContain("A\\,B");
+  });
+});
+
+describe("template v4 (maquette du 31/08)", async () => {
+  const { tldrAccent, accentBarre, hauteurBarre, sujetZoneGrise } = await import("../src/app/fiches/[slug]/FicheView");
+  const { appliquerRedaction } = await import("../src/lib/fiche/redaction");
+  const { doublonsQuestions } = await import("../src/lib/fiche/lint");
+
+  it("bouton photo : nom entre guillemets, URL encodée, accents compris", () => {
+    expect(googleImagesUrl("Dimitri Rassam")).toBe("https://www.google.com/search?tbm=isch&q=%22Dimitri%20Rassam%22");
+    const url = googleImagesUrl("Gérard Depardieu");
+    expect(url).toContain("%22G%C3%A9rard%20Depardieu%22");
+    expect(url.startsWith("https://www.google.com/search?tbm=isch&q=")).toBe(true);
+  });
+
+  it("accents du TL;DR : tension en vert, piège en rouge, levier ou « à lui faire lâcher » en or", () => {
+    expect(tldrAccent("La tension de l'épisode")).toBe("green");
+    expect(tldrAccent("Piège")).toBe("red");
+    expect(tldrAccent("Le piège")).toBe("red");
+    expect(tldrAccent("À lui faire lâcher")).toBe("gold");
+    expect(tldrAccent("Levier")).toBe("gold");
+    expect(tldrAccent("Qui")).toBeNull();
+    expect(tldrAccent("Fait d'armes")).toBeNull();
+  });
+
+  it("barres de graph marché : accents et hauteurs relatives", () => {
+    expect(accentBarre("noir").col).toBe("#16150F");
+    expect(accentBarre("rouge").col).toBe("#D4231A");
+    expect(accentBarre("jaune").col).toBe("#F5C542");
+    expect(accentBarre(undefined).col).toBe("#C4C0B2");
+    expect(hauteurBarre(42.3, 42.3)).toBe(140);
+    expect(hauteurBarre(12, 42.3)).toBe(Math.round((12 / 42.3) * 140));
+    expect(hauteurBarre(0.1, 100)).toBe(4); // plancher visuel
+    expect(hauteurBarre(5, 0)).toBe(4); // série dégénérée : jamais de division par zéro
+  });
+
+  it("zones grises : sujet affiché depuis le champ, l'identifiant, ou les premiers mots", () => {
+    expect(sujetZoneGrise({ sujet: "Jean-Pierre Rassam, le père", texte: "x" })).toBe("Jean-Pierre Rassam, le père");
+    expect(sujetZoneGrise({ id: "zg_pere_suicide", texte: "x" })).toBe("pere suicide");
+    expect(sujetZoneGrise({ texte: "Rythme annuel de Yapluka non tranché entre les sources" })).toBe("Rythme annuel de Yapluka…");
+  });
+
+  it("lint : une question du clickbait en double avec une brique est détectée", () => {
+    const doublons = doublonsQuestions({
+      clips: { piquantes: ["Sans le nom Rassam, tu les lèves, les 60 millions ?"], apprentissages: [] },
+      topics: { topics: [{ titre: "T", questions: [{ num: "01", texte: "Sans le nom Rassam, tu les lèves, les 60 millions ?" }] }] },
+    });
+    expect(doublons).toHaveLength(1);
+    expect(doublons[0].endroits.sort()).toEqual(["clips.piquantes[0]", "topics[0].questions[0]"]);
+  });
+
+  it("rédaction : une réécriture de data qui omet marche_graphs et lexique les conserve", () => {
+    const actuel = {
+      data: {
+        kpis: [{ valeur: "60 M€", libelle: "levée", source: "communiqué, sept. 2026" }],
+        marche_graphs: [{ titre: "G", type: "barres", valeurs: [{ label: "2019", valeur: 42, affiche: "42" }], source: "src" }],
+        lexique: [{ terme: "Slate", definition: "le portefeuille de films" }],
+      },
+    };
+    const admis = appliquerRedaction(actuel, { data: { kpis: [{ valeur: "60 M€", libelle: "levée Yapluka", source: "communiqué, sept. 2026" }] } });
+    expect(admis.data.kpis).toHaveLength(1);
+    expect(admis.data.marche_graphs).toEqual(actuel.data.marche_graphs);
+    expect(admis.data.lexique).toEqual(actuel.data.lexique);
   });
 });
 
