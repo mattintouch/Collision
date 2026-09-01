@@ -202,32 +202,37 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   sessionsRef.current = sessions;
   useEffect(() => setSessions(data.rec_sessions), [data.rec_sessions]);
 
-  /* Synchro : canal Realtime, repli documenté en polling 2 s. */
+  /* Synchro des panneaux (hotfix 8344e8a3, 31/08) : abonnement Realtime sur
+     fiche_console_events filtré par fiche, PLUS un polling permanent toutes
+     les 5 secondes. Le repli sur échec de canal ne suffisait pas : quand la
+     réplication Realtime n'est pas activée sur la table côté Supabase, le
+     canal passe en SUBSCRIBED sans erreur et reste muet, deux opérateurs sur
+     la même fiche ne voyaient jamais les messages de l'autre sans recharger.
+     Ce cas est indétectable côté client : le polling tourne donc en continu
+     comme filet (mergeEvent déduplique, aucun effet visible quand Realtime
+     fonctionne), Realtime garde la synchro instantanée quand il est actif. */
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
   useEffect(() => {
-    let poll: ReturnType<typeof setInterval> | null = null;
-    const demarrerPolling = () => {
-      if (poll) return;
-      poll = setInterval(async () => {
-        const { data: evs } = await sb
-          .from("fiche_console_events")
-          .select("id, session_id, created_at, author_email, kind, timecode, payload")
-          .eq("fiche_id", data.fiche_id)
-          .order("created_at")
-          .limit(2000);
-        if (evs) setEvents((prev) => (evs as ConsoleEvent[]).reduce((acc, e) => mergeEvent(acc, e), prev));
-      }, 2000);
+    let arrete = false;
+    const recharger = async () => {
+      const { data: evs } = await sb
+        .from("fiche_console_events")
+        .select("id, session_id, created_at, author_email, kind, timecode, payload")
+        .eq("fiche_id", data.fiche_id)
+        .order("created_at")
+        .limit(2000);
+      if (!arrete && evs) setEvents((prev) => (evs as ConsoleEvent[]).reduce((acc, e) => mergeEvent(acc, e), prev));
     };
+    const poll = setInterval(() => { void recharger(); }, 5000);
     const channel = sb
       .channel(`console-${data.fiche_id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "fiche_console_events", filter: `fiche_id=eq.${data.fiche_id}` }, (p) => {
         setEvents((prev) => mergeEvent(prev, p.new as ConsoleEvent));
       })
-      .subscribe((status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") demarrerPolling();
-      });
+      .subscribe();
     return () => {
-      if (poll) clearInterval(poll);
+      arrete = true;
+      clearInterval(poll);
       void sb.removeChannel(channel);
     };
   }, [sb, data.fiche_id]);
