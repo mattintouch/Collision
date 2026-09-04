@@ -10,8 +10,13 @@ budgets dans `src/lib/fiche/schema.ts`, catalogue dans
 
 ## Ce qui ne change pas (v3.1 conservé tel quel)
 
-- Le pipeline en cinq passes : portrait, chiffres, angles, deroule, puis la
-  passe de rédaction (consolidation, lint, budgets).
+- Le pipeline par passes : portrait, chiffres, angles, deroule, puis la
+  passe de rédaction (consolidation, lint, budgets). Depuis le 01/09
+  (chantier timeouts), une passe « synthese » s'intercale avant la
+  rédaction : le TL;DR et le clickbait en sortent SANS recherche web
+  (synthèse de la fiche assemblée), le deroule allégé ne porte plus que le
+  terrain connu, les briques et la zone grise, et ne démarre que dans un
+  drain qui peut le finir (réserve murale, cron seulement).
 - La propriété unique des faits, la doctrine de profondeur, les interdits
   transverses, la vérification des URLs, les budgets durs par champ.
 - Le TL;DR à neuf labels (Qui, Fait d'armes, Fil rouge, Le comment,

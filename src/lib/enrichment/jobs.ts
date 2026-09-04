@@ -11,7 +11,7 @@
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
-import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, type FicheGroupe } from "../fiche/generation";
+import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, FICHE_GROUPES_RECHERCHE, DEROULE_RESERVE_MS, type FicheGroupe } from "../fiche/generation";
 import { processRedaction, redactionAdmissible } from "../fiche/redaction";
 import { syncCibleToFolk } from "../folk/sync";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
@@ -99,6 +99,12 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
       .order("created_at", { ascending: true })
       .limit(1);
     if (!redactionAdmissible(resteMs)) requete = requete.neq("objectif", `${FICHE_JOB_PREFIX}redaction`);
+    // Réserve murale du deroule (01/09) : le groupe le plus lourd ne démarre
+    // que si le drain peut le finir. Un kickQueue (240 s) ne le prend jamais :
+    // démarré à quelques secondes de la mort de la fonction, il finissait
+    // systématiquement au faucheur en « timeout (> 15 min) » (Rassam, Andy
+    // Yen, Quitterie), briques et clickbait vides à la clé.
+    if (resteMs < DEROULE_RESERVE_MS) requete = requete.neq("objectif", `${FICHE_JOB_PREFIX}deroule`);
     const { data: pending } = await requete;
     const job = (pending ?? [])[0] as { id: string; cible_id: string; objectif: string; apply: boolean } | undefined;
     if (!job) break;
@@ -165,6 +171,26 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
             continue; // sans consommer le quota de jobs
           }
         }
+        // Passe de SYNTHÈSE (01/09) : tldr + clickbait synthétisent la fiche
+        // assemblée, elle attend donc la fin des groupes de RECHERCHE de la
+        // cible (la rédaction, elle, attend aussi la synthèse via son propre
+        // différé sur tout job fiche:%).
+        if (groupe === "synthese") {
+          const { data: autres } = await sb
+            .from("enrichment_jobs")
+            .select("id")
+            .eq("cible_id", job.cible_id)
+            .in("objectif", FICHE_GROUPES_RECHERCHE.map((g) => `${FICHE_JOB_PREFIX}${g}`))
+            .in("statut", ["pending", "running"])
+            .neq("id", job.id)
+            .limit(1);
+          if ((autres ?? []).length) {
+            await sb.from("enrichment_jobs").update({ statut: "pending", created_at: nowIso(), updated_at: nowIso() }).eq("id", job.id);
+            if (differes.has(job.id)) break;
+            differes.add(job.id);
+            continue;
+          }
+        }
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
         if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
         ficheSlug = (fiche as FicheRow).slug ?? null;
@@ -186,7 +212,16 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
                     await sb.from("enrichment_jobs").update({ updated_at: nowIso() }).eq("id", job.id);
                   },
                 })
-              : await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, { model, maxSearches, usageOut: usage });
+              : await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, {
+                  model,
+                  maxSearches,
+                  usageOut: usage,
+                  // Signe de vie entre les tours de recherche (01/09) : un
+                  // groupe vivant mais lent n'est plus requalifié à tort.
+                  heartbeat: async () => {
+                    await sb.from("enrichment_jobs").update({ updated_at: nowIso() }).eq("id", job.id);
+                  },
+                });
           } catch (e) {
             lastErr = e;
             const msg = e instanceof Error ? e.message : String(e);
