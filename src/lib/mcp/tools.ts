@@ -1735,7 +1735,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
     {
       show: z.string(),
       cible: z.string(),
-      groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + la rédaction)"),
+      groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "synthese", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + synthese (tldr, clickbait) + la rédaction)"),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a) => {

@@ -1,12 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { appliquerRedaction, itemsHorsBudget, SECTIONS_REDACTIBLES } from "../src/lib/fiche/redaction";
-import { FICHE_GROUPES } from "../src/lib/fiche/generation";
+import { FICHE_GROUPES, FICHE_GROUPES_RECHERCHE, DEROULE_RESERVE_MS } from "../src/lib/fiche/generation";
 import { BUDGETS_V3, SECTION_CONTRACTS } from "../src/lib/fiche/schema";
 
 describe("passe de rédaction (contrat v3.1)", () => {
-  it("la rédaction est le cinquième groupe, exécuté après les recherches", () => {
+  it("la rédaction est le dernier groupe, exécuté après les recherches et la synthèse", () => {
     expect(FICHE_GROUPES).toContain("redaction");
     expect(FICHE_GROUPES[FICHE_GROUPES.length - 1]).toBe("redaction");
+  });
+
+  it("scission du 01/09 : la synthèse s'intercale entre le deroule et la rédaction", () => {
+    expect(FICHE_GROUPES).toEqual(["portrait", "chiffres", "angles", "deroule", "synthese", "redaction"]);
+    // La synthèse n'est PAS un groupe de recherche : elle attend leur fin.
+    expect([...FICHE_GROUPES_RECHERCHE]).toEqual(["portrait", "chiffres", "angles", "deroule"]);
+    // Réserve murale du deroule : jamais revendiqué par un kickQueue (240 s).
+    expect(DEROULE_RESERVE_MS).toBeGreaterThan(240_000);
   });
 
   it("n'écrit que les sections rédactibles (jamais le chrome ni les clips)", () => {

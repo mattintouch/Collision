@@ -134,7 +134,11 @@ export async function runWebSearchJSONVerbose<T>(
   prompt: string,
   maxUses = 5,
   model: string = ANTHROPIC_MODEL,
-  maxTokens = 4000
+  maxTokens = 4000,
+  // Signe de vie entre les tours (chantier timeouts du 01/09) : un groupe de
+  // fiche peut enchaîner plusieurs tours de recherche, chacun long ; le
+  // faucheur ne doit requalifier que les jobs réellement morts. Best-effort.
+  onRound?: () => Promise<void>
 ): Promise<{ json: T | null; text: string; stop: string | null; usage: WebSearchUsage }> {
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
@@ -146,6 +150,7 @@ export async function runWebSearchJSONVerbose<T>(
   for (let i = 0; i < 6; i++) {
     const res = await client.messages.create({ model, max_tokens: maxTokens, system, tools, messages });
     addUsage(usage, res);
+    await onRound?.().catch(() => {});
     if (res.stop_reason === "pause_turn") {
       messages.push({ role: "assistant", content: res.content });
       continue;
