@@ -202,32 +202,55 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   sessionsRef.current = sessions;
   useEffect(() => setSessions(data.rec_sessions), [data.rec_sessions]);
 
-  /* Synchro : canal Realtime, repli documenté en polling 2 s. */
+  /* Synchro temps réel des panneaux et de la régie (chantier chat du 01/09,
+     après la panne de l'enregistrement Rassam ; absorbe le hotfix 8344e8a3).
+
+     Livraison principale : Realtime BROADCAST. L'expéditeur écrit d'abord la
+     ligne en base (source de vérité), puis la diffuse sur le canal websocket
+     de la fiche ; le destinataire l'affiche à réception (~100-300 ms).
+     Broadcast ne dépend PAS de la réplication Postgres de la table : c'est le
+     maillon qui a lâché en studio (postgres_changes s'abonne « avec succès »
+     et reste muet quand la table n'est pas dans la publication Realtime,
+     aucun échec détectable côté client).
+
+     Triple sécurité derrière : postgres_changes conservé (couvre aussi les
+     écritures venues d'ailleurs), rechargement COMPLET de l'historique à
+     chaque passage SUBSCRIBED du canal (première connexion ET reconnexion
+     automatique après une coupure réseau : aucun message perdu), et polling
+     filet toutes les 5 secondes. mergeEvent déduplique par id : les quatre
+     chemins peuvent livrer le même événement sans effet visible. */
   const [erreurEnvoi, setErreurEnvoi] = useState<string | null>(null);
+  const channelRef = useRef<ReturnType<typeof sb.channel> | null>(null);
   useEffect(() => {
-    let poll: ReturnType<typeof setInterval> | null = null;
-    const demarrerPolling = () => {
-      if (poll) return;
-      poll = setInterval(async () => {
-        const { data: evs } = await sb
-          .from("fiche_console_events")
-          .select("id, session_id, created_at, author_email, kind, timecode, payload")
-          .eq("fiche_id", data.fiche_id)
-          .order("created_at")
-          .limit(2000);
-        if (evs) setEvents((prev) => (evs as ConsoleEvent[]).reduce((acc, e) => mergeEvent(acc, e), prev));
-      }, 2000);
+    let arrete = false;
+    const recharger = async () => {
+      const { data: evs } = await sb
+        .from("fiche_console_events")
+        .select("id, session_id, created_at, author_email, kind, timecode, payload")
+        .eq("fiche_id", data.fiche_id)
+        .order("created_at")
+        .limit(2000);
+      if (!arrete && evs) setEvents((prev) => (evs as ConsoleEvent[]).reduce((acc, e) => mergeEvent(acc, e), prev));
     };
+    const poll = setInterval(() => { void recharger(); }, 5000);
     const channel = sb
-      .channel(`console-${data.fiche_id}`)
+      .channel(`console-${data.fiche_id}`, { config: { broadcast: { self: false } } })
+      .on("broadcast", { event: "console" }, (msg) => {
+        const e = msg.payload as ConsoleEvent | undefined;
+        if (e && typeof e.id === "string") setEvents((prev) => mergeEvent(prev, e));
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "fiche_console_events", filter: `fiche_id=eq.${data.fiche_id}` }, (p) => {
         setEvents((prev) => mergeEvent(prev, p.new as ConsoleEvent));
       })
       .subscribe((status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") demarrerPolling();
+        // (Re)connexion : rattrapage complet depuis la base, rien de perdu.
+        if (status === "SUBSCRIBED") void recharger();
       });
+    channelRef.current = channel;
     return () => {
-      if (poll) clearInterval(poll);
+      arrete = true;
+      clearInterval(poll);
+      channelRef.current = null;
       void sb.removeChannel(channel);
     };
   }, [sb, data.fiche_id]);
@@ -258,6 +281,10 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         setErreurEnvoi(`Écriture refusée (${error.message}). Recharge la page puis renvoie ; si ça persiste, reconnecte toi.`);
       } else {
         setErreurEnvoi(null);
+        // Livraison temps réel (chat du 01/09) : la ligne est en base, elle
+        // part en broadcast vers les autres opérateurs de la fiche. Best
+        // effort : si le canal est fermé, le rattrapage et le polling livrent.
+        void channelRef.current?.send({ type: "broadcast", event: "console", payload: e });
       }
     })();
   }, [sb, data.fiche_id, data.viewer_email]);
