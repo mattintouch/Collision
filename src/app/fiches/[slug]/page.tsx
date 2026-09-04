@@ -17,6 +17,7 @@ import {
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
   DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST,
 } from "@/lib/fiche/schema";
+import { DEFAULT_CHECKLIST_EN, DEFAULT_CHECKLIST_POST_EN } from "@/lib/fiche/chrome";
 import { SECTIONS_OBLIGATOIRES } from "@/lib/fiche/sections";
 import FicheView, { type FicheViewData, type FicheQuestion, type ALireLien, type MarcheGraphView } from "./FicheView";
 
@@ -167,6 +168,8 @@ export default async function FichePage({ params }: { params: { slug: string } }
 
   const identite = get("identite");
   const dateNaissance = asString(identite.date_naissance);
+  // Langue de la fiche (04/09) : "en" bascule tout l'habillage en anglais.
+  const langue: "fr" | "en" = asString(identite.langue) === "en" ? "en" : "fr";
 
   // data (04) : KPI, graphs v3.1, marché, et v4 (marche_graphs, lexique).
   // Les visuels des fiches non migrées vivent encore dans univers : repli.
@@ -266,13 +269,15 @@ export default async function FichePage({ params }: { params: { slug: string } }
         return qui || canal ? { qui, canal } : undefined;
       })(),
     },
+    langue,
     checklist: (() => {
       // v4 : sept gestes fixes ; une liste stockée d'une autre longueur
-      // (fiches v3.1 à cinq items) retombe sur le défaut du contrat.
+      // (fiches v3.1 à cinq items) retombe sur le défaut du contrat, dans la
+      // langue de la fiche.
       const items = asStringArray(get("checklist_prerec").items);
-      return items.length === DEFAULT_CHECKLIST.length ? items : DEFAULT_CHECKLIST;
+      return items.length === DEFAULT_CHECKLIST.length ? items : langue === "en" ? DEFAULT_CHECKLIST_EN : DEFAULT_CHECKLIST;
     })(),
-    checklist_post: DEFAULT_CHECKLIST_POST,
+    checklist_post: langue === "en" ? DEFAULT_CHECKLIST_POST_EN : DEFAULT_CHECKLIST_POST,
     tldr: asArray(get("tldr").items, (x) => {
       const texte = asString(x.texte);
       const label = asString(x.label);

@@ -16,8 +16,8 @@
 // décision du brief v4.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { googleImagesUrl } from "@/lib/fiche/schema";
-import { POOL_QUESTIONS_GENERALES } from "@/lib/fiche/schema";
+import { googleImagesUrl, POOL_QUESTIONS_GENERALES } from "@/lib/fiche/schema";
+import { CHROME_FICHE, POOL_QUESTIONS_GENERALES_EN, type FicheLangue } from "@/lib/fiche/chrome";
 import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
@@ -33,9 +33,9 @@ export const POST_CHECK_OFFSET = 100;
  *  en vert, le piège en rouge, « à lui faire lâcher » en or). PURE, testée. */
 export function tldrAccent(label: string): "green" | "red" | "gold" | null {
   const l = label.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  if (/piege/.test(l)) return "red";
+  if (/piege|trap/.test(l)) return "red";
   if (/tension/.test(l)) return "green";
-  if (/lacher|levier/.test(l)) return "gold";
+  if (/lacher|levier|lever/.test(l)) return "gold";
   return null;
 }
 
@@ -92,6 +92,7 @@ export interface FicheViewData {
   console_events: ConsoleEvent[];
   rec_sessions: RecSession[];
   show_label: string;
+  langue: FicheLangue;
   generation: { groupe: string; statut: string; error?: string; quand?: string }[];
   incompletes: string[];
   identite: {
@@ -195,6 +196,9 @@ function IconeReseau({ label }: { label: string }) {
 }
 
 export default function FicheView({ data }: { data: FicheViewData }) {
+  // Habillage dans la langue de la fiche (04/09, cas Andy Yen).
+  const L = CHROME_FICHE[data.langue];
+  const pool = data.langue === "en" ? POOL_QUESTIONS_GENERALES_EN : POOL_QUESTIONS_GENERALES;
   const [events, setEvents] = useState<ConsoleEvent[]>(data.console_events);
   const [sessions, setSessions] = useState<RecSession[]>(data.rec_sessions);
   const sb = useMemo(() => createClient(), []);
@@ -333,11 +337,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   /* Toolbar : trois panneaux adossés à la console partagée. */
   const [panneau, setPanneau] = useState<"clips" | "carnet" | "regie" | null>(null);
   const [saisie, setSaisie] = useState("");
-  const meta = {
-    clips: { title: "Clips", hint: "questions à fort potentiel réseaux · challengées par l'équipe", ph: "Proposer un clip", empty: "Aucun clip validé. Les questions marquées CLIP dans les briques sont les candidates." },
-    carnet: { title: "Carnet", hint: "notes prises en direct", ph: "Note en direct", empty: "Vide. À remplir pendant l'enregistrement." },
-    regie: { title: "Régie", hint: "suivi technique et production", ph: "Entrée régie", empty: "Aucune entrée technique." },
-  } as const;
+  const meta = L.toolbar;
   const listeDuPanneau = panneau === "clips" ? clipsSaisis : panneau === "carnet" ? notesSaisies : panneau === "regie" ? chat : [];
   const submitPanneau = () => {
     const t = saisie.trim();
@@ -439,10 +439,10 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 onClick={(ev) => { ev.stopPropagation(); toggleRec(); }}
                 onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.stopPropagation(); toggleRec(); } }}
               >
-                {recOn ? "■ En cours" : "● REC"}
+                {recOn ? L.recOn : L.rec}
               </span>
               <span className="rectime mono">{fmtChrono(recSec)}</span>
-              <span>{`Avant d'appuyer sur REC · ${data.checklist.length} gestes`}</span>
+              <span>{L.preTitle(data.checklist.length)}</span>
             </span>
             <span style={{ fontVariantNumeric: "tabular-nums" }}>{preDone}/{data.checklist.length} {preOpen ? "▲" : "▼"}</span>
           </button>
@@ -480,7 +480,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {/* ── Header ── */}
         <header className="gd">
-          <div className="gd-eyebrow">{data.show_label} · Fiche de préparation{numeroTag}</div>
+          <div className="gd-eyebrow">{data.show_label} · {L.eyebrow}{numeroTag}</div>
           <h1 className="gd">{data.invite_nom}</h1>
           <div className="gd-rule" />
           {lede.length > 0 && (
@@ -500,7 +500,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               <a key={i} className="gd-btn" href={l.url} target="_blank" rel="noopener noreferrer">{l.label} →</a>
             ))}
             <a className="gd-btn gd-btn--photo" href={googleImagesUrl(data.invite_nom)} target="_blank" rel="noopener noreferrer">
-              {`Photos · Google Images "${data.invite_nom}" →`}
+              {L.photos(data.invite_nom)}
             </a>
             {data.revue_de_presse.reseaux.map((l, i) => (
               <a key={i} className="gd-btn gd-btn--dark mono" href={l.url} target="_blank" rel="noopener noreferrer">
@@ -511,9 +511,9 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </div>
           {(data.identite.accompagnants.length > 0 || data.identite.mise_en_relation) && (
             <div className="mono" style={{ fontSize: 12, color: "#6B675C", marginTop: 14, display: "flex", gap: 24, flexWrap: "wrap" }}>
-              <span>ACCOMPAGNANTS : {data.identite.accompagnants.length ? data.identite.accompagnants.map((a) => `${a.nom}${a.fonction ? ` (${a.fonction})` : ""}`).join(", ") : "à confirmer"}</span>
+              <span>{L.accompagnants} : {data.identite.accompagnants.length ? data.identite.accompagnants.map((a) => `${a.nom}${a.fonction ? ` (${a.fonction})` : ""}`).join(", ") : L.aConfirmer}</span>
               {data.identite.mise_en_relation && (
-                <span>MISE EN RELATION : {[data.identite.mise_en_relation.qui, data.identite.mise_en_relation.canal].filter(Boolean).join(", ")}</span>
+                <span>{L.miseEnRelation} : {[data.identite.mise_en_relation.qui, data.identite.mise_en_relation.canal].filter(Boolean).join(", ")}</span>
               )}
             </div>
           )}
@@ -521,14 +521,14 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {/* ── INTRO ── */}
         {(data.tldr.length > 0 || data.timeline.length > 0 || aChiffres) && (
-          <div className="gd-cat"><span className="tag">Intro</span></div>
+          <div className="gd-cat"><span className="tag">{L.catIntro}</span></div>
         )}
 
         {data.tldr.length > 0 && (
           <section className="gd-tldr">
             <div className="head">
               <h2 className="gd" style={{ margin: 0 }}>TL;DR</h2>
-              <p>Le briefing en 30 secondes</p>
+              <p>{L.tldrSub}</p>
             </div>
             <div className="grid">
               {data.tldr.map((t, i) => {
@@ -546,8 +546,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {data.timeline.length > 0 && (
           <section className="gd-timeline">
-            <h2 className="gd">Bio timeline</h2>
-            <p className="gd-sub">Une ligne = une date = un fait · pro et perso mêlés</p>
+            <h2 className="gd">{L.bioTimeline}</h2>
+            <p className="gd-sub">{L.bioTimelineSub}</p>
             <div className="rows">
               {data.timeline.map((t, i) => (
                 <div key={i} className="gd-tl"><span className="d">{t.date ?? ""}</span><span className="f">{t.texte}</span></div>
@@ -558,8 +558,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {aChiffres && (
           <section style={{ marginTop: 56 }}>
-            <h2 className="gd">Les chiffres</h2>
-            <p className="gd-sub">Bloc propriétaire des valeurs · toute valeur est datée et sourcée</p>
+            <h2 className="gd">{L.chiffres}</h2>
+            <p className="gd-sub">{L.chiffresSub}</p>
             {data.kpis.length > 0 && (
               <div className="gd-kpigrid">
                 {data.kpis.map((k, i) => (
@@ -627,12 +627,12 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {/* ── MARCHÉ ── */}
         {aMarche && (
           <>
-            <div className="gd-cat"><span className="tag">Marché</span></div>
+            <div className="gd-cat"><span className="tag">{L.catMarche}</span></div>
             <section style={{ marginTop: 32 }}>
               {data.marche_graphs.length > 0 && (
                 <>
-                  <h2 className="gd">{`Où va l'argent du secteur`}</h2>
-                  <p className="gd-sub">Le contexte, en {data.marche_graphs.length} image{data.marche_graphs.length > 1 ? "s" : ""}</p>
+                  <h2 className="gd">{L.marcheTitre}</h2>
+                  <p className="gd-sub">{L.marcheSub(data.marche_graphs.length)}</p>
                   {data.marche_graphs.map(carteGraph)}
                 </>
               )}
@@ -640,13 +640,13 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 <div className="gd-2col">
                   {data.marche.texte && (
                     <div>
-                      <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>Le marché en un paragraphe</h3>
+                      <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>{L.marcheParagraphe}</h3>
                       <p style={{ fontSize: 16, margin: 0, color: "#35332A" }}>{data.marche.texte}</p>
                     </div>
                   )}
                   {data.marche.comparables.length > 0 && (
                     <div>
-                      <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>Comparables</h3>
+                      <h3 style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>{L.comparables}</h3>
                       <div style={{ borderTop: "2px solid #16150F" }}>
                         {data.marche.comparables.map((p, i) => (
                           <div key={i} className="gd-table-row"><span className="n">{p.nom}</span><span className="p">{p.position ?? ""}</span></div>
@@ -658,8 +658,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               )}
               {data.lexique.length > 0 && (
                 <div className="gd-card">
-                  <h3>{`Lexique : les ${data.lexique.length} mots du métier, en une phrase chacun`}</h3>
-                  <p className="csub">{`Pour ne jamais être le seul du studio à ne pas comprendre`}</p>
+                  <h3>{L.lexiqueTitre(data.lexique.length)}</h3>
+                  <p className="csub">{L.lexiqueSub}</p>
                   <div className="gd-lex">
                     {data.lexique.map((l, i) => (
                       <div key={i}><b className="term">{l.terme}</b>{l.definition}</div>
@@ -674,7 +674,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {/* ── MAIN TOPICS ── */}
         {data.topics.length > 0 && (
           <>
-            <div className="gd-cat"><span className="tag">Main topics</span></div>
+            <div className="gd-cat"><span className="tag">{L.catTopics}</span></div>
             <div className="gd-briques">
               {data.topics.map((t, ti) => {
                 const large = t.pleine_largeur;
@@ -689,7 +689,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                     )}
                     {(t.contexte || t.intention) && (
                       <>
-                        <h3>Le contexte</h3>
+                        <h3>{L.contexte}</h3>
                         <p className="ctx">{t.contexte ?? t.intention}</p>
                       </>
                     )}
@@ -701,7 +701,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                     )}
                     {t.dates.length > 0 && (
                       <div className="gd-dates">
-                        <h3>Dates clés</h3>
+                        <h3>{L.datesCles}</h3>
                         {t.dates.map((d, i) => (
                           <div key={i} className="d"><i>·</i><span>{d}</span></div>
                         ))}
@@ -718,13 +718,13 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                   <div className="gd-brique__exploit">
                     {t.reflexions.length > 0 && (
                       <div className="gd-reflex">
-                        <h3>Réflexions</h3>
+                        <h3>{L.reflexions}</h3>
                         {t.reflexions.map((r, i) => <p key={i}>{r}</p>)}
                       </div>
                     )}
                     {t.questions.length > 0 && (
                       <div className="gd-qs">
-                        <h3>Questions</h3>
+                        <h3>{L.questions}</h3>
                         {t.questions.map(questionRow)}
                       </div>
                     )}
@@ -733,7 +733,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 return (
                   <article key={ti} className={`gd-brique${large ? " span2" : ""}`}>
                     <div className="gd-brique__head">
-                      <div className="gd-brique__num">Sujet {ti + 1}</div>
+                      <div className="gd-brique__num">{L.sujet(ti + 1)}</div>
                       <h2 className="gd-brique__title">{t.titre}</h2>
                     </div>
                     <div className="gd-brique__cols">
@@ -752,12 +752,12 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           <article className="gd-clickbait">
             <div className="head">
               <span className="tt">Clickbait</span>
-              <span className="st">Les questions qui piquent, et celles qui font apprendre · à doser selon la température du studio</span>
+              <span className="st">{L.clickbaitSub}</span>
             </div>
             <div className="body">
               {data.clickbait.piquantes.length > 0 && (
                 <>
-                  <h3 className="grp">{`Celles qui piquent (jusqu'à la gêne assumée)`}</h3>
+                  <h3 className="grp">{L.clickbaitPiquantes}</h3>
                   {data.clickbait.piquantes.map((q, i) => (
                     <div key={i} className="cb-q"><span className="n">C{i + 1}</span><span className="t">{q}</span></div>
                   ))}
@@ -765,7 +765,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               )}
               {data.clickbait.apprentissages.length > 0 && (
                 <>
-                  <h3 className="grp">{`Celles qui font apprendre (le meilleur de sa catégorie est en face de moi : qu'est-ce que je dois retenir ?)`}</h3>
+                  <h3 className="grp">{L.clickbaitApprentissages}</h3>
                   {data.clickbait.apprentissages.map((q, i) => (
                     <div key={i} className="cb-q learn"><span className="n">C{data.clickbait!.piquantes.length + i + 1}</span><span className="t">{q}</span></div>
                   ))}
@@ -780,7 +780,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           <article className="gd-clickbait">
             <div className="head">
               <span className="tt">Clips</span>
-              <span className="st">Format v3.1 · régénérer la fiche pour le format clickbait</span>
+              <span className="st">{L.clipsLegacySub}</span>
             </div>
             <div className="body">
               {data.clips_legacy.map((q, i) => (
@@ -795,21 +795,21 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {/* ── APPROFONDISSEMENT ── */}
         {(data.terrain_connu.length > 0 || data.personnel.entourage.length > 0 || data.apprentissages.items.length > 0 || data.personnel.zone_grise.length > 0 || data.personnel.donnees_cachees.length > 0) && (
-          <div className="gd-cat"><span className="tag">Approfondissement</span></div>
+          <div className="gd-cat"><span className="tag">{L.catApprofondissement}</span></div>
         )}
 
         {data.terrain_connu.length > 0 && (
           <article className="gd-brique" style={{ marginTop: 32 }}>
             <div className="gd-brique__head">
-              <h2 className="gd" style={{ margin: 0 }}>Terrain connu</h2>
-              <p className="gd-sub" style={{ margin: "4px 0 0" }}>Ses réponses rodées, et la question de dépassement qui force du neuf</p>
+              <h2 className="gd" style={{ margin: 0 }}>{L.terrainConnu}</h2>
+              <p className="gd-sub" style={{ margin: "4px 0 0" }}>{L.terrainSub}</p>
             </div>
             <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
               {data.terrain_connu.map((r, i) => (
                 <div key={i} className="gd-terrain">
-                  <div className="cq"><div className="lab">{`La question qu'on lui pose partout`}</div><p>{r.question}</p></div>
-                  <div className="cr"><div className="lab">Sa réponse rodée</div><p>{r.reponse ?? ""}</p></div>
-                  <div className="cd"><div className="lab">Le dépassement</div><p>{r.depassement ?? ""}</p></div>
+                  <div className="cq"><div className="lab">{L.terrainQuestion}</div><p>{r.question}</p></div>
+                  <div className="cr"><div className="lab">{L.terrainReponse}</div><p>{r.reponse ?? ""}</p></div>
+                  <div className="cd"><div className="lab">{L.terrainDepassement}</div><p>{r.depassement ?? ""}</p></div>
                 </div>
               ))}
             </div>
@@ -818,9 +818,9 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {data.personnel.entourage.length > 0 && (
           <article className="gd-brique" style={{ marginTop: 40 }}>
-            <div className="gd-brique__head"><h2 className="gd" style={{ margin: 0 }}>{`Who's who`}</h2></div>
+            <div className="gd-brique__head"><h2 className="gd" style={{ margin: 0 }}>{L.whosWho}</h2></div>
             <div style={{ padding: "0 24px 20px" }}>
-              <div className="gd-who-head"><span>Qui / rôle</span><span>Ce que ça éclaire</span><span>À préconfirmer</span></div>
+              <div className="gd-who-head"><span>{L.whoQui}</span><span>{L.whoEclaire}</span><span>{L.whoPreconfirmer}</span></div>
               {data.personnel.entourage.map((e, i) => (
                 <div key={i} className="gd-who-row">
                   <div><div className="name">{e.nom}</div>{e.role && <div className="role">{e.role}</div>}</div>
@@ -834,15 +834,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {data.apprentissages.items.length > 0 && (
           <article className="gd-brique" style={{ marginTop: 40 }}>
-            <div className="gd-brique__head"><h2 className="gd" style={{ margin: 0 }}>Les apprentissages</h2></div>
+            <div className="gd-brique__head"><h2 className="gd" style={{ margin: 0 }}>{L.apprentissages}</h2></div>
             <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
               {data.apprentissages.items.map((pb, i) => (
                 <div key={i} className="gd-tryp">
                   <h3>{i + 1}. {pb.titre}</h3>
                   <div className="cols">
-                    <div className="c1"><div className="lab">{`Ce qu'on sait`}</div><p>{pb.connu ?? ""}</p></div>
-                    <div className="c2"><div className="lab">Ce qui manque</div><p>{pb.manque ?? ""}</p></div>
-                    <div className="c3"><div className="lab">La question</div><p>{pb.question ?? ""}</p></div>
+                    <div className="c1"><div className="lab">{L.trypConnu}</div><p>{pb.connu ?? ""}</p></div>
+                    <div className="c2"><div className="lab">{L.trypManque}</div><p>{pb.manque ?? ""}</p></div>
+                    <div className="c3"><div className="lab">{L.trypQuestion}</div><p>{pb.question ?? ""}</p></div>
                   </div>
                 </div>
               ))}
@@ -853,8 +853,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {data.personnel.donnees_cachees.length > 0 && (
           <article className="gd-brique" style={{ marginTop: 40 }}>
             <div className="gd-brique__head">
-              <h2 className="gd" style={{ margin: 0 }}>Données cachées</h2>
-              <p className="gd-sub" style={{ margin: "4px 0 0" }}>Vieux dossiers et anecdotes introuvables dans les interviews récentes</p>
+              <h2 className="gd" style={{ margin: 0 }}>{L.donneesCachees}</h2>
+              <p className="gd-sub" style={{ margin: "4px 0 0" }}>{L.donneesCacheesSub}</p>
             </div>
             <div style={{ padding: "12px 24px 20px" }}>
               {data.personnel.donnees_cachees.map((d, i) => (
@@ -870,8 +870,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {data.personnel.zone_grise.length > 0 && (
           <article className="gd-alert">
             <div className="head">
-              <span className="tt">Zones grises</span>
-              <span className="st">{`Ne jamais affirmer à l'antenne`}</span>
+              <span className="tt">{L.zonesGrises}</span>
+              <span className="st">{L.zonesGrisesSub}</span>
             </div>
             <div className="body">
               {data.personnel.zone_grise.map((z, i) => (
@@ -886,16 +886,16 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         {/* ── SOURCES ── */}
         {(data.revue_de_presse.a_lire.length > 0 || data.sources_titres.length > 0) && (
-          <div className="gd-cat"><span className="tag">Les sources</span></div>
+          <div className="gd-cat"><span className="tag">{L.catSources}</span></div>
         )}
 
         {data.revue_de_presse.a_lire.length > 0 && (
           <section style={{ marginTop: 32 }}>
-            <h2 className="gd">{`À consulter avant l'enregistrement`}</h2>
+            <h2 className="gd">{L.aConsulter}</h2>
             <p className="gd-sub">
               {(() => {
                 const total = data.revue_de_presse.a_lire.reduce((acc, l) => acc + (parseInt(l.temps_lecture ?? "", 10) || 0), 0);
-                return total > 0 ? `${total} min de lecture au total` : "Les lectures indispensables et utiles";
+                return total > 0 ? L.lectureTotale(total) : L.lecturesSub;
               })()}
             </p>
             <div>
@@ -903,15 +903,15 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                 const inner = (
                   <>
                     <div>
-                      <span className="prio">{l.niveau === "indispensable" ? "Indispensable" : l.niveau === "optionnel" ? "Optionnel" : "Utile"}</span>
+                      <span className="prio">{l.niveau === "indispensable" ? L.prioIndispensable : l.niveau === "optionnel" ? L.prioOptionnel : L.prioUtile}</span>
                       {l.date && <div className="date">{l.date}</div>}
                     </div>
                     <div>
-                      <div className="ti">{l.titre}{l.embargo && <span className="embargo">Embargo</span>}</div>
+                      <div className="ti">{l.titre}{l.embargo && <span className="embargo">{L.embargo}</span>}</div>
                       {l.apport && <div className="why">{l.apport}</div>}
                     </div>
                     <div>
-                      {l.temps_lecture && <><div className="time">{l.temps_lecture.replace(/\s*min.*/i, " min")}</div><div className="tlab">de lecture</div></>}
+                      {l.temps_lecture && <><div className="time">{l.temps_lecture.replace(/\s*min.*/i, " min")}</div><div className="tlab">{L.deLecture}</div></>}
                     </div>
                   </>
                 );
@@ -927,8 +927,8 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {data.sources_titres.length > 0 && (
           <div className={`gd-fold--quiet${foldSources ? " open" : ""}`}>
             <button className="fq" onClick={() => setFoldSources(!foldSources)}>
-              <span>Toutes les sources consultées ({data.sources_titres.length})</span>
-              <span>{foldSources ? "− Replier" : "+ Déplier"}</span>
+              <span>{L.foldSources(data.sources_titres.length)}</span>
+              <span>{foldSources ? L.replier : L.deplier}</span>
             </button>
             <div className="fbody">
               <p className="mono" style={{ fontSize: 13, lineHeight: 1.9, color: "#6B675C", margin: "16px 0 0" }}>
@@ -940,11 +940,11 @@ export default function FicheView({ data }: { data: FicheViewData }) {
 
         <div className={`gd-fold--quiet${foldPool ? " open" : ""}`} style={{ marginTop: 12 }}>
           <button className="fq" onClick={() => setFoldPool(!foldPool)}>
-            <span>{`Questions générales de l'émission (pool fixe)`}</span>
-            <span>{foldPool ? "− Replier" : "+ Déplier"}</span>
+            <span>{L.foldPool}</span>
+            <span>{foldPool ? L.replier : L.deplier}</span>
           </button>
           <div className="fbody" style={{ marginTop: 16 }}>
-            {POOL_QUESTIONS_GENERALES.map((q, i) => <div key={i} className="gd-genq">{q}</div>)}
+            {pool.map((q, i) => <div key={i} className="gd-genq">{q}</div>)}
           </div>
         </div>
 
@@ -961,7 +961,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         {/* ── Checklist post-REC : bande rouge repliée par défaut. ── */}
         <div className="gd-fold--red" style={{ marginTop: 48 }}>
           <button className="gd-fold__trigger" onClick={() => setPostOpen(!postOpen)}>
-            <span>Avant de quitter le studio · {data.checklist_post.length} gestes</span>
+            <span>{L.postTitle(data.checklist_post.length)}</span>
             <span style={{ fontVariantNumeric: "tabular-nums" }}>{postDone}/{data.checklist_post.length} {postOpen ? "▲" : "▼"}</span>
           </button>
           <div className={`gd-fold__body${postOpen ? "" : " hidden"}`}>
@@ -1014,7 +1014,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                   onKeyDown={(e) => { if (e.key === "Enter") submitPanneau(); }}
                   placeholder={meta[panneau].ph}
                 />
-                <button onClick={submitPanneau}>Ajouter</button>
+                <button onClick={submitPanneau}>{L.ajouter}</button>
               </div>
             </>
           )}
@@ -1026,7 +1026,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             return (
               <button key={id} className={`${panneau === id ? "active" : ""}${blink ? " blink" : ""}`} onClick={() => setPanneau(panneau === id ? null : id)}>
                 <span>{meta[id].title}</span>
-                <span className="ct">{blink ? `${nonLus.length} non lu(s)` : count}</span>
+                <span className="ct">{blink ? L.nonLus(nonLus.length) : count}</span>
               </button>
             );
           })}
