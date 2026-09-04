@@ -24,6 +24,11 @@ export interface IdentiteContent {
   date_naissance?: string;    // ISO AAAA-MM-JJ, sourcée
   accompagnants?: { nom: string; fonction?: string }[]; // "à confirmer" si inconnu
   mise_en_relation?: { qui?: string; canal?: string };  // qui a connecté, par quel canal
+  /** Langue de la fiche (04/09, cas Andy Yen) : "en" bascule TOUT l'habillage
+   *  du template en anglais (titres de blocs, labels, checklists, pool de
+   *  questions) pour qu'un contenu anglais ne baigne pas dans un chrome
+   *  français. Défaut "fr". */
+  langue?: "fr" | "en";
 }
 
 export interface ChecklistContent { items?: string[] }
@@ -523,6 +528,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     pilules: ["MAR 22 SEPT · 9H30", "STUDIO 71 · RDC SUR RUE", "2H30"],
     liens: [{ label: "Wikipedia", url: "https://fr.wikipedia.org/wiki/... (SYSTÉMATIQUE quand la page existe, en premier)" }, { label: "LinkedIn", url: "https://www.linkedin.com/in/..." }],
     date_naissance: "1972-08-25 (ISO, sourcée ; l'âge se calcule au rendu à la date d'enregistrement)",
+    langue: "fr (défaut) ou en : bascule tout l'habillage du template en anglais (épisode enregistré en anglais)",
     accompagnants: [{ nom: "Prénom Nom, ou « à confirmer »", fonction: "attachée de presse" }],
     mise_en_relation: { qui: "qui a connecté", canal: "par quel canal (intro email, DM, agence...)" },
   },
