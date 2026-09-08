@@ -16,7 +16,20 @@ budgets dans `src/lib/fiche/schema.ts`, catalogue dans
   rédaction : le TL;DR et le clickbait en sortent SANS recherche web
   (synthèse de la fiche assemblée), le deroule allégé ne porte plus que le
   terrain connu, les briques et la zone grise, et ne démarre que dans un
-  drain qui peut le finir (réserve murale, cron seulement).
+  drain qui peut le finir (réserve murale, cron seulement). Depuis le 07/09,
+  le deroule est lui-même SCINDÉ : un appel « squelette » (terrain connu,
+  zone grise, liste des briques réduites à titre et intention, écrit
+  immédiatement), puis UN appel par brique (corps complet, plafond de sortie
+  court, écrit dès réception). La reprise est idempotente : une relance de
+  generate_fiche (deroule) ne rejoue que les briques sans questions ; une
+  brique écrite, générée ou saisie à la main, n'est jamais régénérée ni
+  écrasée. La numérotation continue des questions (01, 02...) est imposée
+  par le serveur après chaque écriture. Les échecs sont chiffrés (limite de
+  tokens avec plafond et sortie rendue, ou JSON illisible avec le stop), et
+  la synthèse comme la rédaction échouent explicitement si le dernier
+  deroule de la fiche est en échec, au lieu de consolider une fiche sans
+  briques. La langue de la fiche (identite.langue) est injectée dans tous
+  les prompts de génération et de rédaction.
 - La propriété unique des faits, la doctrine de profondeur, les interdits
   transverses, la vérification des URLs, les budgets durs par champ.
 - Le TL;DR à neuf labels (Qui, Fait d'armes, Fil rouge, Le comment,

@@ -191,6 +191,27 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
             continue;
           }
         }
+        // Barrière aval (brief 07/09, item 5) : la synthèse et la rédaction ne
+        // tournent plus sur une fiche dont le deroule vient d'échouer. Le
+        // différé ne voyait que pending/running : un deroule FAILED était
+        // invisible et la rédaction consolidait une fiche sans briques
+        // (constaté sur Estelle Brachlianoff). Échec EXPLICITE plutôt
+        // qu'attente : le journal dit quoi relancer, rien ne pourrit en file.
+        if (groupe === "synthese" || groupe === "redaction") {
+          const { data: derniersDeroule } = await sb
+            .from("enrichment_jobs")
+            .select("statut, error")
+            .eq("cible_id", job.cible_id)
+            .eq("objectif", `${FICHE_JOB_PREFIX}deroule`)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          const dernier = (derniersDeroule ?? [])[0] as { statut: string; error: string | null } | undefined;
+          if (dernier?.statut === "failed") {
+            throw new Error(
+              `Passe ${groupe} refusée : le dernier deroule de la fiche a échoué (${dernier.error ?? "sans détail"}). Relancer generate_fiche (deroule), qui ne rejoue que les briques manquantes, puis remettre ${groupe} en file.`
+            );
+          }
+        }
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
         if (!fiche) throw new Error("Fiche introuvable pour cette cible (create_fiche d'abord).");
         ficheSlug = (fiche as FicheRow).slug ?? null;
@@ -221,6 +242,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
                   heartbeat: async () => {
                     await sb.from("enrichment_jobs").update({ updated_at: nowIso() }).eq("id", job.id);
                   },
+                  // Budget mural restant (07/09) : le deroule scindé s'arrête
+                  // PROPREMENT entre deux briques plutôt que de mourir en vol.
+                  resteMs: () => budgetMs - (Date.now() - startedAt),
                 });
           } catch (e) {
             lastErr = e;

@@ -19,6 +19,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson, type WebSearchUsage } from "../ai/websearch";
+import { blocLangue, langueDeFiche } from "./generation";
 import { hasAnthropicKey } from "../copilot/config";
 import { isEmptyContent, BUDGETS_V3 } from "./schema";
 import { lintFiche, doublonsQuestions, type LintRapport } from "./lint";
@@ -428,6 +429,10 @@ export async function processRedaction(
 
   const client = new Anthropic();
   const model = REDACTION_MODEL();
+  // Langue de la fiche (brief 07/09, item 6) : la passe de consolidation
+  // écrit dans la langue de la fiche, pas en français par défaut.
+  const langue = await langueDeFiche(sb, fiche.id);
+  const system = blocLangue(langue) ? `${SYSTEM}\n\n${blocLangue(langue)}` : SYSTEM;
   // Règle 5 : le lint mesure AVANT la passe et ses trouvailles deviennent des
   // consignes explicites (doublons, chiffres répétés, méta narratif, budgets).
   const lintAvant = lintFiche(actuel);
@@ -439,7 +444,7 @@ export async function processRedaction(
     opts.usageOut.tokens_in += res.usage?.input_tokens ?? 0;
     opts.usageOut.tokens_out += res.usage?.output_tokens ?? 0;
   };
-  let res = await client.messages.create({ model, max_tokens: 16384, system: SYSTEM, messages });
+  let res = await client.messages.create({ model, max_tokens: 16384, system, messages });
   compte(res);
   // Signe de vie entre les deux appels modèle (chacun peut durer plusieurs
   // minutes) : le faucheur de jobs ne requalifie pas une passe encore vivante.
@@ -447,11 +452,16 @@ export async function processRedaction(
   const texteDe = (m: Anthropic.Message) =>
     m.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n");
   let sortie = extractJson<SortieRedaction>(texteDe(res));
+  // Sortie coupée par la limite de tokens : le finisher régénérerait tout et
+  // retaperait le même plafond, l'erreur chiffrée part tout de suite.
+  if (!sortie && res.stop_reason === "max_tokens") {
+    throw new Error(`Rédaction : sortie coupée par la limite de tokens (plafond 16384, ${res.usage?.output_tokens ?? "?"} tokens rendus). Début : ${texteDe(res).slice(0, 200) || "(vide)"}`);
+  }
   if (!sortie) {
     // Finisher : une relance unique pour exiger le JSON (même mécanique que la génération).
     messages.push({ role: "assistant", content: res.content });
     messages.push({ role: "user", content: "Réponds maintenant UNIQUEMENT avec l'objet JSON demandé, complet, sans aucun texte autour." });
-    res = await client.messages.create({ model, max_tokens: 16384, system: SYSTEM, messages });
+    res = await client.messages.create({ model, max_tokens: 16384, system, messages });
     compte(res);
     sortie = extractJson<SortieRedaction>(texteDe(res));
   }
@@ -474,7 +484,7 @@ export async function processRedaction(
       const resTldr = await client.messages.create({
         model,
         max_tokens: 2048,
-        system: SYSTEM_TLDR,
+        system: blocLangue(langue) ? `${SYSTEM_TLDR}\n\n${blocLangue(langue)}` : SYSTEM_TLDR,
         messages: [{ role: "user", content: `Invité : ${cible.nom}. TL;DR actuel (JSON) :\n${JSON.stringify(tldrFinal)}` }],
       });
       compte(resTldr);
