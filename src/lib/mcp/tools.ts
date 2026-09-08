@@ -26,7 +26,7 @@ import { kindAwarePatch, mapKindConstraintError } from "./kind";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, SECTIONS_OBLIGATOIRES, canonicalSectionId, parseSectionsParam } from "../fiche/sections";
-import { SECTION_CONTRACTS, isEmptyContent, safeUrl } from "../fiche/schema";
+import { SECTION_CONTRACTS, depassementsBudget, isEmptyContent, safeUrl } from "../fiche/schema";
 import {
   FICHE_STATUTS,
   resolveFiche,
@@ -2286,7 +2286,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "update_section",
-    "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section : appeler get_section d'abord, son champ `contrat` donne la forme exacte attendue. Intentions : rédiger une section, corriger le playbook, injecter les questions clips.",
+    "Écrit le contenu structuré d'une section (remplacement complet). Versionné : l'état précédent est archivé (rollback possible), la version de la section et de la fiche sont incrémentées. Le contenu est un objet JSON propre à la section : appeler get_section d'abord, son champ `contrat` donne la forme exacte attendue. Un contenu au-delà des budgets v3.1 (ex. note tactique de plus de 200 caractères) est REFUSÉ avec la liste des champs en dépassement, jamais tronqué en silence. Intentions : rédiger une section, corriger le playbook, injecter les questions clips.",
     {
       fiche: z.string(),
       section_id: z.string().describe("clé stable v3.1 (ex. identite, tldr, data, apprentissages, clips, topics, personnel, revue_de_presse)"),
@@ -2303,6 +2303,18 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const sectionId = canonicalSectionId(a.section_id); // alias v1 acceptés
       const def = FICHE_SECTIONS.find((s) => s.id === sectionId);
       if (!def) return text({ error: `Section inconnue : ${a.section_id}.`, sections_valides: FICHE_SECTIONS.map((s) => s.id) });
+      // Budgets (brief 07/09, item 7) : une écriture MANUELLE au-delà d'un
+      // budget est REFUSÉE avec la liste des champs, plus jamais tronquée en
+      // silence (une note tactique coupée à 200 caractères perdait sa fin
+      // sans que personne le voie). La génération garde la troncature-filet.
+      const depassements = depassementsBudget(sectionId, a.content);
+      if (depassements.length) {
+        return text({
+          error: "Écriture refusée : contenu au-delà des budgets v3.1 (rien n'a été écrit). Raccourcir les champs listés, ou découper le contenu.",
+          cause: "budget_depasse",
+          depassements,
+        });
+      }
       const author = extra?.authInfo?.extra?.email ?? extra?.authInfo?.extra?.userId ?? null;
       const r = await writeSection(sb, f.id, sectionId, a.content, author);
       if (!r) return text({ error: `Section inconnue : ${a.section_id}.` });
@@ -2571,7 +2583,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "create_fiche",
-    "Crée une fiche de préparation structurée pour une cible validée et sème les 19 sections vides du catalogue (à alimenter ensuite via update_section ou la génération). Idempotent : une seule fiche par cible ; réappelée, renvoie l'existante en complétant les sections manquantes. Slug = prénom-nom (unique).",
+    "Crée une fiche de préparation structurée pour une cible validée et sème les 19 sections vides du catalogue (à alimenter ensuite via update_section ou la génération). La cible doit être QUALIFIÉE (archétype posé, pas de nom factice) : le contrôle se fait ici, à la création, plus seulement au lancement de la génération. Idempotent : une seule fiche par cible ; réappelée, renvoie l'existante en complétant les sections manquantes. Slug = prénom-nom (unique).",
     { show: z.string(), cible: z.string() },
     { destructiveHint: false, idempotentHint: true },
     async (a) => {
@@ -2580,6 +2592,24 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
+      // Contrôle d'archétype À LA CRÉATION (brief 07/09, item 8) : une cible
+      // non qualifiée est refusée ICI, pas au lancement de la génération des
+      // heures plus tard. Idempotence préservée : une fiche déjà créée reste
+      // lisible et complétable. Le contrôle du lancement est conservé en
+      // défense en profondeur. Les cibles de test restent admises (recette).
+      const { data: dejaFiche } = await sb.from("fiches").select("id").eq("cible_id", target.id).maybeSingle();
+      if (!dejaFiche) {
+        const { data: cibleRow } = await sb
+          .from("cibles_enrichies")
+          .select("nom, role, organisation, archetype")
+          .eq("id", target.id)
+          .maybeSingle();
+        const motif = motifIneligibleGeneration(
+          (cibleRow ?? { nom: target.nom }) as { nom: string | null; role?: string | null; organisation?: string | null; archetype?: string | null },
+          { pourFiche: true }
+        );
+        if (motif) return text({ error: `Création de fiche refusée : ${motif}.`, cause: "cible_ineligible" });
+      }
       // Date d'enregistrement depuis l'épisode le plus récent, si présent.
       const { data: ep } = await sb.from("episodes").select("date_enregistrement").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       const date = (ep as { date_enregistrement?: string | null } | null)?.date_enregistrement ?? null;

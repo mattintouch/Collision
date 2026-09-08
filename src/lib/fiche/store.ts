@@ -5,7 +5,7 @@
 
 import type { createServiceClient } from "../supabase/service";
 import { stripCiteTags } from "../ai/websearch";
-import { clampBudgets } from "./schema";
+import { clampBudgets, purgeResidusGabarit } from "./schema";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, sectionPosition, canonicalSectionId } from "./sections";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -262,11 +262,16 @@ export async function writeSection(
   // citation n'entre en base, quel que soit le chemin (génération, passe de
   // rédaction, outil MCP update_section).
   content = stripCiteTags(content);
+  // Résidus de gabarit (brief 07/09, item 9) : un placeholder non substitué
+  // (« {titre} ») n'entre jamais en base, quel que soit le chemin d'écriture.
+  const purge = purgeResidusGabarit(content);
+  content = purge.content;
   // Budgets serveur (correctif anti-répétition, règle 2) : troncature avec
   // avertissement, jamais de dépassement stocké en silence.
   const budget = clampBudgets(sectionId, content);
   content = budget.content;
-  const avertissements = budget.avertissements.length ? budget.avertissements : undefined;
+  const tous = [...purge.retraits, ...budget.avertissements];
+  const avertissements = tous.length ? tous : undefined;
   const { data: cur } = await sb
     .from("fiche_sections")
     .select("id, content, version")
