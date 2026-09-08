@@ -517,6 +517,72 @@ export function clampBudgets(
   return { content: c, avertissements };
 }
 
+/** Dépassements de budget d'un contenu, SANS écrire (brief 07/09, item 7) :
+ *  la liste de ce que clampBudgets couperait. Une écriture MANUELLE
+ *  (update_section) est REFUSÉE avec cette liste au lieu d'être tronquée en
+ *  silence ; la génération, elle, garde la troncature-filet de writeSection
+ *  (un job ne doit jamais échouer pour 20 caractères de trop). PURE. */
+export function depassementsBudget(sectionId: string, content: Record<string, unknown>): string[] {
+  return clampBudgets(sectionId, content).avertissements.filter(
+    (a) => a.endsWith("tronqué") || a.endsWith("retirée")
+  );
+}
+
+/** Résidu de gabarit : une chaîne réduite à un placeholder non substitué
+ *  (« {titre} », déchet constaté dans un topic Rassam le 07/09). PURE. */
+export function estResiduGabarit(v: unknown): boolean {
+  return typeof v === "string" && /^\{[a-zA-Z0-9_]+\}$/.test(v.trim());
+}
+
+/** Purge les résidus de gabarit d'un contenu de section (brief 07/09, item 9,
+ *  PURE) : appliquée par writeSection sur TOUT contenu entrant (génération,
+ *  rédaction, outil MCP). Une chaîne placeholder disparaît de sa liste ; un
+ *  champ placeholder disparaît de son objet ; un objet de liste qui perd
+ *  ainsi son texte porteur (texte, question ou tel quel vide) disparaît.
+ *  Chaque retrait est signalé (avertissements de l'écriture). */
+export function purgeResidusGabarit(content: Record<string, unknown>): { content: Record<string, unknown>; retraits: string[] } {
+  const retraits: string[] = [];
+  const walk = (v: unknown, chemin: string): unknown => {
+    if (Array.isArray(v)) {
+      const gardes: unknown[] = [];
+      v.forEach((x, i) => {
+        const ou = `${chemin}[${i}]`;
+        // Chaîne placeholder dans une liste (dates, citations, réflexions...).
+        if (estResiduGabarit(x)) {
+          retraits.push(`${ou} : « ${String(x).trim()} » retiré (résidu de gabarit)`);
+          return;
+        }
+        // Item de liste dont le texte PORTEUR est un placeholder (une question
+        // « {titre} ») : l'item entier disparaît, jamais de coquille vide.
+        if (x && typeof x === "object" && !Array.isArray(x)) {
+          const obj = x as Record<string, unknown>;
+          const porteur = [obj.texte, obj.question, obj.titre].find(estResiduGabarit);
+          if (porteur !== undefined) {
+            retraits.push(`${ou} : item « ${String(porteur).trim()} » retiré (résidu de gabarit)`);
+            return;
+          }
+        }
+        gardes.push(walk(x, ou));
+      });
+      return gardes;
+    }
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+        const ou = `${chemin ? `${chemin}.` : ""}${k}`;
+        if (estResiduGabarit(x)) {
+          retraits.push(`${ou} : « ${String(x).trim()} » retiré (résidu de gabarit)`);
+          continue;
+        }
+        out[k] = walk(x, ou);
+      }
+      return out;
+    }
+    return v;
+  };
+  return { content: walk(content ?? {}, "") as Record<string, unknown>, retraits };
+}
+
 export const SECTION_CONTRACTS: Record<string, unknown> = {
   // ── contrat v3.1 ──────────────────────────────────────────────────────────
   sticky_header: { societe: "iliad" },
