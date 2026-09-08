@@ -161,6 +161,12 @@ export async function runWebSearchJSONVerbose<T>(
       .join("\n");
     const json = extractJson<T>(text);
     if (json !== null) return { json: stripCitations(json), text, stop: res.stop_reason ?? null, usage };
+    // Sortie coupée par la limite de tokens : le finisher est INUTILE (il
+    // régénère tout le JSON depuis zéro et retape exactement le même plafond,
+    // constaté deux fois sur la fiche Estelle le 07/09). L'appelant reçoit le
+    // stop max_tokens et remonte une erreur chiffrée ; à lui de découper la
+    // sortie demandée, pas de repayer un appel perdu d'avance.
+    if (res.stop_reason === "max_tokens") return { json: null, text, stop: "max_tokens", usage };
     // Tour terminé SANS JSON (le modèle narre ses recherches puis s'arrête).
     // Finisher : une relance unique, sans outils, pour exiger le JSON : toute
     // la matière de recherche est déjà dans le contexte de la conversation.

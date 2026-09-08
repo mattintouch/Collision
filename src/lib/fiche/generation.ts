@@ -14,7 +14,10 @@
 //   angles   → apprentissages (05 : 5-8 systèmes connu/manque/question),
 //              personnel (08 : entourage, données cachées)
 //   deroule  → topics (07 : terrain connu + briques), zone grise fusionnée
-//              dans personnel
+//              dans personnel. SCINDÉ (07/09) : un appel « squelette »
+//              (terrain, zone grise, liste des briques), puis UN appel par
+//              brique, chaque résultat écrit dès réception ; la relance ne
+//              rejoue que les briques vides (reprise idempotente)
 //   synthese → tldr (03, neuf labels) + clips/clickbait (06), SANS recherche
 //              web (synthèse de la fiche assemblée, appel court)
 //
@@ -52,6 +55,103 @@ export type FicheGroupe = (typeof FICHE_GROUPES)[number];
  *  revendique donc jamais : il attend le cron et ses 740 s, au lieu d'être
  *  tué en plein appel et de finir au faucheur en « timeout (> 15 min) ». */
 export const DEROULE_RESERVE_MS = 600_000;
+
+/** Budget mural MINIMAL pour lancer UNE brique du déroulé (scission du 07/09) :
+ *  un appel court (plafond 3000 tokens, 0 à 2 recherches). Passé sous cette
+ *  réserve, le deroule s'arrête PROPREMENT : les briques écrites restent
+ *  écrites, le job échoue avec la liste du manquant, la relance rejoue
+ *  seulement les briques vides. */
+export const BRIQUE_RESERVE_MS = 120_000;
+
+/** Plafonds de sortie de la scission du deroule (07/09) : aucun appel ne peut
+ *  structurellement dépasser son budget. Le squelette produit le terrain, la
+ *  zone grise et la LISTE des briques (titre + intention) ; chaque brique est
+ *  ensuite un appel dédié dont le corps vise environ 1200 tokens. */
+export const SQUELETTE_MAX_TOKENS = 4000;
+export const BRIQUE_MAX_TOKENS = 3000;
+
+/* ───────────────── erreurs lisibles et reprise (brief 07/09) ───────────────── */
+
+/** Message d'échec CHIFFRÉ d'un appel JSON (PURE, testée) : distingue la
+ *  limite de tokens de sortie (plafond et sortie réellement rendue) du JSON
+ *  illisible, au lieu d'un « sans JSON exploitable » indifférencié. */
+export function messageEchecAppel(
+  quoi: string,
+  r: { text: string; stop: string | null; usage: WebSearchUsage },
+  maxTokens: number
+): string {
+  const detail =
+    r.stop === "max_tokens"
+      ? `sortie coupée par la limite de tokens (plafond ${maxTokens}, ${r.usage.tokens_out} tokens rendus sur l'appel) : la sortie demandée ne tient pas dans le budget`
+      : `JSON illisible (stop: ${r.stop ?? "?"}, ${r.usage.tokens_out} tokens rendus)`;
+  return `${quoi} : ${detail}. Début de la réponse : ${r.text.slice(0, 200) || "(vide)"}`;
+}
+
+/** Indices des briques SANS corps (PURE, testée) : une brique est considérée
+ *  remplie dès qu'elle porte des questions. La reprise du deroule ne rejoue
+ *  que ces indices ; les briques écrites (génération précédente OU saisie
+ *  manuelle) ne sont JAMAIS régénérées ni écrasées. */
+export function briquesVides(topics: unknown): number[] {
+  if (!Array.isArray(topics)) return [];
+  const vides: number[] = [];
+  topics.forEach((t, i) => {
+    if (!t || typeof t !== "object") return;
+    const q = (t as Content).questions;
+    if (!Array.isArray(q) || q.length === 0) vides.push(i);
+  });
+  return vides;
+}
+
+/** Renumérotation CONTINUE des questions cœur (01, 02...) sur toute la fiche
+ *  (PURE, testée) : imposée par le code après chaque écriture de brique, la
+ *  numérotation ne dépend plus de la discipline du modèle. */
+export function renumeroteQuestions(topicsContent: Content): Content {
+  if (!Array.isArray(topicsContent.topics)) return topicsContent;
+  let num = 0;
+  return {
+    ...topicsContent,
+    topics: (topicsContent.topics as unknown[]).map((t) => {
+      if (!t || typeof t !== "object" || !Array.isArray((t as Content).questions)) return t;
+      return {
+        ...(t as Content),
+        questions: ((t as Content).questions as unknown[]).map((q) => {
+          num += 1;
+          if (!q || typeof q !== "object") return q;
+          return { ...(q as Content), num: String(num).padStart(2, "0") };
+        }),
+      };
+    }),
+  };
+}
+
+/* ───────────────────── langue de la fiche (brief 07/09, item 6) ───────────────────── */
+
+export type LangueFiche = "fr" | "en";
+
+/** Bloc de prompt de la langue (PURE, testée) : identite.langue = "en" bascule
+ *  TOUT le contenu généré en anglais, sur tous les groupes et la rédaction.
+ *  Vide en français (aucun octet ajouté aux prompts existants). */
+export function blocLangue(langue: LangueFiche): string {
+  if (langue !== "en") return "";
+  return [
+    "LANGUE DE LA FICHE : ANGLAIS. L'épisode s'enregistre en anglais.",
+    "Écris TOUT le contenu produit en anglais : textes, titres, intentions, définitions, réflexions, zone grise, TL;DR, clickbait et questions.",
+    "Les questions gardent le ton direct de l'émission, adressées à l'invité (you), sans point final.",
+    "Les clés JSON restent EXACTEMENT celles demandées (elles ne se traduisent pas).",
+  ].join(" ");
+}
+
+/** Langue de la fiche, lue sur identite.langue ("en" explicite, "fr" sinon). */
+export async function langueDeFiche(sb: SB, ficheId: string): Promise<LangueFiche> {
+  const { data } = await sb
+    .from("fiche_sections")
+    .select("content")
+    .eq("fiche_id", ficheId)
+    .eq("section_id", "identite")
+    .maybeSingle();
+  const content = ((data as { content?: Content } | null)?.content ?? {}) as Content;
+  return asString(content.langue) === "en" ? "en" : "fr";
+}
 
 /** Règle 1, propriété unique des faits (v3.1) : injectée dans chaque prompt. */
 const PROPRIETE_FAITS = [
@@ -110,10 +210,11 @@ function guestIntro(c: CibleEnrichie, ficheDate: string | null): string {
   return `Invité : ${c.nom}${bits ? `, ${bits}` : ""}.${sujets}${date}\nContexte : préparation d'un épisode de Génération Do It Yourself (GDIY), podcast long format (2 h 30) sur les parcours de ceux qui sont devenus les meilleurs de leur univers. Obsession éditoriale : le COMMENT (les méthodes), pas la légende.`;
 }
 
-function systemFor(mission: string): string {
+function systemFor(mission: string, langue: LangueFiche = "fr"): string {
   return [
     "Tu prépares la fiche d'interview d'un invité pour GDIY (Collision Productions). Recherche web approfondie, sources croisées et datées.",
     "Cadre : l'invité a accepté l'interview et sera présent à l'enregistrement. La fiche est un document interne de préparation éditoriale, fondé exclusivement sur des informations publiques le concernant dans son rôle public ou professionnel.",
+    ...(blocLangue(langue) ? [blocLangue(langue)] : []),
     mission,
     DOCTRINE,
     PROPRIETE_FAITS,
@@ -187,18 +288,23 @@ interface AnglesJson {
   sources?: LienJson[];
 }
 
-interface DerouleJson {
+/** Scission du deroule (07/09) : appel 1, le SQUELETTE. Terrain connu, zone
+ *  grise et la LISTE des briques (titre + intention), sortie courte. */
+interface SqueletteJson {
   terrain_connu?: { question?: string; reponse?: string; depassement?: string }[];
-  topics?: {
-    titre?: string; intention?: string; contexte?: string;
-    dates?: string[]; citations?: string[];
-    hero?: { valeur?: string; libelle?: string };
-    extras?: { titre?: string; items?: string[] };
-    reflexions?: string[];
-    pleine_largeur?: boolean;
-    questions?: { num?: string; texte?: string; clip?: boolean; zg?: string }[];
-  }[];
+  topics?: { titre?: string; intention?: string; pleine_largeur?: boolean }[];
   zone_grise?: { id?: string; sujet?: string; texte?: string; origine?: string }[];
+  sources?: LienJson[];
+}
+
+/** Scission du deroule (07/09) : appels 2..N, le corps d'UNE brique. */
+interface BriqueJson {
+  contexte?: string;
+  dates?: string[]; citations?: string[];
+  hero?: { valeur?: string; libelle?: string };
+  extras?: { titre?: string; items?: string[] };
+  reflexions?: string[];
+  questions?: { texte?: string; clip?: boolean; zg?: string }[];
   sources?: LienJson[];
 }
 
@@ -327,7 +433,9 @@ async function marqueIdeesIntegrees(sb: SB, idees: IdeeEditoriale[]): Promise<vo
 // compris quand le groupe échoue ensuite (les tokens ont été consommés).
 // heartbeat (01/09) : signe de vie entre les tours de recherche, le faucheur
 // ne requalifie que les jobs réellement morts.
-export interface FicheJobOpts { model?: string; maxSearches?: number; usageOut?: WebSearchUsage; heartbeat?: () => Promise<void> }
+// resteMs (07/09) : budget mural restant du drain, consulté entre deux briques
+// du deroule ; sous BRIQUE_RESERVE_MS, arrêt PROPRE (l'acquis est écrit).
+export interface FicheJobOpts { model?: string; maxSearches?: number; usageOut?: WebSearchUsage; heartbeat?: () => Promise<void>; resteMs?: () => number }
 
 /**
  * Traite UN groupe de génération pour une fiche : recherche web, écrit les
@@ -343,6 +451,9 @@ export async function processFicheGroupe(
 ): Promise<{ sections: string[]; sources: number }> {
   if (!hasAnthropicKey()) throw new Error("Clé Anthropic absente : génération impossible (poser ANTHROPIC_API_KEY).");
   const { model, maxSearches = 4 } = opts;
+  // Langue de la fiche (brief 07/09, item 6) : lue UNE fois, injectée dans le
+  // system de TOUS les groupes (une fiche anglaise ne mélange plus les langues).
+  const langue = await langueDeFiche(sb, fiche.id);
   const intro = guestIntro(cible, fiche.date_enregistrement);
   const written: string[] = [];
   let sourcesCount = 0;
@@ -359,13 +470,13 @@ export async function processFicheGroupe(
 
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
-      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe."),
+      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe.", langue),
       `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(`Recherche portrait sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
+    if (!raw) throw new Error(messageEchecAppel("Recherche portrait", r, 8192));
     const liens = await verifiedLinks(
       asArray(raw.liens, (x) => {
         const label = asString(x.label); const url = safeUrl(x.url);
@@ -422,13 +533,13 @@ export async function processFicheGroupe(
         "Mission : la section DATA, adaptée à l'archétype (CA, marge ou EBITDA, concurrence et marché pour un dirigeant ; ventes et streams pour un artiste ; scores, titres et records pour un sportif). Cartes KPI : 8 à 15 données clés, chacune avec sa valeur, son libellé et sa SOURCE DATÉE ; un chiffre non confirmé porte un pointeur zg (mot-clé) au lieu d'une source, JAMAIS de chiffre orphelin ; UNE SEULE valeur par fait, si les sources divergent retiens la mieux sourcée ; les TROIS PREMIERS KPI sont les cartes héroïques de la fiche, mets les valeurs les plus fortes en tête. Graphiques de trajectoire : 1 à 2 MAXIMUM, seulement si une trajectoire raconte quelque chose (croissance sur 10 ans, comparaison de deux résultats) ; aucun graphique décoratif. Marché et comparables : l'essentiel du marché en UN paragraphe (900 caractères max), puis les pairs et concurrents nommés, une ligne chacun avec le positionnement relatif de l'invité.",
         "GRAPHS MARCHÉ (v4, champ marche_graphs) : trois cartes graphiques en barres qui posent le contexte économique du SECTEUR DE L'INVITÉ, adaptées à son secteur (pour un producteur de cinéma le box-office, pour un fondateur SaaS le marché SaaS, etc.). Vise TOUJOURS : 1 graph « taille et trajectoire du marché mondial » (série annuelle sur 7 à 8 ans), 1 graph « la force qui bouscule le secteur » (souvent en barres jumelées : l'ancien monde contre le nouveau), 1 graph « la bascule spécifique France ou Europe » si pertinente. RÈGLE STRICTE : chaque série porte des valeurs DATÉES et SOURCÉES trouvées dans tes recherches ; si une série ne peut pas être sourcée proprement, OMETS le graph plutôt que d'estimer. Chaque graph porte un titre en langage clair (une phrase qui dit ce que montre l'image), un callout qui dit ce qu'il faut retenir, et sa ligne source.",
         "LEXIQUE (v4, champ lexique) : 8 à 12 termes du jargon du secteur de l'invité, définis en UNE phrase chacun, écrits pour quelqu'un qui ne vient pas du secteur ; privilégie les termes qui reviendront dans l'épisode, ancre les définitions dans le cas de l'invité quand c'est éclairant. INTERDICTION de laisser dans le reste de la fiche un terme de jargon ni défini au lexique ni explicité inline.",
-      ].join("\n\n")),
+      ].join("\n\n"), langue),
       `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15, les 3 plus fortes valeurs EN PREMIER : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_graphs": [0 à 3 : {"titre": "phrase en langage clair", "sous_titre": "unité et périmètre de la série", "type": "barres" ou "barres_jumelees", "valeurs": [{"label": "2019", "valeur": 42.3, "affiche": "42,3", "accent": "noir|rouge|jaune (les points saillants seulement)", "legende": "sous-libellé optionnel", "valeur2"/"affiche2": seconde série si barres_jumelees}], "legende": {"serie1", "serie2"} (si barres_jumelees), "callout": "ce qu'il faut retenir, 1 à 3 phrases", "source": "sources datées, OBLIGATOIRE"}] (série non sourçable = graph OMIS, jamais estimé),\n  "lexique": [8 à 12 : {"terme": "Slate", "definition": "une phrase pour quelqu'un qui ne vient pas du secteur"}],\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(`Recherche data sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
+    if (!raw) throw new Error(messageEchecAppel("Recherche data", r, 8192));
     const kpis = asArray(raw.kpis, (x) => {
       const valeur = asString(x.valeur); const libelle = asString(x.libelle);
       const source = asString(x.source); const zg = asString(x.zg);
@@ -498,13 +609,13 @@ export async function processFicheGroupe(
     const ideesTxt = blocIdees(await ideesBacklog(sb, cible.id));
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<AnglesJson>(
-      systemFor("Mission : les APPRENTISSAGES (section reine) et le PERSONNEL. Apprentissages : 5 à 8 SYSTÈMES, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype ; les points de DÉCISION structurants (les décisions datées qui ont fait décrocher sa trajectoire de celle de ses pairs) sont des apprentissages à part entière, formulés comme décisions. Pour chaque système, trois puces COURTES de 2 lignes maximum : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin. Personnel, deux sous-blocs : l'ENTOURAGE (mentors, associés, coachs, rencontres pivots, ennemis utiles : pour chaque personne, son rôle, ce qu'elle éclaire, ce qu'il faut pré-confirmer avec elle avant plateau) et les DONNÉES CACHÉES (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal ; chaque item SOURCÉ, ou pointé zg s'il vient d'une note interne non vérifiée)."),
+      systemFor("Mission : les APPRENTISSAGES (section reine) et le PERSONNEL. Apprentissages : 5 à 8 SYSTÈMES, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype ; les points de DÉCISION structurants (les décisions datées qui ont fait décrocher sa trajectoire de celle de ses pairs) sont des apprentissages à part entière, formulés comme décisions. Pour chaque système, trois puces COURTES de 2 lignes maximum : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin. Personnel, deux sous-blocs : l'ENTOURAGE (mentors, associés, coachs, rencontres pivots, ennemis utiles : pour chaque personne, son rôle, ce qu'elle éclaire, ce qu'il faut pré-confirmer avec elle avant plateau) et les DONNÉES CACHÉES (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal ; chaque item SOURCÉ, ou pointé zg s'il vient d'une note interne non vérifiée).", langue),
       `${intro}${dejaPose}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
       maxSearches, model, 8192, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(`Recherche angles sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
+    if (!raw) throw new Error(messageEchecAppel("Recherche angles", r, 8192));
     const apprentissages = asArray(raw.apprentissages, (x) => {
       const titre = asString(x.titre);
       return titre ? { titre, connu: asString(x.connu), manque: asString(x.manque), question: asString(x.question) } : null;
@@ -534,98 +645,183 @@ export async function processFicheGroupe(
   }
 
   if (groupe === "deroule") {
+    // Scission du 07/09 : le deroule monolithique demandait le terrain, 5 à 8
+    // briques riches et la zone grise dans UN JSON plafonné à 8192 tokens de
+    // sortie ; sur les grosses fiches la sortie pèse 6 à 10 mille tokens et
+    // l'appel mourait en max_tokens (Estelle, deux fois) ou en timeout mural
+    // (Rassam, Andy Yen), et un JSON tronqué perdait TOUT. Désormais :
+    //   appel 1 (squelette) : terrain connu, zone grise et la LISTE des
+    //     briques (titre, intention, pleine_largeur), écrite immédiatement ;
+    //   appels 2..N : le corps d'UNE brique par appel, écrit dès réception.
+    // La reprise est idempotente : une relance ne rejoue que les briques
+    // vides ; une brique écrite (génération précédente OU saisie manuelle)
+    // n'est jamais régénérée ni écrasée.
     const idees = await ideesBacklog(sb, cible.id);
-    const ideesTxt = blocIdees(idees);
     const notes = await pendingNotes(sb, fiche.id);
-    const notesTxt = notes.length
-      ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notes.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
-      : "";
+    const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const { data: appRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "apprentissages").maybeSingle();
     const app = (((appRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string; question?: string }[] }).items ?? [];
-    const appTxt = app.length ? `\n\nApprentissages déjà identifiés (à faire vivre dans les topics) : ${app.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
-    // Anti-doublon : les questions des apprentissages sont interdites de
-    // reprise dans les topics et les clips (une question vit à UN endroit).
-    const dejaQuestions: string[] = app.map((p) => p.question).filter((q): q is string => !!q);
-    const dejaQTxt = dejaQuestions.length
-      ? `\n\nQuestions DÉJÀ posées dans les apprentissages : INTERDICTION de les reprendre ou de les paraphraser dans les topics ou les clips :\n${dejaQuestions.map((q) => `- ${q}`).join("\n")}`
-      : "";
-    const dejaPose = await faitsDejaPoses(sb, fiche.id);
-    const r = await runWebSearchJSONVerbose<DerouleJson>(
-      systemFor([
-        "Mission : les MAIN TOPICS (briques), le TERRAIN CONNU et la ZONE GRISE. (Le TL;DR et le clickbait sortent d'une passe de synthèse séparée : ne les produis PAS.)",
-        "TERRAIN CONNU (SYSTÉMATIQUE, exactement 3 items) : les questions qu'il a déjà eues partout, pour chacune sa réponse rodée en une ligne ET le dépassement prévu (« tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant »).",
-        "MAIN TOPICS : la conversation reste NATURELLE, jamais scriptée ; 5 à 8 briques, chacune avec son titre, son CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet), ses DATES CLÉS (une ligne chacune), ses CITATIONS exactes de l'invité quand la recherche en a trouvé, un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique), des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate), ses RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) et ses QUESTIONS cœur NUMÉROTÉES EN CONTINU sur toute la fiche (01, 02, 03... d'une brique à l'autre, pas de plafond : peu si peu, beaucoup si beaucoup d'exceptionnelles). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. La brique CŒUR DE L'ÉPISODE (une ou deux) porte \"pleine_largeur\": true. NI minutage NI notes tactiques : ces champs n'existent plus. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. Dosage : 60 % mécanique personnelle, 20 % domaine SUBORDONNÉ à l'individu, 20 % leçons transférables nommées ; au plus 3 questions sur 10 sur le domaine. Une tension entre deux faits publics vérifiés rattachable à une brique devient une réflexion de la brique.",
-        "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
-      ].join("\n\n")),
-      `${intro}${dejaPose}${appTxt}${dejaQTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "contexte": "un paragraphe", "dates": ["Avril 2012 : Le Prénom"], "citations": ["citation exacte trouvée en recherche"], "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif), "extras": {"titre", "items": ["..."]} (facultatif), "reflexions": [2 à 5 : "lecture tactique de l'équipe"], "pleine_largeur": true (la ou les briques cœur d'épisode), "questions": [{"num": "01 (continu sur toute la fiche)", "texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (candidate réseaux, environ une sur quatre)}]}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model, 8192, opts.heartbeat
-    );
-    compte(r.usage);
-    const raw = r.json;
-    if (!raw) throw new Error(`Recherche déroulé sans JSON exploitable (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 260) || "(vide)"}`);
-    const terrain = asArray(raw.terrain_connu, (x) => {
-      const question = asString(x.question);
-      return question ? { question, reponse: asString(x.reponse), depassement: asString(x.depassement) } : null;
-    });
-    const asStrList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && !!s.trim()) : []);
-    const topics = asArray(raw.topics, (x) => {
-      const titre = asString(x.titre);
-      if (!titre) return null;
-      const questions = asArray(x.questions, (q) => {
-        const texte = asString(q.texte);
-        return texte ? { num: asString(q.num), texte, ...(q.clip === true ? { clip: true } : {}), ...(asString(q.zg) ? { zg: asString(q.zg) } : {}) } : null;
+    const appTxt = app.length ? `\n\nApprentissages déjà identifiés (à faire vivre dans les briques) : ${app.map((p) => p.titre).filter(Boolean).join(" · ")}` : "";
+    const questionsApprentissages: string[] = app.map((p) => p.question).filter((q): q is string => !!q);
+
+    // État existant de la section topics : la clé de la reprise.
+    const lireTopics = async (): Promise<Content> => {
+      const { data: row } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "topics").maybeSingle();
+      return (((row as { content?: Content } | null)?.content) ?? {}) as Content;
+    };
+    let topicsContent = await lireTopics();
+    const shellsExistants = asArray(topicsContent.topics, (x) => (asString(x.titre) ? x : null));
+    let squeletteFait = false;
+
+    if (!shellsExistants.length) {
+      // ── Appel 1 : le SQUELETTE ──
+      const notesTxt = notes.length
+        ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notes.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
+        : "";
+      const ideesTxt = blocIdees(idees);
+      const r = await runWebSearchJSONVerbose<SqueletteJson>(
+        systemFor([
+          "Mission : le SQUELETTE du déroulé : le TERRAIN CONNU, la ZONE GRISE et le PLAN des main topics. Les corps des briques sont rédigés par des appels séparés : ne les produis PAS ici (ni contexte, ni dates, ni questions).",
+          "TERRAIN CONNU (SYSTÉMATIQUE, exactement 3 items) : les questions qu'il a déjà eues partout, pour chacune sa réponse rodée en une ligne ET le dépassement prévu (« tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant »).",
+          "PLAN DES MAIN TOPICS : 5 à 8 briques, chacune réduite à son TITRE et son INTENTION (une phrase : l'angle de la brique, ce qu'elle doit faire dire à l'invité). Ensemble, les briques couvrent le dosage 60 pour cent mécanique personnelle, 20 pour cent domaine subordonné à l'individu, 20 pour cent leçons transférables. La ou les briques CŒUR DE L'ÉPISODE (une ou deux) portent \"pleine_largeur\": true. Chaque idée éditoriale de l'équipe se retrouve portée par l'intention d'une brique, ou en zone grise, JAMAIS ignorée en silence.",
+          "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
+        ].join("\n\n"), langue),
+        `${intro}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement)}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+        maxSearches, model, SQUELETTE_MAX_TOKENS, opts.heartbeat
+      );
+      compte(r.usage);
+      const raw = r.json;
+      if (!raw) throw new Error(messageEchecAppel("Squelette du déroulé", r, SQUELETTE_MAX_TOKENS));
+      const terrain = asArray(raw.terrain_connu, (x) => {
+        const question = asString(x.question);
+        return question ? { question, reponse: asString(x.reponse), depassement: asString(x.depassement) } : null;
       });
-      const hero = x.hero && typeof x.hero === "object" ? (x.hero as Content) : null;
-      const heroValeur = hero ? asString(hero.valeur) : undefined;
-      const extras = x.extras && typeof x.extras === "object" ? (x.extras as Content) : null;
-      const extrasItems = extras ? asStrList(extras.items) : [];
-      return {
-        titre,
-        intention: asString(x.intention),
-        contexte: asString(x.contexte),
-        dates: asStrList(x.dates),
-        citations: asStrList(x.citations),
-        ...(heroValeur ? { hero: { valeur: heroValeur, libelle: asString(hero!.libelle) } } : {}),
-        ...(extrasItems.length ? { extras: { titre: extras ? asString(extras.titre) : undefined, items: extrasItems } } : {}),
-        reflexions: asStrList(x.reflexions),
-        ...(x.pleine_largeur === true ? { pleine_largeur: true } : {}),
-        questions,
-      };
-    });
-    // Identifiant court par item de zone grise, unique dans la fiche ; la zone
-    // grise vit dans personnel (fusion : les items existants sont conservés).
-    const { data: persoRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "personnel").maybeSingle();
-    const perso = (((persoRow as { content?: Content } | null)?.content) ?? {}) as Content;
-    const existants = asArray(perso.zone_grise, (x) => {
-      const texte = asString(x.texte);
-      return texte ? { id: asString(x.id), texte, origine: asString(x.origine) } : null;
-    });
-    const idsZg = new Set<string>(existants.map((z) => z.id).filter((i): i is string => !!i));
-    const nouveaux = asArray(raw.zone_grise, (x) => {
-      const texte = asString(x.texte);
-      if (!texte) return null;
-      const brut = asString(x.id)?.toLowerCase().replace(/[^a-z0-9_]/g, "");
-      const id = brut && !idsZg.has(brut) ? brut : idZoneGrise(texte, idsZg);
-      idsZg.add(id);
-      return { id, texte, origine: asString(x.origine), ...(asString(x.sujet) ? { sujet: asString(x.sujet) } : {}) };
-    });
-    await put("topics", { terrain_connu: terrain, topics }, terrain.length > 0 || topics.length > 0);
-    await put("personnel", {
-      ...perso,
-      bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU,
-      zone_grise: [...existants, ...nouveaux],
-    }, nouveaux.length > 0);
-    if (nouveaux.length && notes.length) {
-      await sb.from("fiche_notes").update({ integrated: true }).in("id", notes.map((n) => n.id));
+      const shells = asArray(raw.topics, (x) => {
+        const titre = asString(x.titre);
+        if (!titre) return null;
+        return {
+          titre,
+          intention: asString(x.intention),
+          ...(x.pleine_largeur === true ? { pleine_largeur: true } : {}),
+          questions: [] as unknown[],
+        };
+      });
+      if (!shells.length) throw new Error(`Squelette du déroulé sans brique (stop: ${r.stop ?? "?"}). Début de la réponse : ${r.text.slice(0, 200) || "(vide)"}`);
+      topicsContent = { ...topicsContent, terrain_connu: terrain, topics: shells };
+      await put("topics", topicsContent, true);
+      squeletteFait = true;
+      // Zone grise : fusion dans personnel (les items existants sont conservés).
+      const { data: persoRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "personnel").maybeSingle();
+      const perso = (((persoRow as { content?: Content } | null)?.content) ?? {}) as Content;
+      const existants = asArray(perso.zone_grise, (x) => {
+        const texte = asString(x.texte);
+        return texte ? { id: asString(x.id), texte, origine: asString(x.origine), ...(asString(x.sujet) ? { sujet: asString(x.sujet) } : {}) } : null;
+      });
+      const idsZg = new Set<string>(existants.map((z) => z.id).filter((i): i is string => !!i));
+      const nouveaux = asArray(raw.zone_grise, (x) => {
+        const texte = asString(x.texte);
+        if (!texte) return null;
+        const brut = asString(x.id)?.toLowerCase().replace(/[^a-z0-9_]/g, "");
+        const id = brut && !idsZg.has(brut) ? brut : idZoneGrise(texte, idsZg);
+        idsZg.add(id);
+        return { id, texte, origine: asString(x.origine), ...(asString(x.sujet) ? { sujet: asString(x.sujet) } : {}) };
+      });
+      await put("personnel", {
+        ...perso,
+        bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU,
+        zone_grise: [...existants, ...nouveaux],
+      }, nouveaux.length > 0);
+      if (nouveaux.length && notes.length) {
+        await sb.from("fiche_notes").update({ integrated: true }).in("id", notes.map((n) => n.id));
+      }
+      const all = lienList(raw.sources);
+      await mergeSources(sb, fiche, all);
+      sourcesCount = all.length;
     }
-    // Idées éditoriales : passées en integree SEULEMENT ici, après l'écriture
-    // des sections du deroule (le groupe des questions). Un échec plus haut a
-    // déjà lancé : les idées restent en backlog et reviennent au prochain
-    // passage, jamais d'oubli silencieux.
-    await marqueIdeesIntegrees(sb, idees);
-    const all = lienList(raw.sources);
-    await mergeSources(sb, fiche, all);
-    sourcesCount = all.length;
+
+    // ── Appels 2..N : le corps d'UNE brique par appel, écrit dès réception ──
+    const listeTopics = (): Content[] => (Array.isArray(topicsContent.topics) ? (topicsContent.topics as Content[]) : []);
+    const vides = briquesVides(topicsContent.topics);
+    const echecs: string[] = [];
+    let remplies = 0;
+    for (const i of vides) {
+      const reste = opts.resteMs?.();
+      if (reste !== undefined && reste < BRIQUE_RESERVE_MS) {
+        echecs.push(`budget mural épuisé (${Math.max(0, Math.round(reste / 1000))} s restants), briques suivantes non lancées`);
+        break;
+      }
+      await opts.heartbeat?.().catch(() => {});
+      const shell = listeTopics()[i] ?? {};
+      const titre = asString(shell.titre) ?? `brique ${i + 1}`;
+      const intention = asString(shell.intention);
+      // Anti-doublon : les questions déjà posées ailleurs (apprentissages et
+      // briques déjà écrites) sont interdites de reprise.
+      const posees = [...questionsApprentissages];
+      for (const t of listeTopics()) {
+        for (const q of asArray(t.questions, (x) => asString(x.texte) ?? null)) posees.push(q);
+      }
+      const poseesTxt = posees.length
+        ? `\n\nQuestions DÉJÀ posées ailleurs dans la fiche : INTERDICTION de les reprendre ou de les paraphraser :\n${posees.map((q) => `- ${q}`).join("\n")}`
+        : "";
+      try {
+        const rb = await runWebSearchJSONVerbose<BriqueJson>(
+          systemFor([
+            `Mission : rédiger le corps d'UNE SEULE brique (main topic) de la fiche : « ${titre} ».${intention ? ` Intention de la brique : ${intention}` : ""}`,
+            "La brique complète : le CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet) ; les DATES CLÉS (une ligne chacune) ; les CITATIONS exactes de l'invité quand la recherche en trouve ; un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique) ; des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate) ; les RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) ; les QUESTIONS cœur (4 à 10, SANS numéro : la numérotation continue est posée par le serveur). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. NI minutage NI note tactique : ces champs n'existent plus.",
+            "RECHERCHE : 0 à 2 requêtes MAXIMUM, ciblées sur cette brique précise. La concision prime : un fait fort et court bat trois faits délayés.",
+          ].join("\n\n"), langue),
+          `${intro}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 10 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+          2, model, BRIQUE_MAX_TOKENS, opts.heartbeat
+        );
+        compte(rb.usage);
+        const corps = rb.json;
+        if (!corps) throw new Error(messageEchecAppel(`brique « ${titre} »`, rb, BRIQUE_MAX_TOKENS));
+        const questions = asArray(corps.questions, (q) => {
+          const texte = asString(q.texte);
+          return texte ? { texte, ...(q.clip === true ? { clip: true } : {}), ...(asString(q.zg) ? { zg: asString(q.zg) } : {}) } : null;
+        });
+        if (!questions.length) throw new Error(`brique « ${titre} » : corps sans question (stop: ${rb.stop ?? "?"})`);
+        const asStrList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && !!s.trim()) : []);
+        const hero = corps.hero && typeof corps.hero === "object" ? (corps.hero as Content) : null;
+        const heroValeur = hero ? asString(hero.valeur) : undefined;
+        const extras = corps.extras && typeof corps.extras === "object" ? (corps.extras as Content) : null;
+        const extrasItems = extras ? asStrList(extras.items) : [];
+        // Relecture avant écriture : une saisie manuelle arrivée pendant la
+        // génération n'est pas écrasée par un état en mémoire périmé.
+        topicsContent = await lireTopics();
+        const arr = [...(Array.isArray(topicsContent.topics) ? (topicsContent.topics as Content[]) : [])];
+        if (!arr[i]) throw new Error(`brique « ${titre} » : la liste des briques a changé pendant la génération`);
+        arr[i] = {
+          ...arr[i],
+          contexte: asString(corps.contexte),
+          dates: asStrList(corps.dates),
+          citations: asStrList(corps.citations),
+          ...(heroValeur ? { hero: { valeur: heroValeur, libelle: asString(hero!.libelle) } } : {}),
+          ...(extrasItems.length ? { extras: { titre: extras ? asString(extras.titre) : undefined, items: extrasItems } } : {}),
+          reflexions: asStrList(corps.reflexions),
+          questions,
+        };
+        topicsContent = renumeroteQuestions({ ...topicsContent, topics: arr });
+        await writeSection(sb, fiche.id, "topics", topicsContent, GENERATION_AUTHOR);
+        remplies += 1;
+        const liens = lienList(corps.sources);
+        await mergeSources(sb, fiche, liens);
+        sourcesCount += liens.length;
+      } catch (e) {
+        echecs.push(e instanceof Error ? e.message : String(e));
+      }
+    }
+    if (remplies > 0 && !written.includes("topics")) written.push("topics");
+    if (echecs.length) {
+      const total = listeTopics().length;
+      const faites = total - briquesVides(topicsContent.topics).length;
+      throw new Error(`Déroulé PARTIEL : ${faites} brique(s) écrite(s) sur ${total}, l'acquis est conservé. Échecs : ${echecs.join(" ; ")}. Une relance de generate_fiche (deroule) ne rejoue que les briques manquantes.`);
+    }
+    // Idées éditoriales : passées en integree UNIQUEMENT quand le squelette de
+    // CE passage les a injectées et que toutes les briques sont écrites. Un
+    // squelette repris d'un passage précédent ne les a pas vues : elles
+    // restent en backlog, jamais soldées à tort.
+    if (squeletteFait) await marqueIdeesIntegrees(sb, idees);
   }
 
   if (groupe === "synthese") {
@@ -651,6 +847,7 @@ export async function processFicheGroupe(
     }
     const systemSynthese = [
       "Tu rédiges deux blocs de la fiche d'interview GDIY (Collision Productions) à partir de la fiche DÉJÀ assemblée fournie en JSON. AUCUNE recherche : tu synthétises, tu n'inventes rien, chaque affirmation s'appuie sur un fait présent dans la fiche.",
+      ...(blocLangue(langue) ? [blocLangue(langue)] : []),
       "TL;DR : le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL), phrases courtes, une idée par ligne, NEUF labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit.",
       "CLICKBAIT : EXACTEMENT 10 questions en deux registres. 5 QUI PIQUENT, jusqu'à la gêne assumée : l'héritage, l'argent personnel, les échecs, ce qu'il referait ou pas, chacune adossée à un fait de la fiche, jamais une insinuation. 5 QUI FONT APPRENDRE, l'extraction du meilleur de sa catégorie : sa grille de lecture, sa règle unique transmissible, son habitude contre-intuitive, le coût de ses non, comment on entre dans son club. Tutoiement, pas de guillemets, formulations directes. INTERDICTION de reprendre ou de paraphraser une question déjà présente dans la fiche (la liste t'est fournie).",
       STYLE,
@@ -668,6 +865,11 @@ export async function processFicheGroupe(
     let res = await client.messages.create({ model: model ?? "claude-sonnet-4-6", max_tokens: 3000, system: systemSynthese, messages });
     compteSynthese(res);
     let raw = extractJson<SyntheseJson>(texteDe(res));
+    // Sortie coupée par la limite de tokens : le finisher retaperait le même
+    // plafond, l'erreur chiffrée part tout de suite (brief 07/09, item 4).
+    if (!raw && res.stop_reason === "max_tokens") {
+      throw new Error(`Synthèse : sortie coupée par la limite de tokens (plafond 3000, ${res.usage?.output_tokens ?? "?"} tokens rendus). Début : ${texteDe(res).slice(0, 200) || "(vide)"}`);
+    }
     if (!raw) {
       // Finisher : une relance unique pour exiger le JSON (même mécanique que
       // la recherche et la rédaction).
