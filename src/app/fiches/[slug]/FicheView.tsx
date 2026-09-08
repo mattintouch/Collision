@@ -62,7 +62,7 @@ export function sujetZoneGrise(z: { sujet?: string; id?: string; texte: string }
   return mots.length < z.texte.length ? `${mots}…` : mots;
 }
 
-export interface FicheQuestion { num: string; texte: string; clip?: boolean }
+export interface FicheQuestion { num: string; texte: string; clip?: boolean; note?: string }
 export interface ALireLien {
   niveau?: "indispensable" | "utile" | "optionnel";
   titre: string;
@@ -419,12 +419,20 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       <span className="t">
         {q.texte}
         {q.clip && <span className="cliptag">CLIP</span>}
+        {q.note && <span className="note">{q.note}</span>}
       </span>
     </div>
   );
 
   return (
     <div className="gdv4">
+      {/* Header sticky (retour du 07/09) : où on est, sur une longue fiche. */}
+      <div className="gd-sticky">
+        <span className="nom">{data.invite_nom}</span>
+        <span className="meta">
+          {[data.identite.societe, `${data.show_label}${numeroTag}`, `${data.statut.toUpperCase()} · V${data.version}`].filter(Boolean).join(" · ")}
+        </span>
+      </div>
       <div className="gd-page">
 
         {/* ── Checklist pré-REC : bande rouge dépliée d'office, REC intégré,

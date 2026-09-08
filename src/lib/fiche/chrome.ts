@@ -13,8 +13,8 @@ export const DEFAULT_CHECKLIST_EN = [
   "Airplane mode on both phones",
   "Notifications off, Slack closed",
   "Coffee and water on the table",
+  "Turn off the coffee machine",
   "The cap",
-  "Ceiling light off",
   "Sound check: two mics, two headsets",
   "Tell the guest: everything is recorded, we cut in the edit",
 ];

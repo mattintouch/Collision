@@ -193,8 +193,9 @@ export default async function FichePage({ params }: { params: { slug: string } }
       const texte = asString(q.texte);
       if (!texte) return null;
       numCourant += 1;
-      // v4 : la note tactique et le zg sont TOLÉRÉS en lecture, jamais rendus.
-      return { num: asString(q.num) ?? pad2(numCourant), texte, clip: q.clip === true };
+      // 07/09 : la note tactique manuscrite est rendue sous la question (consigne
+      // studio type embargo d'agence). Le zg reste toléré en lecture, jamais rendu.
+      return { num: asString(q.num) ?? pad2(numCourant), texte, clip: q.clip === true, note: asString(q.note) };
     });
     const extras = x.extras && typeof x.extras === "object" ? (x.extras as Content) : null;
     const hero = x.hero && typeof x.hero === "object" ? (x.hero as Content) : null;

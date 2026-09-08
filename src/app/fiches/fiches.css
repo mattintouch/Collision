@@ -179,8 +179,15 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-btn--photo { border: 1.5px solid #F5C542; background: #FCF3C8; color: #6E4310; }
 .gdv4 .gd-btn--photo:hover { background: #F5C542; color: #16150F; }
 
-/* marqueur de catégorie sticky */
-.gdv4 .gd-cat { position: sticky; top: 0; z-index: 20; background: #FAF9F6; padding: 14px 0 10px; margin-top: 96px; border-bottom: 2px solid #16150F; display: flex; align-items: baseline; gap: 14px; }
+/* header sticky (retour du 07/09 : sur une fiche de vingt sections, savoir où
+   on est). Épinglé au sommet, les marqueurs de catégorie s'empilent dessous. */
+.gdv4 .gd-sticky { position: sticky; top: 0; z-index: 40; background: #16150F; color: #FAF9F6; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 20px; min-height: 44px; }
+.gdv4 .gd-sticky .nom { font-family: "Barlow Condensed", sans-serif; font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1; white-space: nowrap; }
+.gdv4 .gd-sticky .meta { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #B8B4A6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 559px) { .gdv4 .gd-sticky .meta { display: none; } }
+
+/* marqueur de catégorie sticky (sous le header, 44px) */
+.gdv4 .gd-cat { position: sticky; top: 44px; z-index: 20; background: #FAF9F6; padding: 14px 0 10px; margin-top: 96px; border-bottom: 2px solid #16150F; display: flex; align-items: baseline; gap: 14px; }
 .gdv4 .gd-cat span.tag { font-family: "Barlow Condensed", sans-serif; font-size: 28px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1; background: #1FB46A; color: #16150F; border: 2px solid #16150F; padding: 5px 14px 3px; }
 
 .gdv4 h2.gd { font-family: "Barlow Condensed", sans-serif; font-size: 26px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 2px; }
@@ -295,6 +302,9 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-q:last-child { margin-bottom: 0; }
 .gdv4 .gd-q .n { font-family: "Archivo Black", sans-serif; font-size: 16px; line-height: 1.25; color: #C4C0B2; }
 .gdv4 .gd-q .t { font-size: 16px; font-weight: 600; line-height: 1.4; }
+/* note tactique sous la question (retour du 07/09 : l'équipe écrit ses
+   consignes à la main, RELANCE, TERRAIN GLISSANT, ne pas aborder...) */
+.gdv4 .gd-q .note { display: block; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 400; line-height: 1.5; color: #6B675C; margin-top: 5px; }
 .gdv4 .gd-q.clip { background: #FFFDF0; border-color: #F5C542; }
 .gdv4 .gd-q.clip .n { color: #B3651A; }
 .gdv4 .gd-q.asked { opacity: 0.45; }

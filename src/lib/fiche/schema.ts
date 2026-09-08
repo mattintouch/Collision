@@ -269,8 +269,8 @@ export const DEFAULT_CHECKLIST = [
   "Mode avion sur les deux téléphones",
   "Notifications coupées, Slack fermé",
   "Café et eau sur la table",
+  "Éteindre la machine à café",
   "La casquette",
-  "Plafonnier éteint",
   "Check son : deux micros, deux casques",
   "Prévenir l'invité : on enregistre tout, on coupe au montage",
 ];

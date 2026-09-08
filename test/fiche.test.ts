@@ -41,9 +41,12 @@ describe("catalogue des sections (brief GDIY)", () => {
       expect(SECTION_CONTRACTS[id], `contrat manquant : ${id}`).toBeDefined();
     }
   });
-  it("checklists v4 : sept gestes pré-rec, six post-rec (maquette du 31/08)", () => {
+  it("checklists v4 : sept gestes pré-rec, six post-rec (maquette du 31/08, amendée le 07/09)", () => {
     expect(DEFAULT_CHECKLIST).toHaveLength(7);
     expect(DEFAULT_CHECKLIST).toContain("Mode avion sur les deux téléphones");
+    // Amendement du 07/09 : la machine à café revient, le plafonnier sort.
+    expect(DEFAULT_CHECKLIST).toContain("Éteindre la machine à café");
+    expect(DEFAULT_CHECKLIST).not.toContain("Plafonnier éteint");
     expect(DEFAULT_CHECKLIST).toContain("Prévenir l'invité : on enregistre tout, on coupe au montage");
     expect(DEFAULT_CHECKLIST_POST).toHaveLength(6);
     expect(DEFAULT_CHECKLIST_POST[0]).toBe("Photos : invité seul, puis avec Matthieu");
