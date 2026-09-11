@@ -309,6 +309,19 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-q.clip .n { color: #B3651A; }
 .gdv4 .gd-q.asked { opacity: 0.45; }
 .gdv4 .gd-q.asked .t { text-decoration: line-through; }
+/* Overrides de questions (chantier UX 2 du 11/09). Mise en avant : l'accent
+   jaune existant de la charte, aucune couleur nouvelle. */
+.gdv4 .gd-q { position: relative; }
+.gdv4 .gd-q.hl { background: #FFF7DC; border-color: #F5C542; box-shadow: inset 4px 0 0 #F5C542; }
+.gdv4 .gd-q.ghost { opacity: 0.4; border-style: dashed; }
+.gdv4 .gd-q .qacts { position: absolute; top: 7px; right: 7px; display: none; gap: 4px; }
+.gdv4 .gd-q:hover .qacts { display: inline-flex; }
+@media (hover: none) { .gdv4 .gd-q .qacts { display: inline-flex; } }
+.gdv4 .gd-q .qact { width: 24px; height: 24px; border: 1px solid #C4C0B2; background: #FFF; color: #6B675C; cursor: pointer; font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
+.gdv4 .gd-q .qact:hover { color: #16150F; border-color: #16150F; }
+.gdv4 .gd-q .qact.on { background: #F5C542; border-color: #B3651A; color: #16150F; }
+.gdv4 .gd-qmask { display: block; width: 100%; text-align: left; background: none; border: 1px dashed #C4C0B2; color: #8C887A; cursor: pointer; padding: 6px 12px; margin-bottom: 8px; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.gdv4 .gd-qmask:hover { color: #16150F; border-color: #16150F; }
 .gdv4 .cliptag { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; background: #F5C542; color: #16150F; padding: 2px 6px; margin-left: 8px; white-space: nowrap; }
 
 /* clickbait */

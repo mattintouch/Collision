@@ -22,8 +22,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
   timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus, idFlottaison,
-  segmentsAvecLiens,
-  type ConsoleEvent, type RecSession,
+  idQuestion, reduceEtatsQuestions, segmentsAvecLiens,
+  type ConsoleEvent, type RecSession, type EtatQuestion,
 } from "@/lib/fiche/console";
 
 /** Décalage d'index des coches de la checklist post-rec dans le flux
@@ -453,17 +453,74 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     );
   };
 
-  /* ── question de brique (rayable d'un tap, état partagé) ── */
-  const questionRow = (q: FicheQuestion) => (
-    <div key={q.num} className={`gd-q${q.clip ? " clip" : ""}${asked[q.num] ? " asked" : ""}`} onClick={() => toggleQuestion(q.num)}>
-      <span className="n">{q.num.replace(/^0/, "")}</span>
-      <span className="t">
-        {q.texte}
-        {q.clip && <span className="cliptag">CLIP</span>}
-        {q.note && <span className="note">{q.note}</span>}
-      </span>
-    </div>
+  /* ── Overrides de questions (chantier UX 2 du 11/09) : masquage soft
+     delete et mise en avant, persistés en base par fiche (événements q_etat,
+     synchro console héritée). Le contenu généré n'est jamais modifié, les
+     numéros d'origine sont CONSERVÉS (Matt et Clémence s'y réfèrent dans la
+     régie : aucune renumérotation quand des questions sont masquées). ── */
+  const etatsQuestions = useMemo(() => reduceEtatsQuestions(events), [events]);
+  const setEtatQuestion = useCallback(
+    (qid: string, etat: EtatQuestion | null) => sendEvent("q_etat", { qid, etat }),
+    [sendEvent]
   );
+  // Compteurs « N questions masquées » dépliés (par bloc, état local d'écran).
+  const [masqueesOuvertes, setMasqueesOuvertes] = useState<Record<string, boolean>>({});
+
+  /* ── question de brique (rayable d'un tap, état partagé) ── */
+  const questionRow = (q: FicheQuestion) => {
+    const qid = idQuestion(q.texte);
+    const etat = etatsQuestions[qid];
+    const masquee = etat === "masquee";
+    return (
+      <div
+        key={q.num}
+        className={`gd-q${q.clip ? " clip" : ""}${asked[q.num] ? " asked" : ""}${etat === "surlignee" ? " hl" : ""}${masquee ? " ghost" : ""}`}
+        onClick={() => toggleQuestion(q.num)}
+      >
+        <span className="n">{q.num.replace(/^0/, "")}</span>
+        <span className="t">
+          {q.texte}
+          {q.clip && <span className="cliptag">CLIP</span>}
+          {q.note && <span className="note">{q.note}</span>}
+        </span>
+        <span className="qacts" onClick={(ev) => ev.stopPropagation()}>
+          {masquee ? (
+            <button className="qact" title={L.reafficher} aria-label={L.reafficher} onClick={() => setEtatQuestion(qid, null)}>⟲</button>
+          ) : (
+            <>
+              <button
+                className={`qact${etat === "surlignee" ? " on" : ""}`}
+                title={L.surligner}
+                aria-label={L.surligner}
+                onClick={() => setEtatQuestion(qid, etat === "surlignee" ? null : "surlignee")}
+              >◆</button>
+              <button className="qact" title={L.masquer} aria-label={L.masquer} onClick={() => setEtatQuestion(qid, "masquee")}>×</button>
+            </>
+          )}
+        </span>
+      </div>
+    );
+  };
+
+  /* ── liste de questions avec masquage réversible : les masquées sortent de
+     l'affichage, un compteur discret les réaffiche (restauration une à une
+     par le bouton ⟲ de chaque ligne). ── */
+  const blocQuestions = (questions: FicheQuestion[], cle: string) => {
+    const visibles = questions.filter((q) => etatsQuestions[idQuestion(q.texte)] !== "masquee");
+    const masquees = questions.filter((q) => etatsQuestions[idQuestion(q.texte)] === "masquee");
+    const ouvert = !!masqueesOuvertes[cle];
+    return (
+      <>
+        {visibles.map(questionRow)}
+        {masquees.length > 0 && (
+          <button className="gd-qmask" onClick={() => setMasqueesOuvertes((p) => ({ ...p, [cle]: !p[cle] }))}>
+            {L.questionsMasquees(masquees.length)} {ouvert ? "▴" : "▾"}
+          </button>
+        )}
+        {ouvert && masquees.map(questionRow)}
+      </>
+    );
+  };
 
   return (
     <div className={panneau ? "gdv4 with-console" : "gdv4"}>
@@ -774,7 +831,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                     {t.questions.length > 0 && (
                       <div className="gd-qs">
                         <h3>{L.questions}</h3>
-                        {t.questions.map(questionRow)}
+                        {blocQuestions(t.questions, `brique-${ti}`)}
                       </div>
                     )}
                   </div>
@@ -1003,7 +1060,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             <div className="lab">Contenu d&apos;un contrat antérieur (fiche non migrée)</div>
             {data.legacy.enjeu && <p style={{ fontSize: 15, margin: "0 0 10px" }}>{data.legacy.enjeu}</p>}
             {data.legacy.recit.map((p, i) => <p key={i} style={{ fontSize: 15, margin: "0 0 10px" }}>{p}</p>)}
-            {data.legacy.questions.map(questionRow)}
+            {blocQuestions(data.legacy.questions, "legacy")}
           </div>
         )}
 

@@ -117,6 +117,10 @@ export const CHROME_FICHE = {
     nouveauxMessages: (n: number) => `${n} nouveau${n > 1 ? "x" : ""} message${n > 1 ? "s" : ""}`,
     fermerConsole: "Fermer la console",
     ouvrirRegie: "Ouvrir la régie",
+    masquer: "Masquer cette question",
+    surligner: "Mettre en avant",
+    reafficher: "Réafficher cette question",
+    questionsMasquees: (n: number) => `${n} question${n > 1 ? "s" : ""} masquée${n > 1 ? "s" : ""}`,
     toolbar: {
       clips: { title: "Clips", hint: "questions à fort potentiel réseaux · challengées par l'équipe", ph: "Proposer un clip", empty: "Aucun clip validé. Les questions marquées CLIP dans les briques sont les candidates." },
       carnet: { title: "Carnet", hint: "notes prises en direct", ph: "Note en direct", empty: "Vide. À remplir pendant l'enregistrement." },
@@ -194,6 +198,10 @@ export const CHROME_FICHE = {
     nouveauxMessages: (n: number) => `${n} new message${n > 1 ? "s" : ""}`,
     fermerConsole: "Close the console",
     ouvrirRegie: "Open the control room",
+    masquer: "Hide this question",
+    surligner: "Highlight",
+    reafficher: "Show this question again",
+    questionsMasquees: (n: number) => `${n} hidden question${n > 1 ? "s" : ""}`,
     toolbar: {
       clips: { title: "Clips", hint: "high-potential social questions · challenged by the team", ph: "Suggest a clip", empty: "No clip logged yet. The questions tagged CLIP in the topic cards are the candidates." },
       carnet: { title: "Notebook", hint: "live notes", ph: "Live note", empty: "Empty. To fill during the recording." },
