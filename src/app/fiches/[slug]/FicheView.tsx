@@ -15,13 +15,14 @@
 // console du REC (sessions en base, email des notes au stop) est reportée,
 // décision du brief v4.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { googleImagesUrl, POOL_QUESTIONS_GENERALES } from "@/lib/fiche/schema";
 import { CHROME_FICHE, POOL_QUESTIONS_GENERALES_EN, type FicheLangue } from "@/lib/fiche/chrome";
 import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
-  timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus, segmentsAvecLiens,
+  timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus, idFlottaison,
+  segmentsAvecLiens,
   type ConsoleEvent, type RecSession,
 } from "@/lib/fiche/console";
 
@@ -334,23 +335,63 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     }
   };
 
-  /* Toolbar : trois panneaux adossés à la console partagée. */
+  /* Console latérale (chantier UX du 11/09) : trois panneaux adossés à la
+     console partagée, en colonne fixe à droite (25 % de l'écran, overlay
+     plein écran sur écran étroit). Fermée : une pastille discrète en bas à
+     droite porte le badge des messages de régie non lus. */
   const [panneau, setPanneau] = useState<"clips" | "carnet" | "regie" | null>(null);
   const [saisie, setSaisie] = useState("");
+  // Ligne de flottaison : la borne de lecture FIGÉE à l'ouverture de la régie
+  // (le marqueur reste visible pendant la session, même une fois le lu avancé).
+  const [flottaison, setFlottaison] = useState("");
+  // L'utilisateur est-il en bas de la liste ? En bas : ancre basse et
+  // avancement du lu. Remonté dans l'historique : rien ne le force vers le
+  // bas, un bouton « X nouveaux messages » ramène.
+  const [enBas, setEnBas] = useState(true);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const meta = L.toolbar;
   const listeDuPanneau = panneau === "clips" ? clipsSaisis : panneau === "carnet" ? notesSaisies : panneau === "regie" ? chat : [];
+  const marqueurFlottaison = useMemo(
+    () => (panneau === "regie" ? idFlottaison(events, data.viewer_email, flottaison) : null),
+    [panneau, events, data.viewer_email, flottaison]
+  );
+  const defileEnBas = useCallback(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+  const surScroll = useCallback(() => {
+    const el = listRef.current;
+    if (el) setEnBas(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+  }, []);
+  const ouvrirPanneau = useCallback((id: "clips" | "carnet" | "regie") => {
+    if (id === "regie") setFlottaison(dernierLu(events, data.viewer_email));
+    setEnBas(true);
+    setPanneau(id);
+  }, [events, data.viewer_email]);
+  // Ancre basse : à l'ouverture d'un panneau, le scroll part sur le dernier
+  // message reçu (et non plus en haut de l'historique).
+  useEffect(() => {
+    if (panneau) requestAnimationFrame(defileEnBas);
+  }, [panneau, defileEnBas]);
+  // Message entrant, panneau ouvert ET scrollé en bas : le scroll suit.
+  const chatLen = chat.length;
+  useEffect(() => {
+    if (panneau && enBas) requestAnimationFrame(defileEnBas);
+  }, [chatLen, listeDuPanneau.length, panneau, enBas, defileEnBas]);
   const submitPanneau = () => {
     const t = saisie.trim();
     if (!panneau || !t) return;
     sendEvent(panneau === "clips" ? "clip" : panneau === "carnet" ? "note" : "chat", { text: t });
     setSaisie("");
+    requestAnimationFrame(defileEnBas);
   };
-  // Régie ouverte : la borne de lecture avance jusqu'au dernier message des autres.
+  // Régie ouverte ET lue jusqu'en bas : la borne de lecture avance jusqu'au
+  // dernier message des autres. Remonté dans l'historique, rien n'avance.
   useEffect(() => {
-    if (panneau !== "regie" || nonLus.length === 0) return;
+    if (panneau !== "regie" || !enBas || nonLus.length === 0) return;
     const jusquA = nonLus[nonLus.length - 1].created_at;
     if (jusquA > monDernierLu) sendEvent("lu", { jusqu_a: jusquA });
-  }, [panneau, nonLus, monDernierLu, sendEvent]);
+  }, [panneau, enBas, nonLus, monDernierLu, sendEvent]);
 
   const echecs = data.generation.filter((g) => g.statut === "failed");
   const enCours = data.generation.filter((g) => g.statut === "pending" || g.statut === "running");
@@ -425,7 +466,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   );
 
   return (
-    <div className="gdv4">
+    <div className={panneau ? "gdv4 with-console" : "gdv4"}>
       {/* Header sticky (retour du 07/09) : où on est, sur une longue fiche. */}
       <div className="gd-sticky">
         <span className="nom">{data.invite_nom}</span>
@@ -1000,46 +1041,67 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         </div>
       )}
 
-      {/* ── Toolbar fixe : Clips / Carnet / Régie (console partagée). ── */}
-      <div className="gd-toolbar">
-        <div className={`panel${panneau ? " open" : ""}`}>
-          {panneau && (
-            <>
-              <div className="phead"><h3>{meta[panneau].title}</h3><span>{meta[panneau].hint}</span></div>
-              <div style={{ marginTop: 16 }}>
-                {listeDuPanneau.map((e) => (
-                  <div key={e.id} className="pitem">
-                    <span className="m">{labelFromEmail(e.author_email)} · {timeLabel(e, sessions)}</span>
-                    <TexteLie texte={textOf(e) || (e.kind === "clip" ? "Moment fort marqué" : "")} />
-                  </div>
-                ))}
-              </div>
-              {listeDuPanneau.length === 0 && <p className="pempty">{meta[panneau].empty}</p>}
-              <div className="pform">
-                <input
-                  value={saisie}
-                  onChange={(e) => setSaisie(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") submitPanneau(); }}
-                  placeholder={meta[panneau].ph}
-                />
-                <button onClick={submitPanneau}>{L.ajouter}</button>
-              </div>
-            </>
+      {/* ── Console latérale : Clips / Carnet / Régie (chantier UX du 11/09).
+          Colonne fixe à droite (25 %), la fiche reste l'objet central.
+          Fermée : pastille discrète en bas à droite, badge des non lus. ── */}
+      {panneau ? (
+        <aside className="gd-console">
+          <div className="chead">
+            <div className="ctabs">
+              {(["clips", "carnet", "regie"] as const).map((id) => {
+                const count = id === "clips" ? clipsSaisis.length : id === "carnet" ? notesSaisies.length : chat.length;
+                const blink = id === "regie" && nonLus.length > 0 && panneau !== "regie";
+                return (
+                  <button key={id} className={`${panneau === id ? "active" : ""}${blink ? " blink" : ""}`} onClick={() => ouvrirPanneau(id)}>
+                    <span>{meta[id].title}</span>
+                    <span className="ct">{blink ? nonLus.length : count}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <button className="cclose" onClick={() => setPanneau(null)} aria-label={L.fermerConsole} title={L.fermerConsole}>×</button>
+          </div>
+          <div className="chint">{meta[panneau].hint}</div>
+          <div className="clist" ref={listRef} onScroll={surScroll}>
+            {listeDuPanneau.map((e) => (
+              <Fragment key={e.id}>
+                {e.id === marqueurFlottaison && (
+                  <div className="cfloat"><span>{L.flottaison}</span></div>
+                )}
+                <div className="pitem">
+                  <span className="m">{labelFromEmail(e.author_email)} · {timeLabel(e, sessions)}</span>
+                  <TexteLie texte={textOf(e) || (e.kind === "clip" ? "Moment fort marqué" : "")} />
+                </div>
+              </Fragment>
+            ))}
+            {listeDuPanneau.length === 0 && <p className="pempty">{meta[panneau].empty}</p>}
+          </div>
+          {panneau === "regie" && !enBas && nonLus.length > 0 && (
+            <button className="cnew" onClick={defileEnBas}>↓ {L.nouveauxMessages(nonLus.length)}</button>
           )}
-        </div>
-        <div className="tabs">
-          {(["clips", "carnet", "regie"] as const).map((id) => {
-            const count = id === "clips" ? clipsSaisis.length : id === "carnet" ? notesSaisies.length : chat.length;
-            const blink = id === "regie" && nonLus.length > 0 && panneau !== "regie";
-            return (
-              <button key={id} className={`${panneau === id ? "active" : ""}${blink ? " blink" : ""}`} onClick={() => setPanneau(panneau === id ? null : id)}>
-                <span>{meta[id].title}</span>
-                <span className="ct">{blink ? L.nonLus(nonLus.length) : count}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+          <div className="pform">
+            <input
+              value={saisie}
+              onChange={(e) => setSaisie(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitPanneau(); }}
+              placeholder={meta[panneau].ph}
+            />
+            <button onClick={submitPanneau}>{L.ajouter}</button>
+          </div>
+        </aside>
+      ) : (
+        <button
+          className={`gd-pastille${nonLus.length > 0 ? " blink" : ""}`}
+          onClick={() => ouvrirPanneau("regie")}
+          aria-label={L.ouvrirRegie}
+          title={L.ouvrirRegie}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M21 11.5a8.38 8.38 0 0 1-9 8.35 8.5 8.5 0 0 1-3.9-.95L3 20l1.1-4.1A8.38 8.38 0 0 1 3 11.5a8.5 8.5 0 0 1 8.5-8.5h1a8.5 8.5 0 0 1 8.5 8.5z" />
+          </svg>
+          {nonLus.length > 0 && <span className="badge">{nonLus.length}</span>}
+        </button>
+      )}
     </div>
   );
 }

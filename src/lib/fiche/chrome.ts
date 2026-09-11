@@ -113,6 +113,10 @@ export const CHROME_FICHE = {
     legacyLabel: "Contenu d'un contrat antérieur (fiche non migrée)",
     ajouter: "Ajouter",
     nonLus: (n: number) => `${n} non lu(s)`,
+    flottaison: "Non lus depuis ici",
+    nouveauxMessages: (n: number) => `${n} nouveau${n > 1 ? "x" : ""} message${n > 1 ? "s" : ""}`,
+    fermerConsole: "Fermer la console",
+    ouvrirRegie: "Ouvrir la régie",
     toolbar: {
       clips: { title: "Clips", hint: "questions à fort potentiel réseaux · challengées par l'équipe", ph: "Proposer un clip", empty: "Aucun clip validé. Les questions marquées CLIP dans les briques sont les candidates." },
       carnet: { title: "Carnet", hint: "notes prises en direct", ph: "Note en direct", empty: "Vide. À remplir pendant l'enregistrement." },
@@ -186,6 +190,10 @@ export const CHROME_FICHE = {
     legacyLabel: "Content from an earlier contract (sheet not migrated)",
     ajouter: "Add",
     nonLus: (n: number) => `${n} unread`,
+    flottaison: "Unread from here",
+    nouveauxMessages: (n: number) => `${n} new message${n > 1 ? "s" : ""}`,
+    fermerConsole: "Close the console",
+    ouvrirRegie: "Open the control room",
     toolbar: {
       clips: { title: "Clips", hint: "high-potential social questions · challenged by the team", ph: "Suggest a clip", empty: "No clip logged yet. The questions tagged CLIP in the topic cards are the candidates." },
       carnet: { title: "Notebook", hint: "live notes", ph: "Live note", empty: "Empty. To fill during the recording." },

@@ -121,6 +121,17 @@ export function chatNonLus(events: ConsoleEvent[], email: string): ConsoleEvent[
   return chatOf(events).filter((e) => e.author_email !== email && e.created_at > borne);
 }
 
+/** Ligne de flottaison des non lus (chantier UX du 11/09) : id du PREMIER
+ *  message de régie d'un autre opérateur postérieur à la borne de lecture
+ *  FIGÉE à l'ouverture du panneau. Null = rien à marquer (tout lu, ou seuls
+ *  ses propres messages sont arrivés depuis). PURE, testée. */
+export function idFlottaison(events: ConsoleEvent[], email: string, borne: string): string | null {
+  for (const e of chatOf(events)) {
+    if (e.author_email !== email && e.created_at > borne) return e.id;
+  }
+  return null;
+}
+
 /* ── Liens cliquables dans la régie et le carnet (incident du 30/07,
    enregistrement Raphaël Chiche : Clémence collait des URLs, texte mort). */
 

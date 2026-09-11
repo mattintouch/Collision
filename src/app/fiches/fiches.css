@@ -144,7 +144,7 @@ html { scroll-behavior: smooth; }
 .gdv4 a:hover { color: #0E7A47; background: none; }
 .gdv4 input[type="checkbox"] { accent-color: #1FB46A; }
 
-.gdv4 .gd-page { max-width: 1180px; margin: 0 auto; padding: 0 32px 200px; }
+.gdv4 .gd-page { max-width: 1180px; margin: 0 auto; padding: 0 32px 120px; }
 .gdv4 .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
 .gdv4 .cond { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; }
 .gdv4 .black { font-family: "Archivo Black", "Arial Black", sans-serif; }
@@ -399,30 +399,50 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-legacy { margin-top: 40px; border: 1px dashed #C4C0B2; padding: 18px 22px; }
 .gdv4 .gd-legacy .lab { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8C887A; margin-bottom: 10px; }
 
-/* toolbar */
-.gdv4 .gd-toolbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: #16150F; border-top: 3px solid #1FB46A; color: #FAF9F6; }
-.gdv4 .gd-toolbar .panel { max-width: 1180px; margin: 0 auto; padding: 20px 32px 22px; border-bottom: 1px solid #35332A; max-height: 42vh; overflow-y: auto; display: none; }
-.gdv4 .gd-toolbar .panel.open { display: block; }
-.gdv4 .gd-toolbar .phead { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-.gdv4 .gd-toolbar .phead h3 { font-family: "Barlow Condensed", sans-serif; font-size: 26px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
-.gdv4 .gd-toolbar .phead span { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #8C887A; }
-.gdv4 .gd-toolbar .pitem { padding: 11px 0; border-bottom: 1px solid #2B2921; font-size: 16px; color: #EDEAE0; }
-.gdv4 .gd-toolbar .pitem .m { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #8C887A; margin-right: 10px; }
-.gdv4 .gd-toolbar .pitem a { color: #EDEAE0; text-decoration: underline; text-underline-offset: 3px; }
-.gdv4 .gd-toolbar .pempty { font-size: 16px; color: #8C887A; margin: 14px 0 0; }
-.gdv4 .gd-toolbar .pform { display: flex; gap: 8px; margin-top: 18px; }
-.gdv4 .gd-toolbar .pform input { flex: 1; background: #24221A; border: 1px solid #3A382E; color: #FAF9F6; padding: 12px 14px; font-family: inherit; font-size: 16px; min-width: 0; }
-.gdv4 .gd-toolbar .pform button { background: #1FB46A; color: #06301C; border: 0; padding: 12px 22px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-.gdv4 .gd-toolbar .tabs { max-width: 1180px; margin: 0 auto; padding: 0 32px; display: grid; grid-template-columns: repeat(3, 1fr); }
-.gdv4 .gd-toolbar .tabs button { background: transparent; color: #FAF9F6; border: 0; border-right: 1px solid #2B2921; cursor: pointer; padding: 16px 12px; display: flex; align-items: center; justify-content: center; gap: 10px; font-family: "Barlow Condensed", sans-serif; font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-.gdv4 .gd-toolbar .tabs button.active { background: #1FB46A; color: #06301C; }
-.gdv4 .gd-toolbar .tabs button.blink { animation: gdv4-blink 1.1s steps(2, start) infinite; }
+/* Console latérale (chantier UX du 11/09) : Clips / Carnet / Régie en
+   colonne fixe à droite (25 % de l'écran) ; la fiche garde les 75 % restants.
+   Fermée : la pastille .gd-pastille (bas droit) porte le badge des non lus.
+   Écran étroit (tablette en régie) : overlay plein écran refermable. */
+.gdv4 .gd-console { position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: 25vw; background: #16150F; border-left: 3px solid #1FB46A; color: #FAF9F6; display: flex; flex-direction: column; }
+/* Console ouverte : la fiche occupe les 75 % restants (le contenu, sticky
+   compris, se recentre dans l'espace laissé par la colonne). */
+.gdv4.with-console { padding-right: 25vw; }
+.gdv4 .gd-console .chead { display: flex; align-items: stretch; border-bottom: 1px solid #35332A; }
+.gdv4 .gd-console .ctabs { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); }
+.gdv4 .gd-console .ctabs button { background: transparent; color: #FAF9F6; border: 0; border-right: 1px solid #2B2921; cursor: pointer; padding: 13px 6px; display: flex; align-items: center; justify-content: center; gap: 8px; font-family: "Barlow Condensed", sans-serif; font-size: 18px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+.gdv4 .gd-console .ctabs button.active { background: #1FB46A; color: #06301C; }
+.gdv4 .gd-console .ctabs button.blink { animation: gdv4-blink 1.1s steps(2, start) infinite; }
 @keyframes gdv4-blink { 0%, 49% { background: #D4231A; color: #fff; } 50%, 100% { background: transparent; color: #FAF9F6; } }
-.gdv4 .gd-toolbar .ct { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; background: #35332A; color: #B8B4A6; padding: 2px 7px; border-radius: 9px; letter-spacing: 0; }
-.gdv4 .gd-toolbar .tabs button.active .ct { background: #06301C; color: #4EDD97; }
+.gdv4 .gd-console .ct { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; background: #35332A; color: #B8B4A6; padding: 1px 6px; border-radius: 9px; letter-spacing: 0; }
+.gdv4 .gd-console .ctabs button.active .ct { background: #06301C; color: #4EDD97; }
+.gdv4 .gd-console .cclose { width: 46px; background: transparent; color: #8C887A; border: 0; border-left: 1px solid #2B2921; cursor: pointer; font-size: 24px; line-height: 1; }
+.gdv4 .gd-console .cclose:hover { color: #FAF9F6; }
+.gdv4 .gd-console .chint { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8C887A; padding: 10px 16px 8px; border-bottom: 1px solid #2B2921; }
+.gdv4 .gd-console .clist { flex: 1; overflow-y: auto; padding: 4px 16px 10px; }
+.gdv4 .gd-console .pitem { padding: 10px 0; border-bottom: 1px solid #2B2921; font-size: 15px; color: #EDEAE0; }
+.gdv4 .gd-console .pitem .m { display: block; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #8C887A; margin-bottom: 2px; }
+.gdv4 .gd-console .pitem a { color: #EDEAE0; text-decoration: underline; text-underline-offset: 3px; }
+.gdv4 .gd-console .pempty { font-size: 15px; color: #8C887A; margin: 14px 0 0; }
+/* Ligne de flottaison : où l'utilisateur s'était arrêté à sa dernière session. */
+.gdv4 .gd-console .cfloat { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; }
+.gdv4 .gd-console .cfloat::before, .gdv4 .gd-console .cfloat::after { content: ""; flex: 1; border-top: 2px solid #D4231A; }
+.gdv4 .gd-console .cfloat span { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: #D4231A; white-space: nowrap; }
+/* Remonté dans l'historique : le bouton ramène au dernier message reçu. */
+.gdv4 .gd-console .cnew { margin: 0 16px 8px; background: #D4231A; color: #FFF; border: 0; padding: 9px 12px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.gdv4 .gd-console .pform { display: flex; gap: 8px; padding: 0 16px 14px; }
+.gdv4 .gd-console .pform input { flex: 1; background: #24221A; border: 1px solid #3A382E; color: #FAF9F6; padding: 11px 12px; font-family: inherit; font-size: 15px; min-width: 0; }
+.gdv4 .gd-console .pform button { background: #1FB46A; color: #06301C; border: 0; padding: 11px 16px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+/* Pastille de réouverture (console fermée). */
+.gdv4 .gd-pastille { position: fixed; right: 18px; bottom: 18px; z-index: 60; width: 50px; height: 50px; border-radius: 50%; background: #16150F; color: #FAF9F6; border: 2px solid #1FB46A; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.gdv4 .gd-pastille.blink { animation: gdv4-pastille 1.1s steps(2, start) infinite; }
+@keyframes gdv4-pastille { 0%, 49% { border-color: #D4231A; } 50%, 100% { border-color: #1FB46A; } }
+.gdv4 .gd-pastille .badge { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; border-radius: 10px; background: #D4231A; color: #FFF; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
 
 @media (max-width: 900px) {
-  .gdv4 .gd-page { padding: 0 16px 220px; }
+  .gdv4 .gd-page { padding: 0 16px 120px; }
+  /* Écran étroit : la console passe en overlay plein écran refermable. */
+  .gdv4 .gd-console { width: 100vw; left: 0; border-left: 0; border-top: 3px solid #1FB46A; }
+  .gdv4.with-console { padding-right: 0; }
   .gdv4 h1.gd { font-size: 44px; }
   /* Le libellé long du bouton photo (nom entre guillemets) passe à la ligne :
      jamais de défilement horizontal de la page (recette point 7). */
