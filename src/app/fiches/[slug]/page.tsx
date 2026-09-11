@@ -15,7 +15,7 @@ import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections, seedSections } from "@/lib/fiche/store";
 import {
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
-  DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST,
+  DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST, promoClosingVisible,
 } from "@/lib/fiche/schema";
 import { DEFAULT_CHECKLIST_EN, DEFAULT_CHECKLIST_POST_EN } from "@/lib/fiche/chrome";
 import { SECTIONS_OBLIGATOIRES } from "@/lib/fiche/sections";
@@ -131,6 +131,29 @@ export default async function FichePage({ params }: { params: { slug: string } }
     const { data: show } = await sb.from("shows").select("slug, nom").eq("id", fiche.show_id).maybeSingle();
     const s = show as { slug?: string; nom?: string } | null;
     showLabel = (s?.slug ?? s?.nom ?? "GDIY").toUpperCase();
+  }
+
+  // Closing (chantier UX 3 du 11/09) : la catégorie de la cible décide de la
+  // ligne code promo, les appuis nourrissent les remerciements (relais
+  // d'abord). Défensif : fiche sans cible = socle nu, remerciements masqués.
+  let closingPromo = true;
+  let closingAllies: { nom: string; est_relais: boolean }[] = [];
+  if (fiche.cible_id) {
+    try {
+      const { data: cat } = await sb.from("cibles").select("categorie").eq("id", fiche.cible_id).maybeSingle();
+      closingPromo = promoClosingVisible(((cat as { categorie?: string[] } | null)?.categorie) ?? null);
+      const { data: apps } = await sb
+        .from("appuis")
+        .select("nom, est_relais")
+        .eq("cible_id", fiche.cible_id)
+        .order("est_relais", { ascending: false })
+        .limit(12);
+      closingAllies = ((apps ?? []) as { nom: string | null; est_relais: boolean | null }[])
+        .filter((a) => typeof a.nom === "string" && a.nom.trim())
+        .map((a) => ({ nom: (a.nom as string).trim(), est_relais: a.est_relais === true }));
+    } catch {
+      /* colonnes absentes : socle nu */
+    }
   }
 
   // Semis idempotent : les sections ajoutées au catalogue depuis la création
@@ -392,6 +415,11 @@ export default async function FichePage({ params }: { params: { slug: string } }
       a_lire: aLireLiens(rdp.a_lire),
     },
     sources_titres: sourcesTitres,
+    closing: {
+      mot: asString(get("closing").mot) ?? "",
+      promo: closingPromo,
+      allies: closingAllies,
+    },
     // Repli compact des fiches d'un contrat antérieur à v3.1 (non migrées).
     legacy: {
       enjeu: asString(get("enjeu").texte),

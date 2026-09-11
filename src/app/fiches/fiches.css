@@ -412,6 +412,26 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-legacy { margin-top: 40px; border: 1px dashed #C4C0B2; padding: 18px 22px; }
 .gdv4 .gd-legacy .lab { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #8C887A; margin-bottom: 10px; }
 
+/* closing (chantier UX 3 du 11/09) : le rituel de fin d'épisode. Même famille
+   visuelle que le reste : bandeau ambre existant pour le reminder, cartes
+   blanches, labels monospace. */
+.gdv4 .gd-closing .rituel { margin-top: 16px; }
+.gdv4 .gd-closing .rq { background: #fff; border: 1px solid #E5E2D7; padding: 12px 14px; margin-bottom: 8px; font-size: 16px; font-weight: 600; line-height: 1.4; }
+.gdv4 .gd-closing .rq .comptes { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 400; color: #6B675C; }
+.gdv4 .gd-mot { margin-top: 18px; background: #fff; border: 1px solid #E5E2D7; padding: 14px 16px; }
+.gdv4 .gd-mot .lab { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #26241C; }
+.gdv4 .gd-mot .lab .hint { text-transform: none; letter-spacing: 0.02em; color: #8C887A; }
+.gdv4 .gd-mot .ligne { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.gdv4 .gd-mot input { flex: 1; border: 1px solid #C4C0B2; background: #FDFCF8; color: #16150F; padding: 10px 12px; font-family: "IBM Plex Mono", monospace; font-size: 15px; min-width: 0; }
+.gdv4 .gd-mot input:focus { outline: 2px solid #F5C542; outline-offset: 0; }
+.gdv4 .gd-mot .etat { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #8C887A; }
+.gdv4 .gd-mot .etat.ok { color: #1FB46A; }
+.gdv4 .gd-mot .etat.erreur { color: #D4231A; max-width: 40%; }
+.gdv4 .gd-merci { margin-top: 18px; }
+.gdv4 .gd-merci h3 { font-family: "Barlow Condensed", sans-serif; font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
+.gdv4 .gd-merci .m { padding: 8px 0; border-bottom: 1px solid #EFEDE4; font-size: 15px; }
+.gdv4 .gd-merci .rel { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.08em; color: #B3651A; border: 1px solid #F5C542; background: #FFFDF0; padding: 1px 6px; margin-left: 8px; }
+
 /* Console latérale (chantier UX du 11/09) : Clips / Carnet / Régie en
    colonne fixe à droite (25 % de l'écran) ; la fiche garde les 75 % restants.
    Fermée : la pastille .gd-pastille (bas droit) porte le badge des non lus.

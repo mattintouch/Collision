@@ -81,3 +81,22 @@ describe("purge des résidus de gabarit (brief 07/09, item 9)", () => {
     expect(retraits).toEqual([]);
   });
 });
+
+describe("closing : ligne code promo selon la catégorie (chantier UX 3 du 11/09)", () => {
+  it("affichée par défaut : sans catégorie, catégories vides ou commerciales", async () => {
+    const { promoClosingVisible } = await import("../src/lib/fiche/schema");
+    expect(promoClosingVisible(null)).toBe(true);
+    expect(promoClosingVisible([])).toBe(true);
+    expect(promoClosingVisible(["Entrepreneur", "Tech"])).toBe(true);
+    expect(promoClosingVisible(["Sport"])).toBe(true);
+  });
+
+  it("masquée pour les artistes et personnalités sans activité commerciale, accents et casse ignorés", async () => {
+    const { promoClosingVisible } = await import("../src/lib/fiche/schema");
+    expect(promoClosingVisible(["Artiste"])).toBe(false);
+    expect(promoClosingVisible(["artiste peintre"])).toBe(false);
+    expect(promoClosingVisible(["Écrivain"])).toBe(false);
+    expect(promoClosingVisible(["POLITIQUE"])).toBe(false);
+    expect(promoClosingVisible(["Entrepreneur", "Comédien"])).toBe(false);
+  });
+});

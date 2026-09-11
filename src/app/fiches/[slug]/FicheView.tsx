@@ -145,6 +145,11 @@ export interface FicheViewData {
     a_lire: ALireLien[];
   };
   sources_titres: string[];
+  closing: {
+    mot: string;
+    promo: boolean;
+    allies: { nom: string; est_relais: boolean }[];
+  };
   legacy: {
     enjeu?: string;
     recit: string[];
@@ -392,6 +397,33 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     const jusquA = nonLus[nonLus.length - 1].created_at;
     if (jusquA > monDernierLu) sendEvent("lu", { jusqu_a: jusquA });
   }, [panneau, enBas, nonLus, monDernierLu, sendEvent]);
+
+  /* Le Mot du closing (chantier UX 3 du 11/09) : SEUL champ de la fiche
+     saisissable inline, écrit via l'API (writeSection versionné). */
+  const [motDraft, setMotDraft] = useState(data.closing.mot);
+  const [motStatut, setMotStatut] = useState<"repos" | "envoi" | "ok" | "erreur">("repos");
+  const [motErreur, setMotErreur] = useState<string | null>(null);
+  const motEnregistre = useRef(data.closing.mot.trim());
+  const enregistrerMot = useCallback(async () => {
+    const mot = motDraft.trim();
+    if (mot === motEnregistre.current) return;
+    setMotStatut("envoi");
+    try {
+      const r = await fetch(`/api/fiches/${encodeURIComponent(data.slug)}/closing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mot }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      motEnregistre.current = mot;
+      setMotStatut("ok");
+      setMotErreur(null);
+    } catch (e) {
+      setMotStatut("erreur");
+      setMotErreur(e instanceof Error ? e.message : String(e));
+    }
+  }, [motDraft, data.slug]);
 
   const echecs = data.generation.filter((g) => g.statut === "failed");
   const enCours = data.generation.filter((g) => g.statut === "pending" || g.statut === "running");
@@ -989,6 +1021,59 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             </div>
           </article>
         )}
+
+        {/* ── CLOSING : le rituel de fin d'épisode (chantier UX 3 du 11/09).
+            Socle rendu par le code, identique sur toutes les fiches ; la
+            ligne promo suit la catégorie de la cible, les réseaux rappellent
+            les comptes de la fiche, le Mot est le seul champ saisissable
+            inline (exception actée), les remerciements viennent des appuis. ── */}
+        <div className="gd-cat"><span className="tag">{L.catClosing}</span></div>
+        <section className="gd-closing" style={{ marginTop: 32 }}>
+          <h2 className="gd">{L.catClosing}</h2>
+          <p className="gd-sub">{L.closingSub}</p>
+          {/* Reminder pour l'hôte : bandeau ambre, jamais posé à l'invité. */}
+          <article className="gd-alert" style={{ marginTop: 16 }}>
+            <div className="head"><span className="tt">{L.closingReminder}</span></div>
+          </article>
+          <div className="rituel">
+            {data.closing.promo && <div className="rq">{L.closingPromo}</div>}
+            <div className="rq">{L.closingLivre}</div>
+            <div className="rq">{L.closingDixHuit}</div>
+            <div className="rq">
+              {L.closingReseaux}
+              {data.revue_de_presse.reseaux.length > 0 && (
+                <span className="comptes"> ({data.revue_de_presse.reseaux.map((r) => r.label).join(" · ")})</span>
+              )}
+            </div>
+          </div>
+          <div className="gd-mot">
+            <div className="lab">{L.closingMotLabel} <span className="hint">{L.closingMotHint}</span></div>
+            <div className="ligne">
+              <input
+                value={motDraft}
+                onChange={(e) => { setMotDraft(e.target.value); setMotStatut("repos"); }}
+                onBlur={() => void enregistrerMot()}
+                onKeyDown={(e) => { if (e.key === "Enter") void enregistrerMot(); }}
+                placeholder={L.closingMotPlaceholder}
+                maxLength={120}
+              />
+              <span className={`etat ${motStatut}`}>
+                {motStatut === "envoi" ? "..." : motStatut === "ok" ? "✓" : motStatut === "erreur" ? (motErreur ?? "erreur") : ""}
+              </span>
+            </div>
+          </div>
+          {data.closing.allies.length > 0 && (
+            <div className="gd-merci">
+              <h3>{L.closingMerciTitre}</h3>
+              {data.closing.allies.map((a, i) => (
+                <div key={i} className="m">
+                  {L.closingMerci(a.nom)}
+                  {a.est_relais && <span className="rel">RELAIS</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
         {/* ── SOURCES ── */}
         {(data.revue_de_presse.a_lire.length > 0 || data.sources_titres.length > 0) && (
