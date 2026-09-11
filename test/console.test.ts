@@ -217,3 +217,38 @@ describe("ligne de flottaison des non lus (chantier UX du 11/09)", () => {
     expect(idFlottaison(events, "matt@stefani.fr", "2026-09-11T08:00:00Z")).toBeNull();
   });
 });
+
+describe("overrides de questions (chantier UX 2 du 11/09)", () => {
+  it("idQuestion est stable au texte près : espaces repliés et casse ignorés", async () => {
+    const { idQuestion } = await import("../src/lib/fiche/console");
+    const a = idQuestion("Tu lèves 60 millions pour accompagner un milliard");
+    expect(idQuestion("  Tu lèves 60 millions   pour accompagner un milliard ")).toBe(a);
+    expect(idQuestion("TU LÈVES 60 MILLIONS POUR ACCOMPAGNER UN MILLIARD")).toBe(a);
+    expect(a).toMatch(/^q_[0-9a-f]{8}$/);
+  });
+
+  it("deux textes différents donnent deux ids : un texte réécrit rend l'override orphelin (purge par non-correspondance)", async () => {
+    const { idQuestion } = await import("../src/lib/fiche/console");
+    expect(idQuestion("question a")).not.toBe(idQuestion("question b"));
+  });
+
+  it("reduceEtatsQuestions : le dernier événement gagne, etat null lève l'override", async () => {
+    const { reduceEtatsQuestions } = await import("../src/lib/fiche/console");
+    const events = [
+      ev({ id: "1", kind: "q_etat", created_at: "2026-09-11T08:00:00Z", payload: { qid: "q_aaaa0000", etat: "masquee" } }),
+      ev({ id: "2", kind: "q_etat", created_at: "2026-09-11T08:01:00Z", payload: { qid: "q_bbbb0000", etat: "surlignee" } }),
+      ev({ id: "3", kind: "q_etat", created_at: "2026-09-11T08:02:00Z", payload: { qid: "q_aaaa0000", etat: null } }),
+      ev({ id: "4", kind: "q_etat", created_at: "2026-09-11T08:03:00Z", payload: { qid: "q_bbbb0000", etat: "masquee" } }),
+    ];
+    expect(reduceEtatsQuestions(events)).toEqual({ q_bbbb0000: "masquee" });
+  });
+
+  it("un etat inconnu est ignoré, les autres kinds ne polluent pas la réduction", async () => {
+    const { reduceEtatsQuestions } = await import("../src/lib/fiche/console");
+    const events = [
+      ev({ id: "1", kind: "q_etat", created_at: "2026-09-11T08:00:00Z", payload: { qid: "q_cccc0000", etat: "supprimee" } }),
+      ev({ id: "2", kind: "question", created_at: "2026-09-11T08:01:00Z", payload: { num: "01", asked: true } }),
+    ];
+    expect(reduceEtatsQuestions(events)).toEqual({});
+  });
+});

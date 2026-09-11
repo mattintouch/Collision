@@ -10,12 +10,12 @@ describe("catalogue des sections (brief GDIY)", () => {
   it("section_id uniques", () => {
     expect(new Set(FICHE_SECTION_IDS).size).toBe(FICHE_SECTION_IDS.length);
   });
-  it("contrat v3.1 : neuf sections actives dans l'ordre imposé", () => {
+  it("sections actives dans l'ordre imposé (v3.1 + closing du 11/09 avant les sources)", () => {
     const actifs = FICHE_SECTIONS.filter((s) => !s.retire).map((s) => s.id);
     expect(actifs).toEqual([
       "sticky_header", "identite", "checklist_prerec", "tldr", "data",
       "apprentissages", "clips", "topics", "personnel", "revue_de_presse",
-      "sources", "footer",
+      "closing", "sources", "footer",
     ]);
   });
   it("les sections des contrats précédents restent lisibles, marquées retirées", () => {
@@ -23,7 +23,7 @@ describe("catalogue des sections (brief GDIY)", () => {
       expect(FICHE_SECTION_IDS, `${id} doit rester au catalogue`).toContain(id);
       expect(FICHE_SECTIONS.find((s) => s.id === id)?.retire, `${id} doit être retirée`).toBe(true);
     }
-    expect(FICHE_SECTIONS.length).toBe(27);
+    expect(FICHE_SECTIONS.length).toBe(28);
   });
   it("alias hérités : v2 (presentation, entreprise, sources_rapides) et v3.1 (entete, chiffres, playbook, questions_reseaux)", () => {
     expect(canonicalSectionId("presentation")).toBe("recit_canonique");

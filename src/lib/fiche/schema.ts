@@ -459,6 +459,10 @@ export function clampBudgets(
       chaqueItem("topics", "intention", BUDGETS_V3.topic_intention_chars);
       chaqueSousItem("topics", "questions", "note", BUDGETS_V3.topic_note_chars);
       break;
+    case "closing":
+      // Le Mot des commentaires : un mot ou une expression courte.
+      champTexte(c, "mot", 120, "closing.mot");
+      break;
     case "personnel":
       listeMax("zone_grise", BUDGETS_V3.zone_grise_items);
       chaqueItem("zone_grise", "texte", BUDGETS_V3.zone_grise_item_chars);
@@ -515,6 +519,29 @@ export function clampBudgets(
       break;
   }
   return { content: c, avertissements };
+}
+
+/* ── Closing (chantier UX 3 du 11/09) : la ligne code promo se masque quand
+   la cible ne s'y prête pas. Règle simple assumée : afficher par défaut,
+   masquer quand une catégorie de la cible (cibles.categorie, texte libre)
+   correspond à cette liste, ajustable ICI en un seul endroit. Liste proposée
+   dans la PR : artistes et personnalités sans activité commerciale. */
+export const CATEGORIES_SANS_PROMO = [
+  "artiste", "musicien", "chanteur", "acteur", "comedien", "realisateur",
+  "ecrivain", "auteur", "politique", "scientifique", "chercheur", "medecin",
+] as const;
+
+/** Le closing affiche-t-il la ligne code promo ? (PURE, testée.) Comparaison
+ *  insensible à la casse et aux accents, par inclusion de sous-chaîne
+ *  (« Artiste peintre » masque). Aucune catégorie = affiché par défaut. */
+export function promoClosingVisible(categories: readonly (string | null | undefined)[] | null | undefined): boolean {
+  if (!categories) return true;
+  const norme = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return !categories.some((c) => {
+    if (typeof c !== "string" || !c.trim()) return false;
+    const n = norme(c);
+    return CATEGORIES_SANS_PROMO.some((m) => n.includes(m));
+  });
 }
 
 /** Dépassements de budget d'un contenu, SANS écrire (brief 07/09, item 7) :
@@ -697,6 +724,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
   sequencage: { blocs: [{ debut_min: 0, fin_min: 20, court: "RETIRÉ", titre: "Section retirée le 27/07 ; v3.1 : seul le gate time par topic en hérite", intention: "", mode: "", rappel_label: "", rappel: "" }] },
   dix_questions: { questions: [{ num: "01", bloc: 0, texte: "RETIRÉ v3.1 : vit dans topics[].questions", note: "RELANCE : ..." }] },
   zone_grise: { items: [{ id: "zg_motcle", texte: "RETIRÉ v3.1 : vit dans personnel.zone_grise, identifiants conservés", origine: "note Matthieu" }] },
+  closing: { mot: "le Mot des commentaires (champ libre saisi en préparation, 120 caractères max ; le reste du rituel est rendu par le code, les remerciements viennent des appuis)" },
   sources: { liens: [{ date: "2023", titre: "Titre", apport: "ce que la source apporte", url: "https://... (liste exhaustive conservée en BASE ; la revue de presse affiche les indispensables)" }] },
   footer: { texte: DEFAULT_FOOTER },
 };

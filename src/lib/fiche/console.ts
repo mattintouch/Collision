@@ -6,7 +6,7 @@
 // 0041). L'état affiché (checklist, questions posées) se RÉDUIT depuis le flux
 // d'événements : le dernier événement gagne. Fonctions pures, testables à sec.
 
-export type ConsoleKind = "clip" | "note" | "chat" | "check" | "question" | "lu";
+export type ConsoleKind = "clip" | "note" | "chat" | "check" | "question" | "lu" | "q_etat";
 
 export interface ConsoleEvent {
   id: string;
@@ -119,6 +119,43 @@ export function dernierLu(events: ConsoleEvent[], email: string): string {
 export function chatNonLus(events: ConsoleEvent[], email: string): ConsoleEvent[] {
   const borne = dernierLu(events, email);
   return chatOf(events).filter((e) => e.author_email !== email && e.created_at > borne);
+}
+
+/* ── Overrides de questions (chantier UX 2 du 11/09) : masquage soft delete
+   et mise en avant, persistés en base par fiche via les événements q_etat.
+   Le contenu généré n'est JAMAIS modifié : l'override vit à côté, indexé par
+   un identifiant STABLE dérivé du texte de la question. */
+
+export type EtatQuestion = "masquee" | "surlignee";
+
+/** Identifiant STABLE d'une question : hash FNV-1a du texte normalisé
+ *  (espaces repliés, casse ignorée). Survit à une régénération de groupe
+ *  tant que le texte de la question survit ; un texte réécrit donne un id
+ *  neuf et l'override orphelin devient inerte (purge silencieuse par
+ *  non-correspondance, aucun id à stocker dans le contenu). PURE, testée. */
+export function idQuestion(texte: string): string {
+  const norme = texte.normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+  let h = 0x811c9dc5;
+  for (let i = 0; i < norme.length; i++) {
+    h ^= norme.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `q_${h.toString(16).padStart(8, "0")}`;
+}
+
+/** Overrides réduits du flux (le dernier événement par question gagne) :
+ *  qid → masquee | surlignee ; etat null = override levé. PURE, testée. */
+export function reduceEtatsQuestions(events: ConsoleEvent[]): Record<string, EtatQuestion> {
+  const out: Record<string, EtatQuestion> = {};
+  for (const e of events) {
+    if (e.kind !== "q_etat") continue;
+    const qid = e.payload.qid;
+    if (typeof qid !== "string") continue;
+    const etat = e.payload.etat;
+    if (etat === "masquee" || etat === "surlignee") out[qid] = etat;
+    else delete out[qid];
+  }
+  return out;
 }
 
 /** Ligne de flottaison des non lus (chantier UX du 11/09) : id du PREMIER

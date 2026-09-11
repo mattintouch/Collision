@@ -71,6 +71,12 @@
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
+- `0052_console_q_etat.sql` : la contrainte kind de fiche_console_events
+  s'élargit de la valeur q_etat (chantier UX 2 du 11/09 : masquage et mise en
+  avant des questions, persistés en base par fiche via les événements de
+  console, même geste que 0043 pour le dernier-lu). Sans elle, masquer ou
+  surligner une question affiche « Écriture refusée » : à appliquer AVANT la
+  recette du chantier 2.
 
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de

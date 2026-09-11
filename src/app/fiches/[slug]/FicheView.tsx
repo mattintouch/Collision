@@ -22,8 +22,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   labelFromEmail, reduceChecked, reduceAsked, carnetOf, chatOf, textOf,
   timecodeAt, timeLabel, mergeEvent, dernierLu, chatNonLus, idFlottaison,
-  segmentsAvecLiens,
-  type ConsoleEvent, type RecSession,
+  idQuestion, reduceEtatsQuestions, segmentsAvecLiens,
+  type ConsoleEvent, type RecSession, type EtatQuestion,
 } from "@/lib/fiche/console";
 
 /** Décalage d'index des coches de la checklist post-rec dans le flux
@@ -145,6 +145,11 @@ export interface FicheViewData {
     a_lire: ALireLien[];
   };
   sources_titres: string[];
+  closing: {
+    mot: string;
+    promo: boolean;
+    allies: { nom: string; est_relais: boolean }[];
+  };
   legacy: {
     enjeu?: string;
     recit: string[];
@@ -393,6 +398,33 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     if (jusquA > monDernierLu) sendEvent("lu", { jusqu_a: jusquA });
   }, [panneau, enBas, nonLus, monDernierLu, sendEvent]);
 
+  /* Le Mot du closing (chantier UX 3 du 11/09) : SEUL champ de la fiche
+     saisissable inline, écrit via l'API (writeSection versionné). */
+  const [motDraft, setMotDraft] = useState(data.closing.mot);
+  const [motStatut, setMotStatut] = useState<"repos" | "envoi" | "ok" | "erreur">("repos");
+  const [motErreur, setMotErreur] = useState<string | null>(null);
+  const motEnregistre = useRef(data.closing.mot.trim());
+  const enregistrerMot = useCallback(async () => {
+    const mot = motDraft.trim();
+    if (mot === motEnregistre.current) return;
+    setMotStatut("envoi");
+    try {
+      const r = await fetch(`/api/fiches/${encodeURIComponent(data.slug)}/closing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mot }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      motEnregistre.current = mot;
+      setMotStatut("ok");
+      setMotErreur(null);
+    } catch (e) {
+      setMotStatut("erreur");
+      setMotErreur(e instanceof Error ? e.message : String(e));
+    }
+  }, [motDraft, data.slug]);
+
   const echecs = data.generation.filter((g) => g.statut === "failed");
   const enCours = data.generation.filter((g) => g.statut === "pending" || g.statut === "running");
 
@@ -453,17 +485,74 @@ export default function FicheView({ data }: { data: FicheViewData }) {
     );
   };
 
-  /* ── question de brique (rayable d'un tap, état partagé) ── */
-  const questionRow = (q: FicheQuestion) => (
-    <div key={q.num} className={`gd-q${q.clip ? " clip" : ""}${asked[q.num] ? " asked" : ""}`} onClick={() => toggleQuestion(q.num)}>
-      <span className="n">{q.num.replace(/^0/, "")}</span>
-      <span className="t">
-        {q.texte}
-        {q.clip && <span className="cliptag">CLIP</span>}
-        {q.note && <span className="note">{q.note}</span>}
-      </span>
-    </div>
+  /* ── Overrides de questions (chantier UX 2 du 11/09) : masquage soft
+     delete et mise en avant, persistés en base par fiche (événements q_etat,
+     synchro console héritée). Le contenu généré n'est jamais modifié, les
+     numéros d'origine sont CONSERVÉS (Matt et Clémence s'y réfèrent dans la
+     régie : aucune renumérotation quand des questions sont masquées). ── */
+  const etatsQuestions = useMemo(() => reduceEtatsQuestions(events), [events]);
+  const setEtatQuestion = useCallback(
+    (qid: string, etat: EtatQuestion | null) => sendEvent("q_etat", { qid, etat }),
+    [sendEvent]
   );
+  // Compteurs « N questions masquées » dépliés (par bloc, état local d'écran).
+  const [masqueesOuvertes, setMasqueesOuvertes] = useState<Record<string, boolean>>({});
+
+  /* ── question de brique (rayable d'un tap, état partagé) ── */
+  const questionRow = (q: FicheQuestion) => {
+    const qid = idQuestion(q.texte);
+    const etat = etatsQuestions[qid];
+    const masquee = etat === "masquee";
+    return (
+      <div
+        key={q.num}
+        className={`gd-q${q.clip ? " clip" : ""}${asked[q.num] ? " asked" : ""}${etat === "surlignee" ? " hl" : ""}${masquee ? " ghost" : ""}`}
+        onClick={() => toggleQuestion(q.num)}
+      >
+        <span className="n">{q.num.replace(/^0/, "")}</span>
+        <span className="t">
+          {q.texte}
+          {q.clip && <span className="cliptag">CLIP</span>}
+          {q.note && <span className="note">{q.note}</span>}
+        </span>
+        <span className="qacts" onClick={(ev) => ev.stopPropagation()}>
+          {masquee ? (
+            <button className="qact" title={L.reafficher} aria-label={L.reafficher} onClick={() => setEtatQuestion(qid, null)}>⟲</button>
+          ) : (
+            <>
+              <button
+                className={`qact${etat === "surlignee" ? " on" : ""}`}
+                title={L.surligner}
+                aria-label={L.surligner}
+                onClick={() => setEtatQuestion(qid, etat === "surlignee" ? null : "surlignee")}
+              >◆</button>
+              <button className="qact" title={L.masquer} aria-label={L.masquer} onClick={() => setEtatQuestion(qid, "masquee")}>×</button>
+            </>
+          )}
+        </span>
+      </div>
+    );
+  };
+
+  /* ── liste de questions avec masquage réversible : les masquées sortent de
+     l'affichage, un compteur discret les réaffiche (restauration une à une
+     par le bouton ⟲ de chaque ligne). ── */
+  const blocQuestions = (questions: FicheQuestion[], cle: string) => {
+    const visibles = questions.filter((q) => etatsQuestions[idQuestion(q.texte)] !== "masquee");
+    const masquees = questions.filter((q) => etatsQuestions[idQuestion(q.texte)] === "masquee");
+    const ouvert = !!masqueesOuvertes[cle];
+    return (
+      <>
+        {visibles.map(questionRow)}
+        {masquees.length > 0 && (
+          <button className="gd-qmask" onClick={() => setMasqueesOuvertes((p) => ({ ...p, [cle]: !p[cle] }))}>
+            {L.questionsMasquees(masquees.length)} {ouvert ? "▴" : "▾"}
+          </button>
+        )}
+        {ouvert && masquees.map(questionRow)}
+      </>
+    );
+  };
 
   return (
     <div className={panneau ? "gdv4 with-console" : "gdv4"}>
@@ -774,7 +863,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
                     {t.questions.length > 0 && (
                       <div className="gd-qs">
                         <h3>{L.questions}</h3>
-                        {t.questions.map(questionRow)}
+                        {blocQuestions(t.questions, `brique-${ti}`)}
                       </div>
                     )}
                   </div>
@@ -933,6 +1022,59 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           </article>
         )}
 
+        {/* ── CLOSING : le rituel de fin d'épisode (chantier UX 3 du 11/09).
+            Socle rendu par le code, identique sur toutes les fiches ; la
+            ligne promo suit la catégorie de la cible, les réseaux rappellent
+            les comptes de la fiche, le Mot est le seul champ saisissable
+            inline (exception actée), les remerciements viennent des appuis. ── */}
+        <div className="gd-cat"><span className="tag">{L.catClosing}</span></div>
+        <section className="gd-closing" style={{ marginTop: 32 }}>
+          <h2 className="gd">{L.catClosing}</h2>
+          <p className="gd-sub">{L.closingSub}</p>
+          {/* Reminder pour l'hôte : bandeau ambre, jamais posé à l'invité. */}
+          <article className="gd-alert" style={{ marginTop: 16 }}>
+            <div className="head"><span className="tt">{L.closingReminder}</span></div>
+          </article>
+          <div className="rituel">
+            {data.closing.promo && <div className="rq">{L.closingPromo}</div>}
+            <div className="rq">{L.closingLivre}</div>
+            <div className="rq">{L.closingDixHuit}</div>
+            <div className="rq">
+              {L.closingReseaux}
+              {data.revue_de_presse.reseaux.length > 0 && (
+                <span className="comptes"> ({data.revue_de_presse.reseaux.map((r) => r.label).join(" · ")})</span>
+              )}
+            </div>
+          </div>
+          <div className="gd-mot">
+            <div className="lab">{L.closingMotLabel} <span className="hint">{L.closingMotHint}</span></div>
+            <div className="ligne">
+              <input
+                value={motDraft}
+                onChange={(e) => { setMotDraft(e.target.value); setMotStatut("repos"); }}
+                onBlur={() => void enregistrerMot()}
+                onKeyDown={(e) => { if (e.key === "Enter") void enregistrerMot(); }}
+                placeholder={L.closingMotPlaceholder}
+                maxLength={120}
+              />
+              <span className={`etat ${motStatut}`}>
+                {motStatut === "envoi" ? "..." : motStatut === "ok" ? "✓" : motStatut === "erreur" ? (motErreur ?? "erreur") : ""}
+              </span>
+            </div>
+          </div>
+          {data.closing.allies.length > 0 && (
+            <div className="gd-merci">
+              <h3>{L.closingMerciTitre}</h3>
+              {data.closing.allies.map((a, i) => (
+                <div key={i} className="m">
+                  {L.closingMerci(a.nom)}
+                  {a.est_relais && <span className="rel">RELAIS</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {/* ── SOURCES ── */}
         {(data.revue_de_presse.a_lire.length > 0 || data.sources_titres.length > 0) && (
           <div className="gd-cat"><span className="tag">{L.catSources}</span></div>
@@ -1003,7 +1145,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
             <div className="lab">Contenu d&apos;un contrat antérieur (fiche non migrée)</div>
             {data.legacy.enjeu && <p style={{ fontSize: 15, margin: "0 0 10px" }}>{data.legacy.enjeu}</p>}
             {data.legacy.recit.map((p, i) => <p key={i} style={{ fontSize: 15, margin: "0 0 10px" }}>{p}</p>)}
-            {data.legacy.questions.map(questionRow)}
+            {blocQuestions(data.legacy.questions, "legacy")}
           </div>
         )}
 
