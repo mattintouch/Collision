@@ -186,3 +186,34 @@ describe("liens cliquables dans la régie et le carnet (incident du 30/07)", () 
     expect(deux.filter((s) => s.type === "lien").map((s) => s.valeur)).toEqual(["https://a.fr", "https://b.fr"]);
   });
 });
+
+describe("ligne de flottaison des non lus (chantier UX du 11/09)", () => {
+  it("pointe le premier message d'un autre opérateur après la borne", async () => {
+    const { idFlottaison } = await import("../src/lib/fiche/console");
+    const events = [
+      ev({ id: "a", kind: "chat", author_email: "clemence@stefani.fr", created_at: "2026-09-11T08:00:00Z" }),
+      ev({ id: "b", kind: "chat", author_email: "matt@stefani.fr", created_at: "2026-09-11T08:01:00Z" }),
+      ev({ id: "c", kind: "chat", author_email: "clemence@stefani.fr", created_at: "2026-09-11T08:02:00Z" }),
+      ev({ id: "d", kind: "chat", author_email: "clemence@stefani.fr", created_at: "2026-09-11T08:03:00Z" }),
+    ];
+    expect(idFlottaison(events, "matt@stefani.fr", "2026-09-11T08:01:30Z")).toBe("c");
+  });
+
+  it("ignore ses propres messages : ils sont lus par construction", async () => {
+    const { idFlottaison } = await import("../src/lib/fiche/console");
+    const events = [
+      ev({ id: "m1", kind: "chat", author_email: "matt@stefani.fr", created_at: "2026-09-11T08:05:00Z" }),
+      ev({ id: "m2", kind: "chat", author_email: "matt@stefani.fr", created_at: "2026-09-11T08:06:00Z" }),
+    ];
+    expect(idFlottaison(events, "matt@stefani.fr", "")).toBeNull();
+  });
+
+  it("borne vide (jamais rien lu) : le marqueur se pose sur le premier message des autres", async () => {
+    const { idFlottaison } = await import("../src/lib/fiche/console");
+    const events = [
+      ev({ id: "x", kind: "chat", author_email: "clemence@stefani.fr", created_at: "2026-09-11T08:00:00Z" }),
+    ];
+    expect(idFlottaison(events, "matt@stefani.fr", "")).toBe("x");
+    expect(idFlottaison(events, "matt@stefani.fr", "2026-09-11T08:00:00Z")).toBeNull();
+  });
+});
