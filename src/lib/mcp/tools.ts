@@ -271,7 +271,7 @@ async function autoAttachAppuiContacts(
 /** Outils destructifs : exigent le scope admin (décision #6). set_role et
  *  fusionner_cibles (chantier doublons du 25/08) sont dans la liste : gestion
  *  des rôles et fusion de fiches sont des opérations admin. */
-const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock", "set_role", "fusionner_cibles"]);
+const DESTRUCTIVE_TOOLS = new Set(["delete_appui", "delete_touche", "delete_idee", "archive_cible", "sync_google_contacts", "cancel_episode", "budget_override", "set_episode_lock", "set_role", "fusionner_cibles"]);
 
 /** Scope requis pour un outil d'écriture donné, selon l'appel. */
 export function requiredScope(name: string, args: unknown): "write" | "admin" {
@@ -732,6 +732,72 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         return text({ error: error.message });
       }
       return text({ cible: r.cible.nom, cible_id: r.cible.id, total: (data ?? []).length, idees: data ?? [] });
+    }
+  );
+
+  W(
+    "update_idee",
+    "Modifie une IDÉE ÉDITORIALE existante : statut (backlog, integree, abandonnee), texte, source. Une idée abandonnée sort du backlog sans disparaître (l'historique reste lisible via list_idees) : c'est le bon geste pour une idée devenue hors sujet, plutôt que la supprimer. Repasser une idée en backlog la réinjecte à la prochaine génération. Intentions : abandonner une idée, corriger son texte, la remettre en circulation.",
+    {
+      idee_id: z.string().describe("id de l'idée (list_idees)"),
+      statut: z.enum(["backlog", "integree", "abandonnee"]).optional(),
+      texte: z.string().optional().describe("nouveau texte (remplace)"),
+      source_url: z.string().optional().describe("nouveau lien d'origine"),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      if (!a.statut && !a.texte && a.source_url === undefined) {
+        return text({ error: "Rien à modifier : passer statut, texte ou source_url." });
+      }
+      const { data: avant, error: errAvant } = await sb
+        .from("idees_editoriales")
+        .select("id, cible_id, type, texte, source_url, statut")
+        .eq("id", a.idee_id)
+        .maybeSingle();
+      if (errAvant && /idees_editoriales/.test(errAvant.message)) {
+        return text({ error: "Table idees_editoriales absente : appliquer la migration 0050, puis réessayer.", cause: "migration_0050_manquante" });
+      }
+      if (!avant) return text({ error: `Idée « ${a.idee_id} » introuvable.` });
+      const patch: Record<string, unknown> = {};
+      if (a.statut) patch.statut = a.statut;
+      if (a.texte !== undefined) {
+        const t = a.texte.trim();
+        if (!t) return text({ error: "texte vide : pour retirer une idée, la passer en abandonnee ou delete_idee." });
+        patch.texte = t;
+      }
+      if (a.source_url !== undefined) patch.source_url = safeUrl(a.source_url) ?? null;
+      const { error } = await sb.from("idees_editoriales").update(patch).eq("id", a.idee_id);
+      if (error) return text({ error: error.message });
+      return text({
+        ok: true,
+        idee_id: a.idee_id,
+        avant: { statut: (avant as { statut: string }).statut, texte: (avant as { texte: string }).texte },
+        apres: { statut: a.statut ?? (avant as { statut: string }).statut, texte: (patch.texte as string | undefined) ?? (avant as { texte: string }).texte },
+        ...(a.statut === "backlog" ? { detail: "De retour en backlog : réinjectée à la prochaine génération de la fiche." } : {}),
+      });
+    }
+  );
+
+  W(
+    "delete_idee",
+    "SUPPRIME définitivement une idée éditoriale (admin). Irréversible : préférer update_idee statut abandonnee, qui garde l'historique. À réserver aux vrais déchets (doublon de saisie, mauvaise cible).",
+    { idee_id: z.string().describe("id de l'idée (list_idees)") },
+    { destructiveHint: true, idempotentHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const { data: avant, error: errAvant } = await sb
+        .from("idees_editoriales")
+        .select("id, cible_id, texte, statut")
+        .eq("id", a.idee_id)
+        .maybeSingle();
+      if (errAvant && /idees_editoriales/.test(errAvant.message)) {
+        return text({ error: "Table idees_editoriales absente : appliquer la migration 0050, puis réessayer.", cause: "migration_0050_manquante" });
+      }
+      if (!avant) return text({ ok: true, deja: true, detail: "Idée déjà absente : rien à supprimer." });
+      const { error } = await sb.from("idees_editoriales").delete().eq("id", a.idee_id);
+      if (error) return text({ error: error.message });
+      return text({ ok: true, supprimee: { id: a.idee_id, texte: (avant as { texte: string }).texte, statut: (avant as { statut: string }).statut } });
     }
   );
 
@@ -1341,7 +1407,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       contact_jour_j: z.string().optional().describe("contact jour J (défaut : Clémence + Matéo, enregistrés)"),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    async (a) => {
+    async (a, extra) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: "Show introuvable" });
@@ -1434,7 +1500,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       try {
         const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: start.toISOString() });
         if (fiche.statut !== "verrouillee") {
-          const n = await enqueueFicheGeneration(sb, target.id);
+          const n = await enqueueFicheGeneration(sb, target.id, FICHE_GROUPES, extra?.authInfo?.extra?.email ?? null);
           kickQueue();
           ficheAuto = `fiche ${fichePageUrl(fiche.slug)} — génération lancée (${n} recherche(s) en file)`;
         }
@@ -1738,7 +1804,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "synthese", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + synthese (tldr, clickbait) + la rédaction)"),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    async (a) => {
+    async (a, extra) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: "Show introuvable" });
@@ -1755,7 +1821,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const groupes: FicheGroupe[] = a.groupes?.length ? Array.from(new Set(a.groupes as FicheGroupe[])) : [...FICHE_GROUPES];
       let enFile = 0;
       try {
-        enFile = await enqueueFicheGeneration(sb, target.id, groupes);
+        // Initiateur (11/09) : l'alerte d'un échec de génération est adressée
+        // à la personne qui a lancé, plus jamais à toute l'équipe.
+        const initiateur = extra?.authInfo?.extra?.email ?? null;
+        enFile = await enqueueFicheGeneration(sb, target.id, groupes, initiateur);
       } catch (e) {
         return text({ error: e instanceof Error ? e.message : String(e) });
       }
