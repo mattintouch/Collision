@@ -71,7 +71,10 @@ export const BRIQUE_RESERVE_MS = 120_000;
  *  rendus, sortie coupée) ; le prompt contraint AUSSI la longueur (zone grise
  *  compacte, sources plafonnées) pour garder une marge réelle sous le plafond. */
 export const SQUELETTE_MAX_TOKENS = 6000;
-export const BRIQUE_MAX_TOKENS = 3000;
+// Brique relevée de 3000 à 4000 le 11/09 (eric-schmidt : une brique dense a
+// rendu 3116 tokens et la sortie a été coupée) ; le prompt borne AUSSI les
+// comptes (citations, réflexions, questions) pour viser environ 1500 tokens.
+export const BRIQUE_MAX_TOKENS = 4000;
 
 /* ───────────────── erreurs lisibles et reprise (brief 07/09) ───────────────── */
 
@@ -771,10 +774,11 @@ export async function processFicheGroupe(
         const rb = await runWebSearchJSONVerbose<BriqueJson>(
           systemFor([
             `Mission : rédiger le corps d'UNE SEULE brique (main topic) de la fiche : « ${titre} ».${intention ? ` Intention de la brique : ${intention}` : ""}`,
-            "La brique complète : le CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet) ; les DATES CLÉS (une ligne chacune) ; les CITATIONS exactes de l'invité quand la recherche en trouve ; un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique) ; des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate) ; les RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) ; les QUESTIONS cœur (4 à 10, SANS numéro : la numérotation continue est posée par le serveur). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. NI minutage NI note tactique : ces champs n'existent plus.",
+            "La brique complète : le CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet) ; les DATES CLÉS (une ligne chacune) ; les CITATIONS exactes de l'invité quand la recherche en trouve ; un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique) ; des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate) ; les RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) ; les QUESTIONS cœur (4 à 8, SANS numéro : la numérotation continue est posée par le serveur). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. NI minutage NI note tactique : ces champs n'existent plus.",
             "RECHERCHE : 0 à 2 requêtes MAXIMUM, ciblées sur cette brique précise. La concision prime : un fait fort et court bat trois faits délayés.",
+            "SORTIE COURTE, IMPÉRATIF : le corps entier de la brique vise environ 1500 tokens. Citations : 2 à 4, les meilleures seulement. Dates : 3 à 6 lignes. Réflexions : 2 à 4. Questions : 4 à 8, chacune en une ou deux phrases. Extras : 5 items maximum. La sortie doit rester bien sous le plafond de tokens.",
           ].join("\n\n"), langue),
-          `${intro}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 10 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+          `${intro}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 8 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
           2, model, BRIQUE_MAX_TOKENS, opts.heartbeat
         );
         compte(rb.usage);
