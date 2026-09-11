@@ -61,14 +61,16 @@
   et de Gilles Giovannangeli (3 questions + 1 source) migrés vers la table
   via add_idee, notes nettoyées, list_idees confirme les 5 idées en backlog.
 
+- `0051_jobs_initiateur.sql` : colonne initiateur sur enrichment_jobs (brief du
+  11/09, alerting). Porte l'email de l'appelant qui a lancé la génération pour
+  lui adresser l'alerte d'échec (destinataires : initiateur + Matthieu, plus
+  jamais toute l'équipe). Appliquée par Matt le 11/09 via l'éditeur SQL
+  Supabase. Effet immédiat sans redéploiement, rejouable sans risque
+  (if not exists).
+
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
-- `0051_jobs_initiateur.sql` : colonne initiateur sur enrichment_jobs (brief du
-  11/09, alerting). Porte l'email de l'appelant qui a lancé la génération pour
-  lui adresser l'alerte d'échec. Défensif dans les deux sens : sans la
-  colonne, l'insertion retombe sur l'ancienne forme et l'alerte part à
-  Matthieu seul (ALERT_OWNER_EMAIL, défaut matt@stefani.fr).
 
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
