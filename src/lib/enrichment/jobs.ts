@@ -255,6 +255,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         }
         if (!r) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
         await breakerSucces(sb);
+        // Succès du groupe : le marqueur d'alerte tombe, un échec FUTUR de ce
+        // groupe redéclenchera un email (une alerte par groupe échoué, 11/09).
+        await sb.from("system_state").delete().eq("key", `alerte_echec:${job.cible_id}:${job.objectif}`);
         await sb
           .from("enrichment_jobs")
           .update({ statut: "done", resultat: { groupe, sections: r.sections, ...(r.rapport ? { rapport: r.rapport } : {}) }, error: null, updated_at: nowIso() })
@@ -303,14 +306,37 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
           await alerteDisjoncteur(sb, { cause: msg, jusqu_a: apres.jusqu_a ?? nowIso() });
         }
       }
-      // Échec DÉFINITIF d'un groupe de fiche (après retry) : alerte immédiate.
+      // Échec DÉFINITIF d'un groupe de fiche : UNE SEULE alerte par groupe
+      // échoué (11/09 : cinq emails identiques à sept destinataires la veille).
+      // Le marqueur system_state tient 24 h ou jusqu'au prochain succès du
+      // groupe ; les échecs suivants restent dans le journal, sans email.
       if (job.objectif.startsWith(FICHE_JOB_PREFIX)) {
-        await alerteEchecGeneration(sb, {
-          fiche_slug: ficheSlug,
-          cible_nom: cibleNom,
-          groupe: job.objectif.slice(FICHE_JOB_PREFIX.length),
-          erreur: msg,
-        });
+        const cle = `alerte_echec:${job.cible_id}:${job.objectif}`;
+        const { data: marque } = await sb.from("system_state").select("updated_at").eq("key", cle).maybeSingle();
+        const depuis = marque ? Date.now() - new Date((marque as { updated_at: string }).updated_at).getTime() : Infinity;
+        if (depuis >= 24 * 3600_000) {
+          // Nombre de tentatives : les jobs failed de ce groupe sur 24 h.
+          const { count } = await sb
+            .from("enrichment_jobs")
+            .select("id", { count: "exact", head: true })
+            .eq("cible_id", job.cible_id)
+            .eq("objectif", job.objectif)
+            .eq("statut", "failed")
+            .gte("updated_at", new Date(Date.now() - 24 * 3600_000).toISOString());
+          // Initiateur de la génération (colonne 0051) : lecture best-effort,
+          // null tant que la migration n'est pas appliquée.
+          const { data: ini, error: errIni } = await sb.from("enrichment_jobs").select("initiateur").eq("id", job.id).maybeSingle();
+          const initiateur = errIni ? null : (((ini as { initiateur?: string | null } | null)?.initiateur) ?? null);
+          await alerteEchecGeneration(sb, {
+            fiche_slug: ficheSlug,
+            cible_nom: cibleNom,
+            groupe: job.objectif.slice(FICHE_JOB_PREFIX.length),
+            erreur: msg,
+            tentatives: count && count > 0 ? count : 1,
+            initiateur,
+          });
+          await sb.from("system_state").upsert({ key: cle, value: { objectif: job.objectif, erreur: msg }, updated_at: nowIso() });
+        }
       }
     }
     traites += 1;

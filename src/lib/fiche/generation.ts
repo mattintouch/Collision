@@ -66,8 +66,11 @@ export const BRIQUE_RESERVE_MS = 120_000;
 /** Plafonds de sortie de la scission du deroule (07/09) : aucun appel ne peut
  *  structurellement dépasser son budget. Le squelette produit le terrain, la
  *  zone grise et la LISTE des briques (titre + intention) ; chaque brique est
- *  ensuite un appel dédié dont le corps vise environ 1200 tokens. */
-export const SQUELETTE_MAX_TOKENS = 4000;
+ *  ensuite un appel dédié dont le corps vise environ 1200 tokens.
+ *  Squelette relevé de 4000 à 6000 le 11/09 (eric-schmidt : 4327 tokens
+ *  rendus, sortie coupée) ; le prompt contraint AUSSI la longueur (zone grise
+ *  compacte, sources plafonnées) pour garder une marge réelle sous le plafond. */
+export const SQUELETTE_MAX_TOKENS = 6000;
 export const BRIQUE_MAX_TOKENS = 3000;
 
 /* ───────────────── erreurs lisibles et reprise (brief 07/09) ───────────────── */
@@ -685,6 +688,7 @@ export async function processFicheGroupe(
           "TERRAIN CONNU (SYSTÉMATIQUE, exactement 3 items) : les questions qu'il a déjà eues partout, pour chacune sa réponse rodée en une ligne ET le dépassement prévu (« tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant »).",
           "PLAN DES MAIN TOPICS : 5 à 8 briques, chacune réduite à son TITRE et son INTENTION (une phrase : l'angle de la brique, ce qu'elle doit faire dire à l'invité). Ensemble, les briques couvrent le dosage 60 pour cent mécanique personnelle, 20 pour cent domaine subordonné à l'individu, 20 pour cent leçons transférables. La ou les briques CŒUR DE L'ÉPISODE (une ou deux) portent \"pleine_largeur\": true. Chaque idée éditoriale de l'équipe se retrouve portée par l'intention d'une brique, ou en zone grise, JAMAIS ignorée en silence.",
           "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
+          "SORTIE COURTE, IMPÉRATIF : le squelette est un PLAN, pas la fiche. Zone grise : 12 items maximum, 400 caractères chacun. Sources : les 12 liens les plus utiles seulement, apport en une demi-ligne. Aucun contexte, aucune question, aucun développement : la sortie entière doit rester bien sous le plafond de tokens.",
         ].join("\n\n"), langue),
         `${intro}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement)}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
         maxSearches, model, SQUELETTE_MAX_TOKENS, opts.heartbeat
@@ -906,7 +910,11 @@ export async function processFicheGroupe(
 export async function enqueueFicheGeneration(
   sb: SB,
   cibleId: string,
-  groupes: readonly FicheGroupe[] = FICHE_GROUPES
+  groupes: readonly FicheGroupe[] = FICHE_GROUPES,
+  // Initiateur de la génération (11/09) : l'email de l'appelant MCP, stocké
+  // sur chaque job (colonne 0051, best-effort tant qu'elle n'est pas
+  // appliquée) pour adresser l'alerte d'échec à la bonne personne.
+  initiateur?: string | null
 ): Promise<number> {
   const { data: cibleRow } = await sb
     .from("cibles_enrichies")
@@ -928,7 +936,15 @@ export async function enqueueFicheGeneration(
   const deja = new Set(((encours ?? []) as { objectif: string }[]).map((j) => j.objectif));
   const nouveaux = Array.from(new Set(groupes)).map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
   if (nouveaux.length) {
-    const { error } = await sb.from("enrichment_jobs").insert(nouveaux.map((objectif) => ({ cible_id: cibleId, objectif, apply: false })));
+    const lignes = nouveaux.map((objectif) => ({ cible_id: cibleId, objectif, apply: false }));
+    if (initiateur) {
+      // Colonne initiateur (0051) : insertion best-effort, repli sans la
+      // colonne tant que la migration n'est pas appliquée.
+      const { error } = await sb.from("enrichment_jobs").insert(lignes.map((l) => ({ ...l, initiateur })));
+      if (!error) return nouveaux.length;
+      if (!/initiateur/.test(error.message)) throw new Error(error.message);
+    }
+    const { error } = await sb.from("enrichment_jobs").insert(lignes);
     if (error) throw new Error(error.message);
   }
   return nouveaux.length;

@@ -18,32 +18,50 @@ function shell(body: string): string {
   return `<!DOCTYPE html><html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1B1D1E;line-height:1.55;max-width:560px;margin:0 auto;padding:8px 4px">${body}<p style="color:#8a8d88;font-size:12px;margin-top:24px">Alerte automatique Magellan. Collision Productions.</p></body></html>`;
 }
 
-async function envoyer(sb: SB, subject: string, html: string): Promise<void> {
+async function envoyer(sb: SB, subject: string, html: string, dest?: string[]): Promise<void> {
   try {
     if (!hasGmailSend()) return;
-    const to = (process.env.ALERT_EMAILS ?? "").split(/[,\s]+/).filter((e) => e.includes("@"));
-    const dest = to.length ? to : await recapRecipients(sb);
-    if (!dest.length) return;
-    await sendGmail({ to: dest, subject, html });
+    const to = dest?.length
+      ? dest
+      : (process.env.ALERT_EMAILS ?? "").split(/[,\s]+/).filter((e) => e.includes("@"));
+    const finaux = to.length ? Array.from(new Set(to.map((e) => e.toLowerCase()))) : await recapRecipients(sb);
+    if (!finaux.length) return;
+    await sendGmail({ to: finaux, subject, html });
   } catch {
     /* best-effort */
   }
 }
 
-/** Échec DÉFINITIF d'un groupe de génération (après retries) : alerte immédiate. */
+/** Destinataires d'un échec de génération (11/09) : l'initiateur de la
+ *  génération plus Matthieu, PLUS JAMAIS toute l'équipe (le 10/09, cinq emails
+ *  identiques sont partis à sept destinataires). ALERT_OWNER_EMAIL surcharge
+ *  l'adresse de Matthieu ; ALERT_EMAILS (liste) surcharge tout. */
+export function destinatairesEchec(initiateur?: string | null): string[] {
+  const surcharge = (process.env.ALERT_EMAILS ?? "").split(/[,\s]+/).filter((e) => e.includes("@"));
+  if (surcharge.length) return Array.from(new Set(surcharge.map((e) => e.toLowerCase())));
+  const owner = (process.env.ALERT_OWNER_EMAIL ?? "matt@stefani.fr").toLowerCase();
+  const dest = new Set<string>([owner]);
+  if (initiateur && initiateur.includes("@")) dest.add(initiateur.toLowerCase());
+  return Array.from(dest);
+}
+
+/** Échec DÉFINITIF d'un groupe de génération : UNE alerte par groupe échoué
+ *  (dédupliquée par l'appelant via system_state), avec le nombre de
+ *  tentatives, adressée à l'initiateur de la génération et à Matthieu. */
 export async function alerteEchecGeneration(
   sb: SB,
-  info: { fiche_slug?: string | null; cible_nom?: string | null; groupe: string; erreur: string }
+  info: { fiche_slug?: string | null; cible_nom?: string | null; groupe: string; erreur: string; tentatives?: number; initiateur?: string | null }
 ): Promise<void> {
   const qui = info.cible_nom ?? info.fiche_slug ?? "cible inconnue";
   const subject = `Magellan, génération en échec : ${qui} (${info.groupe})`;
+  const nTent = info.tentatives && info.tentatives > 1 ? `${info.tentatives} tentatives` : "sa première tentative";
   const html = shell([
-    `<p>Le groupe <b>${esc(info.groupe)}</b> de la fiche <b>${esc(qui)}</b> a échoué après ses tentatives.</p>`,
+    `<p>Le groupe <b>${esc(info.groupe)}</b> de la fiche <b>${esc(qui)}</b> a échoué (${esc(nTent)}). Cette alerte est la seule pour ce groupe : les échecs suivants n'enverront pas d'email tant que le groupe n'a pas réussi entre-temps.</p>`,
     `<p style="font-family:ui-monospace,Menlo,monospace;font-size:12px;background:#F6F4EF;padding:10px 12px">${esc(sanitizeError(info.erreur))}</p>`,
     info.fiche_slug ? `<p>La fiche est marquée incomplète : <a href="https://magellan.collision.studio/fiches/${esc(info.fiche_slug)}">ouvrir la fiche</a>.</p>` : "",
     `<p>Relancer : dans Claude, « regénère le groupe ${esc(info.groupe)} de la fiche ${esc(qui)} ».</p>`,
   ].join(""));
-  await envoyer(sb, subject, html);
+  await envoyer(sb, subject, html, destinatairesEchec(info.initiateur));
 }
 
 /** Franchissement d'un seuil du budget API mensuel (chantier 3, §1.3) :

@@ -12,7 +12,8 @@ import {
 
 describe("scission du deroule (brief 07/09)", () => {
   it("les plafonds de sortie sont petits par construction (aucun appel ne peut déborder son budget)", () => {
-    expect(SQUELETTE_MAX_TOKENS).toBeLessThanOrEqual(4096);
+    // Squelette relevé à 6000 le 11/09 (eric-schmidt coupé à 4000, 4327 rendus).
+    expect(SQUELETTE_MAX_TOKENS).toBe(6000);
     expect(BRIQUE_MAX_TOKENS).toBeLessThanOrEqual(4096);
     expect(BRIQUE_RESERVE_MS).toBeLessThan(DEROULE_RESERVE_MS);
   });
