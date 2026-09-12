@@ -29,7 +29,21 @@ budgets dans `src/lib/fiche/schema.ts`, catalogue dans
   la synthèse comme la rédaction échouent explicitement si le dernier
   deroule de la fiche est en échec, au lieu de consolider une fiche sans
   briques. La langue de la fiche (identite.langue) est injectée dans tous
-  les prompts de génération et de rédaction.
+  les prompts de génération et de rédaction ; depuis le 12/09, generate_fiche
+  et create_fiche la posent (`langue`), et `reinitialiser` vide les sections
+  à reprise idempotente (topics ; tldr et clips) pour régénérer dans une
+  autre langue. Depuis le 12/09, la RÉDACTION est elle-même SCINDÉE (cas
+  eric-schmidt, trois « timeout (> 15 min) ») : un appel « plan de
+  consolidation » (chiffres retenus, graphies, propriété des faits,
+  consignes par section, mémorisé dans system_state), puis UNE section par
+  appel dans l'ordre data, revue_de_presse, personnel, apprentissages,
+  topics (briques modifiées seulement), titres, tldr (synthèse finale),
+  chaque section écrite dès réception. Sous la réserve murale entre deux
+  appels, la passe se SUSPEND : le job retourne en file sans échec ni
+  alerte et le drain suivant reprend les étapes restantes (marqueur valide
+  3 h, levé au succès d'un groupe amont). Un kickQueue peut donc l'entamer.
+  Un échec en cascade (synthèse ou rédaction refusée parce que le deroule a
+  échoué) n'envoie plus d'email : la cause racine a le sien.
 - La propriété unique des faits, la doctrine de profondeur, les interdits
   transverses, la vérification des URLs, les budgets durs par champ.
 - Le TL;DR à neuf labels (Qui, Fait d'armes, Fil rouge, Le comment,

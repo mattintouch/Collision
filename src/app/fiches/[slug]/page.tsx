@@ -11,7 +11,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { kickQueue } from "@/lib/enrichment/jobs";
 import type { ConsoleEvent, RecSession } from "@/lib/fiche/console";
-import { FICHE_JOB_PREFIX } from "@/lib/fiche/generation";
+import { derniersJobsParGroupe } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections, seedSections } from "@/lib/fiche/store";
 import {
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
@@ -171,23 +171,12 @@ export default async function FichePage({ params }: { params: { slug: string } }
     .some((id) => !isEmptyContent(c.get(id)));
   const incompletes = contenuLegacy ? [] : SECTIONS_OBLIGATOIRES.filter((id) => isEmptyContent(c.get(id)));
 
-  // Journal de génération (contrat §3.6) : dernier état par groupe.
+  // Journal de génération (contrat §3.6) : dernier état PAR GROUPE (12/09).
+  // Une requête par groupe : un échec périmé ne reste plus affiché en tête de
+  // fiche une fois le groupe repassé en succès, et une rafale d'échecs d'un
+  // groupe ne masque plus le dernier état des autres.
   let generation: { groupe: string; statut: string; error?: string; quand?: string }[] = [];
-  if (fiche.cible_id) {
-    const { data: jobs } = await sb
-      .from("enrichment_jobs")
-      .select("objectif, statut, error, updated_at")
-      .eq("cible_id", fiche.cible_id)
-      .like("objectif", `${FICHE_JOB_PREFIX}%`)
-      .order("updated_at", { ascending: false })
-      .limit(20);
-    const derniers = new Map<string, { groupe: string; statut: string; error?: string; quand?: string }>();
-    for (const j of ((jobs ?? []) as { objectif: string; statut: string; error: string | null; updated_at: string }[])) {
-      const groupe = j.objectif.slice(FICHE_JOB_PREFIX.length);
-      if (!derniers.has(groupe)) derniers.set(groupe, { groupe, statut: j.statut, error: j.error ?? undefined, quand: j.updated_at });
-    }
-    generation = Array.from(derniers.values());
-  }
+  if (fiche.cible_id) generation = await derniersJobsParGroupe(sb, fiche.cible_id);
 
   const identite = get("identite");
   const dateNaissance = asString(identite.date_naissance);

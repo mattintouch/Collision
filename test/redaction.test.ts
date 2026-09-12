@@ -220,18 +220,22 @@ describe("réécriture ciblée du TL;DR (correctif du 04/08)", () => {
   });
 });
 
-describe("réserve murale de la passe de rédaction (correctif du 03/08)", () => {
-  it("un drain court laisse la rédaction en file, un drain frais la revendique", async () => {
-    const { redactionAdmissible, REDACTION_RESERVE_MS } = await import("../src/lib/fiche/redaction");
-    // kickQueue (budget 240 s) ne revendique JAMAIS une passe de rédaction.
-    expect(redactionAdmissible(240_000)).toBe(false);
-    // Le cron en début de drain (budget 740 s) la revendique.
+describe("réserve murale de la passe de rédaction (03/08, révisée par la scission du 12/09)", () => {
+  it("un drain frais la revendique, un drain en fin de budget la laisse au suivant", async () => {
+    const { redactionAdmissible, REDACTION_RESERVE_MS, REDACTION_APPEL_RESERVE_MS } = await import("../src/lib/fiche/redaction");
+    // Scission du 12/09 : la passe n'est plus un appel de 16 384 tokens, un
+    // kickQueue frais (240 s) peut démarrer le plan et une ou deux sections,
+    // puis suspendre proprement ; le cron reprend les étapes restantes.
+    expect(redactionAdmissible(240_000)).toBe(true);
     expect(redactionAdmissible(740_000)).toBe(true);
-    // Le même cron en fin de drain la laisse au suivant.
+    // En fin de drain, la passe reste en file.
     expect(redactionAdmissible(REDACTION_RESERVE_MS - 1)).toBe(false);
     expect(redactionAdmissible(REDACTION_RESERVE_MS)).toBe(true);
     // Budget mural illimité (défaut de processEnrichmentJobs) : admissible.
     expect(redactionAdmissible(Infinity)).toBe(true);
+    // Invariant anti-boucle : un job suspendu faute de budget d'appel n'est
+    // pas revendiqué à nouveau par le MÊME drain.
+    expect(REDACTION_RESERVE_MS).toBeGreaterThan(REDACTION_APPEL_RESERVE_MS);
   });
 });
 

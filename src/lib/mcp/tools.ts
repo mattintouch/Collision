@@ -37,7 +37,9 @@ import {
   type FicheRow,
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
-import { FICHE_GROUPES, FICHE_JOB_PREFIX, enqueueFicheGeneration, type FicheGroupe } from "../fiche/generation";
+import { FICHE_GROUPES, enqueueFicheGeneration, derniersJobsParGroupe, sectionsAReinitialiser, type FicheGroupe } from "../fiche/generation";
+import { cleRedactionEnCours } from "../fiche/redaction";
+import { decisionValidation } from "../episode/validation";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar, getCalendarEvent, patchCalendarEvent, listCalendarEvents } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
 import { parisVersUtcIso, heureMuraleParis, dureeMinutes, fenetreStudio, conflitsStudio, fusionneParticipants, TZ_PARIS } from "../episode/gestion-invitation";
@@ -1395,7 +1397,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "validate_cible",
-    "Valide une cible : bascule en épisode. Si `start_iso` est fourni, crée AUSSI l'invitation d'enregistrement complète (corps détaillé : accès Studio 71, parking, durée, contact jour J, lien fiche si générée) via le compte de service, avec les participants systématiques (staff + invité), et réserve le studio (-1h/+1h). Intentions : valider, programmer l'enregistrement, inviter l'équipe.",
+    "Valide une cible : bascule en épisode. Si `start_iso` est fourni, crée AUSSI l'invitation d'enregistrement complète (corps détaillé : accès Studio 71, parking, durée, contact jour J, lien fiche si générée) via le compte de service, avec les participants systématiques (staff + invité), et réserve le studio (-1h/+1h). IDEMPOTENT : relancé sur une cible déjà validée, réutilise l'épisode existant (jamais de doublon) et ne crée que l'invitation manquante ; une invitation déjà en place n'est pas recréée (déplacer via update_episode). Intentions : valider, programmer l'enregistrement, inviter l'équipe.",
     {
       show: z.string(),
       cible: z.string(),
@@ -1406,18 +1408,49 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       participants: z.array(z.string()).optional().describe("emails supplémentaires à inviter"),
       contact_jour_j: z.string().optional().describe("contact jour J (défaut : Clémence + Matéo, enregistrés)"),
     },
-    { destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
     async (a, extra) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: "Show introuvable" });
       const target = await resolveCible(sb, sid, a.cible);
       if (!target) return text({ error: `Cible « ${a.cible} » introuvable.` });
-      const { data: episodeId, error } = await sb.rpc("validate_cible", { target_cible: target.id });
-      if (error) return text({ error: error.message });
+      // Idempotence (brief 12/09, chantier 5) : relancé sur une cible déjà
+      // validée, l'outil créait un SECOND épisode (doublon nettoyé à la main
+      // le 11/09). L'épisode existant est lu AVANT tout : la RPC n'est appelée
+      // qu'en première validation (la migration 0053 la rend idempotente
+      // aussi, défense en profondeur pour les autres appelants), et seule
+      // l'invitation manquante est créée.
+      const { data: epAvant } = await sb
+        .from("episodes")
+        .select("id, gcal_event_id, date_enregistrement")
+        .eq("cible_id", target.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const existant = epAvant as { id: string; gcal_event_id: string | null; date_enregistrement: string | null } | null;
+      const decision = decisionValidation({ deja: !!existant, invitation_existante: !!existant?.gcal_event_id, avec_date: !!a.start_iso });
+      let episodeId: string;
+      if (!existant) {
+        const { data, error } = await sb.rpc("validate_cible", { target_cible: target.id });
+        if (error) return text({ error: error.message });
+        episodeId = String(data);
+      } else {
+        episodeId = existant.id;
+      }
+      const deja = !!existant;
 
-      // Sans date : simple bascule (comportement historique).
-      if (!a.start_iso) return text({ ok: true, cible: target.nom, episode_id: episodeId });
+      // Sans date, ou tout déjà en place : simple bascule (comportement historique).
+      if (!a.start_iso || !decision.creer_invitation) {
+        return text({
+          ok: true,
+          deja,
+          cible: target.nom,
+          episode_id: episodeId,
+          ...(existant?.date_enregistrement ? { date_enregistrement: existant.date_enregistrement } : {}),
+          ...(decision.note ? { note: decision.note } : {}),
+        });
+      }
 
       // Avec date : invitation complète via le compte de service (calendarBearer
       // prend le SA quand GOOGLE_DELEGATION_READY=true ; sinon repli provider_token
@@ -1497,19 +1530,26 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       // par l'usage : plus personne ne lance à la main). Best-effort, jamais
       // bloquant pour la validation.
       let ficheAuto: string | undefined;
-      try {
-        const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: start.toISOString() });
-        if (fiche.statut !== "verrouillee") {
-          const n = await enqueueFicheGeneration(sb, target.id, FICHE_GROUPES, extra?.authInfo?.extra?.email ?? null);
-          kickQueue();
-          ficheAuto = `fiche ${fichePageUrl(fiche.slug)} — génération lancée (${n} recherche(s) en file)`;
+      if (decision.lancer_generation) {
+        try {
+          const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: start.toISOString() });
+          if (fiche.statut !== "verrouillee") {
+            const n = await enqueueFicheGeneration(sb, target.id, FICHE_GROUPES, extra?.authInfo?.extra?.email ?? null);
+            kickQueue();
+            ficheAuto = `fiche ${fichePageUrl(fiche.slug)} — génération lancée (${n} recherche(s) en file)`;
+          }
+        } catch (e) {
+          ficheAuto = `génération non lancée : ${e instanceof Error ? e.message : String(e)}`;
         }
-      } catch (e) {
-        ficheAuto = `génération non lancée : ${e instanceof Error ? e.message : String(e)}`;
+      } else {
+        // Cible déjà validée : la fiche existe, sa matière n'est pas rejouée
+        // (generate_fiche reste l'outil pour régénérer un groupe).
+        ficheAuto = "fiche existante conservée, génération non relancée (cible déjà validée)";
       }
 
       return text({
         ok: true,
+        deja,
         cible: target.nom,
         episode_id: episodeId,
         invitation: ev.ok ? `Invitation créée${studioNote}` : `Invitation non créée : ${ev.detail}`,
@@ -1518,6 +1558,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         fiche_url: ficheLink,
         fiche_generation: ficheAuto,
         avertissement,
+        ...(decision.note ? { note: decision.note } : {}),
       });
     }
   );
@@ -1797,11 +1838,13 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "generate_fiche",
-    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v3 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) PLUS la passe de rédaction (redaction, exécutée en dernier : déduplication, réconciliation des chiffres, budgets de longueur, format scannable, avec rapport). Propriété unique des faits : la chronologie vit dans parcours, le récit en 1 ouverture + 7 temps, l'univers en 4 points hors graphiques, à lire en 3 sources. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes ou relancer la seule rédaction. Suivre via get_fiche.",
+    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v3 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) PLUS la synthèse (tldr, clickbait) PLUS la passe de rédaction (redaction, exécutée en dernier, scindée en un plan puis une section par appel : déduplication, réconciliation des chiffres, budgets de longueur, format scannable, avec rapport). `langue` (fr, en) écrit identite.langue AVANT la génération : contenu et habillage suivent. `reinitialiser` vide d'abord les sections à reprise idempotente des groupes demandés (deroule : briques ; synthese : tldr et clips), OBLIGATOIRE pour changer la langue d'une fiche déjà générée (le deroule ne rejoue jamais une brique écrite) ; versionné, rollback possible. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes, changer de langue ou relancer la seule rédaction. Suivre via get_fiche.",
     {
       show: z.string(),
       cible: z.string(),
       groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "synthese", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + synthese (tldr, clickbait) + la rédaction)"),
+      langue: z.enum(["fr", "en"]).optional().describe("langue de la fiche : écrite sur identite.langue avant la génération, propagée dans tous les prompts et l'habillage"),
+      reinitialiser: z.boolean().optional().describe("vide d'abord les sections à reprise idempotente des groupes demandés (deroule : topics ; synthese : tldr, clips). Nécessaire pour régénérer dans une autre langue."),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a, extra) => {
@@ -1817,13 +1860,35 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { fiche } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: episode?.date_enregistrement ?? null });
       if (fiche.statut === "verrouillee") return text({ error: "Fiche verrouillée : régénération impossible. Repasser en_challenge via set_status.", cause: "fiche_verrouillee" });
 
+      // Initiateur (11/09) : l'alerte d'un échec de génération est adressée
+      // à la personne qui a lancé, plus jamais à toute l'équipe.
+      const initiateur = extra?.authInfo?.extra?.email ?? null;
       // Un job par groupe de recherche ; pas de doublon si un job du groupe est déjà en file.
       const groupes: FicheGroupe[] = a.groupes?.length ? Array.from(new Set(a.groupes as FicheGroupe[])) : [...FICHE_GROUPES];
+
+      // Langue de la fiche (brief 12/09, chantier 2) : posée AVANT la mise en
+      // file, lue par tous les groupes au démarrage de leur job.
+      let langue_ecrite: string | undefined;
+      if (a.langue) {
+        const { data: idRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "identite").maybeSingle();
+        const identite = ((idRow as { content?: Record<string, unknown> } | null)?.content ?? {}) as Record<string, unknown>;
+        if (identite.langue !== a.langue) {
+          await writeSection(sb, fiche.id, "identite", { ...identite, langue: a.langue }, initiateur);
+          langue_ecrite = a.langue;
+        }
+      }
+      // Réinitialisation (12/09) : les passes à reprise idempotente ne
+      // réécrivent jamais l'existant, elles sont vidées d'abord (versionné).
+      let reinitialisees: string[] = [];
+      if (a.reinitialiser) {
+        reinitialisees = sectionsAReinitialiser(groupes);
+        for (const id of reinitialisees) await writeSection(sb, fiche.id, id, {}, initiateur);
+      }
+      // La matière ou la langue change : une rédaction suspendue repart d'un plan neuf.
+      if (langue_ecrite || reinitialisees.length) await sb.from("system_state").delete().eq("key", cleRedactionEnCours(fiche.id));
+
       let enFile = 0;
       try {
-        // Initiateur (11/09) : l'alerte d'un échec de génération est adressée
-        // à la personne qui a lancé, plus jamais à toute l'équipe.
-        const initiateur = extra?.authInfo?.extra?.email ?? null;
         enFile = await enqueueFicheGeneration(sb, target.id, groupes, initiateur);
       } catch (e) {
         return text({ error: e instanceof Error ? e.message : String(e) });
@@ -2285,19 +2350,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const catalog = new Map(FICHE_SECTIONS.map((s) => [s.id, s]));
       const { data: comments } = await sb.from("fiche_comments").select("id, section_id, author, text, resolved, created_at").eq("fiche_id", f.id).eq("resolved", false).order("created_at");
       const { data: notes } = await sb.from("fiche_notes").select("id, text, source, integrated, created_at").eq("fiche_id", f.id).eq("integrated", false).order("created_at");
-      // Avancement de la génération (jobs fiche:* de la cible, hors anciens done).
+      // Avancement de la génération : DERNIER état par groupe (12/09). Les huit
+      // derniers jobs toutes passes confondues montraient trois « redaction
+      // failed » côte à côte et masquaient un succès plus ancien d'un autre groupe.
       let generation: unknown;
       if (f.cible_id) {
-        const { data: jobs } = await sb
-          .from("enrichment_jobs")
-          .select("objectif, statut, error, updated_at")
-          .eq("cible_id", f.cible_id)
-          .like("objectif", `${FICHE_JOB_PREFIX}%`)
-          .order("updated_at", { ascending: false })
-          .limit(8);
-        const rows = (jobs ?? []) as { objectif: string; statut: string; error: string | null }[];
-        if (rows.length) {
-          generation = rows.map((j) => ({ groupe: j.objectif.slice(FICHE_JOB_PREFIX.length), statut: j.statut, ...(j.error ? { error: j.error } : {}) }));
+        const derniers = await derniersJobsParGroupe(sb, f.cible_id);
+        if (derniers.length) {
+          generation = derniers.map((j) => ({ groupe: j.groupe, statut: j.statut, ...(j.error ? { error: j.error } : {}), ...(j.quand ? { quand: j.quand } : {}) }));
         }
       }
       return text({
@@ -2652,10 +2712,10 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "create_fiche",
-    "Crée une fiche de préparation structurée pour une cible validée et sème les 19 sections vides du catalogue (à alimenter ensuite via update_section ou la génération). La cible doit être QUALIFIÉE (archétype posé, pas de nom factice) : le contrôle se fait ici, à la création, plus seulement au lancement de la génération. Idempotent : une seule fiche par cible ; réappelée, renvoie l'existante en complétant les sections manquantes. Slug = prénom-nom (unique).",
-    { show: z.string(), cible: z.string() },
+    "Crée une fiche de préparation structurée pour une cible validée et sème les 19 sections vides du catalogue (à alimenter ensuite via update_section ou la génération). La cible doit être QUALIFIÉE (archétype posé, pas de nom factice) : le contrôle se fait ici, à la création, plus seulement au lancement de la génération. `langue` (fr, en) pose identite.langue dès la création : la génération et l'habillage suivront. Idempotent : une seule fiche par cible ; réappelée, renvoie l'existante en complétant les sections manquantes. Slug = prénom-nom (unique).",
+    { show: z.string(), cible: z.string(), langue: z.enum(["fr", "en"]).optional().describe("langue de la fiche (défaut fr) : écrite sur identite.langue") },
     { destructiveHint: false, idempotentHint: true },
-    async (a) => {
+    async (a, extra) => {
       const sb = createServiceClient();
       const sid = await showId(sb, a.show);
       if (!sid) return text({ error: `Show introuvable: ${a.show}` });
@@ -2683,7 +2743,17 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data: ep } = await sb.from("episodes").select("date_enregistrement").eq("cible_id", target.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
       const date = (ep as { date_enregistrement?: string | null } | null)?.date_enregistrement ?? null;
       const { fiche, created } = await ensureFiche(sb, { show_id: sid, cible_id: target.id, invite_nom: target.nom, date_enregistrement: date });
-      return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length, url: fichePageUrl(fiche.slug) });
+      // Langue (brief 12/09, chantier 2) : posée sur identite.langue dès la création.
+      let langue: string | undefined;
+      if (a.langue) {
+        const { data: idRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "identite").maybeSingle();
+        const identite = ((idRow as { content?: Record<string, unknown> } | null)?.content ?? {}) as Record<string, unknown>;
+        if (identite.langue !== a.langue) {
+          await writeSection(sb, fiche.id, "identite", { ...identite, langue: a.langue }, extra?.authInfo?.extra?.email ?? null);
+        }
+        langue = a.langue;
+      }
+      return text({ ok: true, cree: created, fiche: fiche.slug, fiche_id: fiche.id, invite: fiche.invite_nom, statut: fiche.statut, sections: FICHE_SECTIONS.length, url: fichePageUrl(fiche.slug), ...(langue ? { langue } : {}) });
     }
   );
 
