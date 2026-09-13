@@ -2370,12 +2370,22 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
             const { data: mRow } = await sb.from("system_state").select("value").eq("key", cleRedactionEnCours(f.id)).maybeSingle();
             etapesRedactionEnCours = etapesExposees((mRow as { value?: unknown } | null)?.value) ?? undefined;
           }
+          // Idées non couvertes par le dernier deroule (chantier 2 du 13/09) :
+          // listées nominativement sur l'entrée deroule du journal.
+          let ideesNonCouvertes: unknown;
+          if (derniers.some((j) => j.groupe === "deroule")) {
+            const { data: iRow } = await sb.from("system_state").select("value").eq("key", `idees_non_couvertes:${f.cible_id}`).maybeSingle();
+            const v = (iRow as { value?: { idees_non_couvertes?: unknown } } | null)?.value;
+            if (v && Array.isArray(v.idees_non_couvertes) && v.idees_non_couvertes.length) ideesNonCouvertes = v.idees_non_couvertes;
+          }
           generation = derniers.map((j) => ({
             groupe: j.groupe,
             statut: j.statut,
             ...(j.error ? { error: j.error } : {}),
             ...(j.quand ? { quand: j.quand } : {}),
+            ...(j.stale ? { stale: true, stale_cause: j.stale_cause } : {}),
             ...(j.groupe === "redaction" && etapesRedactionEnCours ? { etapes: etapesRedactionEnCours } : {}),
+            ...(j.groupe === "deroule" && ideesNonCouvertes ? { idees_non_couvertes: ideesNonCouvertes } : {}),
           }));
         }
       }

@@ -191,27 +191,53 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
             continue;
           }
         }
-        // Barrière aval (brief 07/09, item 5) : la synthèse et la rédaction ne
-        // tournent plus sur une fiche dont le deroule vient d'échouer. Le
-        // différé ne voyait que pending/running : un deroule FAILED était
+        // Dernier job d'un groupe amont de la cible (dépendances, 13/09).
+        const dernierJobDe = async (amont: FicheGroupe) => {
+          const { data } = await sb
+            .from("enrichment_jobs")
+            .select("statut, error")
+            .eq("cible_id", job.cible_id)
+            .eq("objectif", `${FICHE_JOB_PREFIX}${amont}`)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          return (data ?? [])[0] as { statut: string; error: string | null } | undefined;
+        };
+        // Dépendance du deroule (chantier 1 du 13/09) : les chapitres se
+        // construisent sur les angles. Angles en file ou en cours = deroule
+        // différé (même mécanique que la synthèse) ; angles échoué = échec en
+        // cascade ; aucun job angles = génération partielle assumée, on passe.
+        if (groupe === "deroule") {
+          const angles = await dernierJobDe("angles");
+          if (angles && (angles.statut === "pending" || angles.statut === "running")) {
+            await sb.from("enrichment_jobs").update({ statut: "pending", created_at: nowIso(), updated_at: nowIso() }).eq("id", job.id);
+            if (differes.has(job.id)) break;
+            differes.add(job.id);
+            continue;
+          }
+          if (angles?.statut === "failed") {
+            throw new EchecCascade(
+              `Passe deroule refusée : le dernier angles de la fiche a échoué (${angles.error ?? "sans détail"}). Relancer generate_fiche (angles) : le deroule sera remis en file avec lui.`
+            );
+          }
+        }
+        // Barrière aval (brief 07/09, item 5 ; élargie le 13/09) : la synthèse
+        // et la rédaction ne tournent plus sur une fiche dont le deroule vient
+        // d'échouer, et la rédaction exige AUSSI une synthèse non échouée. Le
+        // différé ne voyait que pending/running : un amont FAILED était
         // invisible et la rédaction consolidait une fiche sans briques
         // (constaté sur Estelle Brachlianoff). Échec EXPLICITE plutôt
         // qu'attente : le journal dit quoi relancer, rien ne pourrit en file.
         if (groupe === "synthese" || groupe === "redaction") {
-          const { data: derniersDeroule } = await sb
-            .from("enrichment_jobs")
-            .select("statut, error")
-            .eq("cible_id", job.cible_id)
-            .eq("objectif", `${FICHE_JOB_PREFIX}deroule`)
-            .order("created_at", { ascending: false })
-            .limit(1);
-          const dernier = (derniersDeroule ?? [])[0] as { statut: string; error: string | null } | undefined;
-          if (dernier?.statut === "failed") {
-            // Échec en cascade (12/09) : le journal dit quoi relancer, mais
-            // aucune alerte email (la cause racine, le deroule, a la sienne).
-            throw new EchecCascade(
-              `Passe ${groupe} refusée : le dernier deroule de la fiche a échoué (${dernier.error ?? "sans détail"}). Relancer generate_fiche (deroule), qui ne rejoue que les briques manquantes, puis remettre ${groupe} en file.`
-            );
+          const amonts: FicheGroupe[] = groupe === "redaction" ? ["deroule", "synthese"] : ["deroule"];
+          for (const amont of amonts) {
+            const dernier = await dernierJobDe(amont);
+            if (dernier?.statut === "failed") {
+              // Échec en cascade (12/09) : le journal dit quoi relancer, mais
+              // aucune alerte email (la cause racine a la sienne).
+              throw new EchecCascade(
+                `Passe ${groupe} refusée : le dernier ${amont} de la fiche a échoué (${dernier.error ?? "sans détail"}). Relancer generate_fiche (${amont}), puis remettre ${groupe} en file.`
+              );
+            }
           }
         }
         const { data: fiche } = await sb.from("fiches").select("*").eq("cible_id", job.cible_id).maybeSingle();
