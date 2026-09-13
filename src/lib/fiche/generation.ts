@@ -212,6 +212,15 @@ export function blocLangue(langue: LangueFiche): string {
   ].join(" ");
 }
 
+/** Message utilisateur d'UN appel de génération (PURE, testée) : la consigne
+ *  de langue préfixe le corps de CHAQUE appel (addendum D du 13/09 : 3 briques
+ *  sur 8 sorties en français, la fuite est PAR APPEL ; le system seul ne
+ *  suffit pas). Identité en français (aucun octet ajouté). */
+export function promptGroupe(langue: LangueFiche, corps: string): string {
+  const bloc = blocLangue(langue);
+  return bloc ? `${bloc}\n\n${corps}` : corps;
+}
+
 /** Langue de la fiche, lue sur identite.langue ("en" explicite, "fr" sinon). */
 export async function langueDeFiche(sb: SB, ficheId: string): Promise<LangueFiche> {
   const { data } = await sb
@@ -446,7 +455,7 @@ async function mergeSources(sb: SB, fiche: FicheRow, liens: ReturnType<typeof li
 }
 
 /** Notes internes non intégrées : matière pour la zone grise et les angles. */
-async function pendingNotes(sb: SB, ficheId: string): Promise<{ id: string; text: string; source: string | null }[]> {
+export async function pendingNotes(sb: SB, ficheId: string): Promise<{ id: string; text: string; source: string | null }[]> {
   const { data } = await sb.from("fiche_notes").select("id, text, source").eq("fiche_id", ficheId).eq("integrated", false);
   return (data ?? []) as { id: string; text: string; source: string | null }[];
 }
@@ -481,9 +490,66 @@ async function ideesBacklog(sb: SB, cibleId: string): Promise<IdeeEditoriale[]> 
  *  une idée inutilisable telle quelle finit en zone grise, jamais ignorée. */
 export function blocIdees(idees: Pick<IdeeEditoriale, "type" | "texte" | "source_url">[]): string {
   if (!idees.length) return "";
+  const ordonnees = idees.some((i) => prioriteIdee(i) !== null);
   return `\n\nIDÉES ÉDITORIALES DE L'ÉQUIPE (backlog posé avant la fiche, à INTÉGRER OBLIGATOIREMENT : chaque idée doit se retrouver dans une question, un topic, un clip ou un angle ; une idée inutilisable telle quelle devient un item de zone grise avec son origine, JAMAIS ignorée en silence) :\n${idees
     .map((i) => `- [${i.type}] ${i.texte}${i.source_url ? ` (source : ${i.source_url})` : ""}`)
-    .join("\n")}`;
+    .join("\n")}${ordonnees ? "\nORDRE : la liste est triée, les idées de type angle avec un ordre de priorité explicite viennent en premier, dans cet ordre ; l'ordre des angles produits (apprentissages, briques) RESPECTE cet ordre." : ""}`;
+}
+
+/** Note interne d'une fiche (fiche_notes non intégrée). */
+export interface NoteFiche { id: string; text: string; source: string | null }
+
+/** La source d'une note vient-elle de l'équipe de l'invité ? (PURE, testée.)
+ *  Heuristique sur le libellé de source, ajustable ICI en un seul endroit :
+ *  email de l'entourage, brief officiel, agence, attaché de presse, manager.
+ *  Sans source, jamais équipe (matière non vérifiée). */
+export function estSourceEquipe(source: string | null | undefined): boolean {
+  if (!source) return false;
+  const s = source.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return /\b(equipe|team|entourage|officiel|officielle|brief|email|mail|attache|attachee|agence|manager|assistant|assistante|presse)\b/.test(s);
+}
+
+/** Partition des notes en attente (PURE, testée) : les faits validés par
+ *  l'équipe de l'invité d'un côté, la matière non vérifiée de l'autre. */
+export function partitionneNotes(notes: NoteFiche[]): { valides: NoteFiche[]; autres: NoteFiche[] } {
+  const valides: NoteFiche[] = [];
+  const autres: NoteFiche[] = [];
+  for (const n of notes) (estSourceEquipe(n.source) ? valides : autres).push(n);
+  return { valides, autres };
+}
+
+/** Bloc de prompt des faits validés par l'équipe de l'invité (PURE, testée),
+ *  injecté AVANT la matière web dans les 4 recherches, la synthèse et la
+ *  rédaction (addendum E du 13/09) : faits établis, jamais zone grise, la
+ *  recherche web complète sans déclasser, contradiction signalée en une ligne,
+ *  aucune omission silencieuse. */
+export function blocFaitsValides(notes: Pick<NoteFiche, "text" | "source">[]): string {
+  if (!notes.length) return "";
+  return `\n\nFAITS VALIDÉS PAR L'ÉQUIPE DE L'INVITÉ (source directe : entourage, brief officiel, email de son équipe). Ce sont des FAITS ÉTABLIS : jamais en zone grise, jamais présentés comme non vérifiés.\n${notes
+    .map((n) => `- ${n.text}${n.source ? ` (source : ${n.source})` : ""}`)
+    .join("\n")}\nCONSIGNES SUR CES FAITS : la recherche web les COMPLÈTE, elle ne les déclasse jamais ; si une source web les contredit, le fait validé PRIME et la contradiction se signale en UNE ligne ; CHAQUE élément de ce bloc couvert par ta mission apparaît dans ta sortie, AUCUNE omission silencieuse.`;
+}
+
+/** Priorité explicite d'une idée de type angle (PURE, testée) : « priorité 1 »,
+ *  « priorite: 2 », « P1 » dans le texte ; « en priorité »/« prioritaire »
+ *  sans numéro = priorité 0 (la plus haute). null = pas d'ordre exprimé. */
+export function prioriteIdee(idee: Pick<IdeeEditoriale, "type" | "texte">): number | null {
+  if (idee.type !== "angle") return null;
+  const t = idee.texte.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const m = t.match(/priorite\s*[:#]?\s*(\d+)/) ?? t.match(/\bp(\d)\b/);
+  if (m) return parseInt(m[1], 10);
+  if (/\ben priorite\b|\bprioritaire\b/.test(t)) return 0;
+  return null;
+}
+
+/** Tri des idées par priorité explicite (PURE, testée) : les angles priorisés
+ *  d'abord, dans leur ordre de priorité ; le reste garde l'ordre de création.
+ *  L'ordre des angles produits doit respecter cet ordre (consigne blocIdees). */
+export function trieIdees<T extends Pick<IdeeEditoriale, "type" | "texte">>(idees: T[]): T[] {
+  return idees
+    .map((idee, i) => ({ idee, i, p: prioriteIdee(idee) }))
+    .sort((a, b) => (a.p ?? Number.POSITIVE_INFINITY) - (b.p ?? Number.POSITIVE_INFINITY) || a.i - b.i)
+    .map((x) => x.idee);
 }
 
 /** Passe en integree les idées injectées, à la réussite du deroule. */
@@ -525,10 +591,17 @@ export async function processFicheGroupe(
   // Langue de la fiche (brief 07/09, item 6) : lue UNE fois, injectée dans le
   // system de TOUS les groupes (une fiche anglaise ne mélange plus les langues).
   const langue = await langueDeFiche(sb, fiche.id);
-  // Fuite du 13/09 (préambule français sur une fiche anglaise) : la consigne
-  // de langue vit dans le system ET dans le message utilisateur de chaque
-  // appel, elle n'est plus portée par le seul system.
-  const intro = [guestIntro(cible, fiche.date_enregistrement), blocLangue(langue)].filter(Boolean).join("\n\n");
+  // Fuite du 13/09 (préambule français, puis briques françaises sur une fiche
+  // anglaise) : la consigne de langue vit dans le system ET dans le message
+  // utilisateur de CHAQUE appel (promptGroupe), briques comprises.
+  const intro = guestIntro(cible, fiche.date_enregistrement);
+  // Hiérarchie des sources (addendum E du 13/09) : les notes dont la source
+  // est l'équipe de l'invité sont des FAITS ÉTABLIS, injectés en bloc distinct
+  // avant la matière web dans les 4 recherches, la synthèse et la rédaction ;
+  // les autres notes restent de la matière non vérifiée (angles, zone grise).
+  const notesEnAttente = await pendingNotes(sb, fiche.id);
+  const { valides: notesValidees, autres: notesAutres } = partitionneNotes(notesEnAttente);
+  const faitsTxt = blocFaitsValides(notesValidees);
   const written: string[] = [];
   let sourcesCount = 0;
   const compte = (u: WebSearchUsage) => {
@@ -545,7 +618,7 @@ export async function processFicheGroupe(
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
       systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe.", langue),
-      `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
+      promptGroupe(langue, `${intro}${faitsTxt}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`),
       maxSearches, model, RECHERCHE_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
@@ -608,7 +681,7 @@ export async function processFicheGroupe(
         "GRAPHS MARCHÉ (v4, champ marche_graphs) : trois cartes graphiques en barres qui posent le contexte économique du SECTEUR DE L'INVITÉ, adaptées à son secteur (pour un producteur de cinéma le box-office, pour un fondateur SaaS le marché SaaS, etc.). Vise TOUJOURS : 1 graph « taille et trajectoire du marché mondial » (série annuelle sur 7 à 8 ans), 1 graph « la force qui bouscule le secteur » (souvent en barres jumelées : l'ancien monde contre le nouveau), 1 graph « la bascule spécifique France ou Europe » si pertinente. RÈGLE STRICTE : chaque série porte des valeurs DATÉES et SOURCÉES trouvées dans tes recherches ; si une série ne peut pas être sourcée proprement, OMETS le graph plutôt que d'estimer. Chaque graph porte un titre en langage clair (une phrase qui dit ce que montre l'image), un callout qui dit ce qu'il faut retenir, et sa ligne source.",
         "LEXIQUE (v4, champ lexique) : 8 à 12 termes du jargon du secteur de l'invité, définis en UNE phrase chacun, écrits pour quelqu'un qui ne vient pas du secteur ; privilégie les termes qui reviendront dans l'épisode, ancre les définitions dans le cas de l'invité quand c'est éclairant. INTERDICTION de laisser dans le reste de la fiche un terme de jargon ni défini au lexique ni explicité inline.",
       ].join("\n\n"), langue),
-      `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15, les 3 plus fortes valeurs EN PREMIER : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_graphs": [0 à 3 : {"titre": "phrase en langage clair", "sous_titre": "unité et périmètre de la série", "type": "barres" ou "barres_jumelees", "valeurs": [{"label": "2019", "valeur": 42.3, "affiche": "42,3", "accent": "noir|rouge|jaune (les points saillants seulement)", "legende": "sous-libellé optionnel", "valeur2"/"affiche2": seconde série si barres_jumelees}], "legende": {"serie1", "serie2"} (si barres_jumelees), "callout": "ce qu'il faut retenir, 1 à 3 phrases", "source": "sources datées, OBLIGATOIRE"}] (série non sourçable = graph OMIS, jamais estimé),\n  "lexique": [8 à 12 : {"terme": "Slate", "definition": "une phrase pour quelqu'un qui ne vient pas du secteur"}],\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15, les 3 plus fortes valeurs EN PREMIER : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_graphs": [0 à 3 : {"titre": "phrase en langage clair", "sous_titre": "unité et périmètre de la série", "type": "barres" ou "barres_jumelees", "valeurs": [{"label": "2019", "valeur": 42.3, "affiche": "42,3", "accent": "noir|rouge|jaune (les points saillants seulement)", "legende": "sous-libellé optionnel", "valeur2"/"affiche2": seconde série si barres_jumelees}], "legende": {"serie1", "serie2"} (si barres_jumelees), "callout": "ce qu'il faut retenir, 1 à 3 phrases", "source": "sources datées, OBLIGATOIRE"}] (série non sourçable = graph OMIS, jamais estimé),\n  "lexique": [8 à 12 : {"terme": "Slate", "definition": "une phrase pour quelqu'un qui ne vient pas du secteur"}],\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
       maxSearches, model, RECHERCHE_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
@@ -676,15 +749,14 @@ export async function processFicheGroupe(
   }
 
   if (groupe === "angles") {
-    const notes = await pendingNotes(sb, fiche.id);
-    const notesTxt = notes.length
-      ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notes.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
+    const notesTxt = notesAutres.length
+      ? `\n\nNotes internes de l'équipe (NON vérifiées, ne les présente jamais comme des faits, elles peuvent nourrir un angle) :\n${notesAutres.map((n) => `- ${n.text}${n.source ? ` (${n.source})` : ""}`).join("\n")}`
       : "";
-    const ideesTxt = blocIdees(await ideesBacklog(sb, cible.id));
+    const ideesTxt = blocIdees(trieIdees(await ideesBacklog(sb, cible.id)));
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const r = await runWebSearchJSONVerbose<AnglesJson>(
       systemFor("Mission : les APPRENTISSAGES (section reine) et le PERSONNEL. Apprentissages : 5 à 8 SYSTÈMES, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype ; les points de DÉCISION structurants (les décisions datées qui ont fait décrocher sa trajectoire de celle de ses pairs) sont des apprentissages à part entière, formulés comme décisions. Pour chaque système, trois puces COURTES de 2 lignes maximum : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin. Personnel, deux sous-blocs : l'ENTOURAGE (mentors, associés, coachs, rencontres pivots, ennemis utiles : pour chaque personne, son rôle, ce qu'elle éclaire, ce qu'il faut pré-confirmer avec elle avant plateau) et les DONNÉES CACHÉES (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal ; chaque item SOURCÉ, ou pointé zg s'il vient d'une note interne non vérifiée).", langue),
-      `${intro}${dejaPose}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+      promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
       maxSearches, model, ANGLES_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
@@ -730,8 +802,7 @@ export async function processFicheGroupe(
     // La reprise est idempotente : une relance ne rejoue que les briques
     // vides ; une brique écrite (génération précédente OU saisie manuelle)
     // n'est jamais régénérée ni écrasée.
-    const idees = await ideesBacklog(sb, cible.id);
-    const notes = await pendingNotes(sb, fiche.id);
+    const idees = trieIdees(await ideesBacklog(sb, cible.id));
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const { data: appRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "apprentissages").maybeSingle();
     const app = (((appRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string; question?: string }[] }).items ?? [];
@@ -749,8 +820,8 @@ export async function processFicheGroupe(
 
     if (!shellsExistants.length) {
       // ── Appel 1 : le SQUELETTE ──
-      const notesTxt = notes.length
-        ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notes.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
+      const notesTxt = notesAutres.length
+        ? `\n\nNotes internes NON vérifiées (chacune doit finir en zone grise avec son origine, formulée « à faire dire par l'invité ») :\n${notesAutres.map((n) => `- ${n.text}${n.source ? ` (origine : ${n.source})` : ""}`).join("\n")}`
         : "";
       const ideesTxt = blocIdees(idees);
       const r = await runWebSearchJSONVerbose<SqueletteJson>(
@@ -761,7 +832,7 @@ export async function processFicheGroupe(
           "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
           "SORTIE COURTE, IMPÉRATIF : le squelette est un PLAN, pas la fiche. Zone grise : 12 items maximum, 400 caractères chacun. Sources : les 12 liens les plus utiles seulement, apport en une demi-ligne. Aucun contexte, aucune question, aucun développement : la sortie entière doit rester bien sous le plafond de tokens.",
         ].join("\n\n"), langue),
-        `${intro}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement)}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+        promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement)}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
         maxSearches, model, SQUELETTE_MAX_TOKENS, opts.heartbeat
       );
       compte(r.usage);
@@ -806,8 +877,8 @@ export async function processFicheGroupe(
         bandeau: asString(perso.bandeau) ?? PERSONNEL_BANDEAU[langue],
         zone_grise: [...existants, ...nouveaux],
       }, nouveaux.length > 0);
-      if (nouveaux.length && notes.length) {
-        await sb.from("fiche_notes").update({ integrated: true }).in("id", notes.map((n) => n.id));
+      if (nouveaux.length && notesEnAttente.length) {
+        await sb.from("fiche_notes").update({ integrated: true }).in("id", notesEnAttente.map((n) => n.id));
       }
       const all = lienList(raw.sources);
       await mergeSources(sb, fiche, all);
@@ -846,7 +917,7 @@ export async function processFicheGroupe(
             "RECHERCHE : 0 à 2 requêtes MAXIMUM, ciblées sur cette brique précise. La concision prime : un fait fort et court bat trois faits délayés.",
             "SORTIE COURTE, IMPÉRATIF : le corps entier de la brique vise environ 1500 tokens. Citations : 2 à 4, les meilleures seulement. Dates : 3 à 6 lignes. Réflexions : 2 à 4. Questions : 4 à 8, chacune en une ou deux phrases. Extras : 5 items maximum. La sortie doit rester bien sous le plafond de tokens.",
           ].join("\n\n"), langue),
-          `${intro}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 8 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
+          promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 8 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
           2, model, BRIQUE_MAX_TOKENS, opts.heartbeat
         );
         compte(rb.usage);
@@ -930,7 +1001,7 @@ export async function processFicheGroupe(
       SANS_PREAMBULE,
       'Format : {"tldr": [{"label": "Qui", "texte": "..."}], "clickbait": {"piquantes": ["..."], "apprentissages": ["..."]}}',
     ].join("\n\n");
-    const promptSynthese = `${intro}\n\nFiche assemblée (JSON par section) :\n${JSON.stringify(matiere)}${dejaQuestions.length ? `\n\nQuestions DÉJÀ posées dans la fiche, interdites de reprise dans le clickbait :\n${dejaQuestions.map((q) => `- ${q}`).join("\n")}` : ""}`;
+    const promptSynthese = promptGroupe(langue, `${intro}${faitsTxt}\n\nFiche assemblée (JSON par section) :\n${JSON.stringify(matiere)}${dejaQuestions.length ? `\n\nQuestions DÉJÀ posées dans la fiche, interdites de reprise dans le clickbait :\n${dejaQuestions.map((q) => `- ${q}`).join("\n")}` : ""}`);
     const client = new Anthropic();
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: promptSynthese }];
     const compteSynthese = (res: Anthropic.Message) => {
