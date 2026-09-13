@@ -4,6 +4,8 @@
 // la page (règle du brief : jamais de section vide). Les coercitions ci-dessous
 // transforment un JSON arbitraire en donnée sûre pour le rendu.
 
+import { PERSONNEL_BANDEAU } from "./chrome";
+
 export interface LienDate {
   date?: string;      // libellé daté ("MARS 2025")
   titre: string;
@@ -84,8 +86,9 @@ export interface AnecdotesContent {
   items?: { texte: string; source?: string; cachee?: boolean }[];
 }
 
-export const DEFAULT_PERSONNEL_BANDEAU =
-  "Matière pour le rapport et les relances, diffusion à l'antenne à valider au cas par cas.";
+// Libellé centralisé dans le dictionnaire fr/en (brief du 13/09) ; l'export
+// reste pour les lecteurs existants (gabarit, rendu), valeur française.
+export const DEFAULT_PERSONNEL_BANDEAU = PERSONNEL_BANDEAU.fr;
 
 export interface KpiCard { valeur: string; libelle: string; source?: string; zg?: string }
 export interface ChiffresContent { kpis?: KpiCard[] }

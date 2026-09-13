@@ -7,14 +7,22 @@ import {
   BRIQUE_RESERVE_MS,
   SQUELETTE_MAX_TOKENS,
   BRIQUE_MAX_TOKENS,
+  RECHERCHE_MAX_TOKENS,
+  ANGLES_MAX_TOKENS,
+  SYNTHESE_MAX_TOKENS,
+  SANS_PREAMBULE,
   DEROULE_RESERVE_MS,
 } from "../src/lib/fiche/generation";
 
 describe("scission du deroule (brief 07/09)", () => {
-  it("les plafonds de sortie sont petits par construction (aucun appel ne peut déborder son budget)", () => {
-    // Squelette relevé à 6000 le 11/09 (eric-schmidt coupé à 4000, 4327 rendus).
-    expect(SQUELETTE_MAX_TOKENS).toBe(6000);
-    expect(BRIQUE_MAX_TOKENS).toBeLessThanOrEqual(4096);
+  it("les plafonds de sortie tiennent le plancher commun de 8192 (brief du 13/09)", () => {
+    // Alignés le 13/09 : le plafond est une ceinture, les prompts contraignent
+    // la longueur (SORTIE COURTE). Angles doublé après la coupe à 8192 en prod.
+    expect(SQUELETTE_MAX_TOKENS).toBeGreaterThanOrEqual(8192);
+    expect(BRIQUE_MAX_TOKENS).toBeGreaterThanOrEqual(8192);
+    expect(RECHERCHE_MAX_TOKENS).toBeGreaterThanOrEqual(8192);
+    expect(SYNTHESE_MAX_TOKENS).toBeGreaterThanOrEqual(8192);
+    expect(ANGLES_MAX_TOKENS).toBeGreaterThanOrEqual(16384);
     expect(BRIQUE_RESERVE_MS).toBeLessThan(DEROULE_RESERVE_MS);
   });
 
@@ -75,5 +83,14 @@ describe("langue de la fiche (brief 07/09, item 6)", () => {
     expect(bloc).toContain("ANGLAIS");
     expect(bloc.toLowerCase()).toContain("anglais");
     expect(bloc).toContain("clés JSON");
+    // 13/09 : la consigne couvre TOUTE la sortie, préambule et narration inclus.
+    expect(bloc).toContain("TOUTE la sortie");
+  });
+
+  it("l'interdiction du préambule vise la narration avant, entre et après les recherches (13/09)", () => {
+    expect(SANS_PREAMBULE).toContain("AUCUN préambule");
+    expect(SANS_PREAMBULE).toContain("Je vais");
+    expect(SANS_PREAMBULE).toContain("I will");
+    expect(SANS_PREAMBULE).toContain("entre deux recherches");
   });
 });
