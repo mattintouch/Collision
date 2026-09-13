@@ -23,6 +23,9 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   // ── chrome ────────────────────────────────────────────────────────────────
   { id: "sticky_header", titre: "Bandeau", role: "nom invité + société à gauche, GDIY en mono à droite, collant au scroll. v3.1 : trois ancres de navigation (TL;DR, Clips, Questions) pour l'accès direct à H-1 sur mobile" },
 
+  // ── plateau (réactivée le 13/09, mandat plateau) ──────────────────────────
+  { id: "dix_questions", titre: "Plateau", num: "00", role: "réactivée le 13/09 : la feuille de plateau, rendue en tête de fiche après le sticky header et servie seule par la route /fiches/{slug}/plateau. Contrat : intro, chapitres[num, titre, debut_min, fin_min], questions[num, chapitre, texte], interdits[]. L'ancien format v3.1 {questions:[{num, bloc, texte, note}]} reste lisible (bloc vaut chapitre). Jamais générée : écrite à la main via update_section, titre bilingue via le dictionnaire fr/en au rendu" },
+
   // ── contrat v3.1, ordre imposé ────────────────────────────────────────────
   { id: "identite", titre: "Identité", num: "01", role: "prénom nom en titre avec lien Wikipedia quand la page existe (règle systématique), sinon LinkedIn, sinon rien ; titre · société(s) ; date de naissance (l'âge se calcule au rendu à la date d'enregistrement) ; pilules logistiques ; accompagnants (noms + fonctions, à confirmer si inconnu) ; mise en relation (qui a connecté, par quel canal) ; sous-titre d'épisode : une phrase de fait d'armes vérifiable + une phrase de thèse en « le comment de »" },
   { id: "checklist_prerec", titre: "Checklist pré-rec", num: "02", role: "v4 : sept gestes fixes identiques sur toutes les fiches, bande rouge dépliée par défaut, repliable ; le bouton REC vit dans la bande, cliquable dépliée ou repliée, et arme un chronomètre de séance local (intégration console reportée)" },
@@ -55,7 +58,6 @@ export const FICHE_SECTIONS: FicheSectionDef[] = [
   { id: "polemiques", titre: "Polémiques (retiré)", retire: true, role: "RETIRÉ v3.1 : le fait part dans personnel (Données cachées), la ligne de synthèse dans tldr (Polémique), la question frontale en fin de liste clips (décision du 31/07)" },
   { id: "questions_recurrentes", titre: "Questions récurrentes (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par topics (Terrain connu)" },
   { id: "sequencage", titre: "Séquençage (retiré)", retire: true, role: "RETIRÉ (27/07 puis v3.1) : seul le gate time par topic en hérite" },
-  { id: "dix_questions", titre: "Les questions (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par topics (questions cœur numérotées en continu)" },
   { id: "zone_grise", titre: "Zone grise (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par personnel (sous-bloc Zone grise), identifiants ZG conservés" },
   { id: "a_lire", titre: "À lire (retiré)", retire: true, role: "RETIRÉ v3.1 : absorbé par revue_de_presse (À lire la veille)" },
 ];

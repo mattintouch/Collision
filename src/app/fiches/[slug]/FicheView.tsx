@@ -83,7 +83,16 @@ export interface MarcheGraphView {
   source?: string;
 }
 
+/** Feuille de plateau (section dix_questions réactivée le 13/09). */
+export interface PlateauData {
+  intro?: string;
+  chapitres: { num: number; titre: string; debut_min?: number; fin_min?: number }[];
+  questions: { num?: string; chapitre?: number; texte: string; note?: string }[];
+  interdits: string[];
+}
+
 export interface FicheViewData {
+  plateau: PlateauData | null;
   slug: string;
   fiche_id: string;
   invite_nom: string;
@@ -590,6 +599,52 @@ export default function FicheView({ data }: { data: FicheViewData }) {
         )}
       </div>
       <div className="gd-page">
+
+        {/* ── Plateau (13/09) : la feuille d'enregistrement en tête de fiche,
+            pleine largeur, servie seule par /fiches/{slug}/plateau. ── */}
+        {data.plateau && (
+          <section className="gd-plateau" id="plateau">
+            <div className="gd-plateau__head">
+              <h2>{L.plateauTitre}</h2>
+              <span className="sub">{L.plateauSub}</span>
+              <a className="ouvrir" href={`/fiches/${data.slug}/plateau`}>{L.plateauOuvrir} →</a>
+            </div>
+            {data.plateau.intro && <p className="pintro">{data.plateau.intro}</p>}
+            {data.plateau.chapitres.length > 0 && (
+              <div className="pchaps">
+                {data.plateau.chapitres.map((c) => (
+                  <div className="pchap" key={c.num}>
+                    <span className="n">{c.num}</span>
+                    <span className="t">{c.titre}</span>
+                    {(c.debut_min !== undefined || c.fin_min !== undefined) && (
+                      <span className="mn">{c.debut_min ?? 0}–{c.fin_min ?? ""} {L.plateauMin}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {data.plateau.questions.length > 0 && (
+              <div className="pqs">
+                {data.plateau.questions.map((q, i) => (
+                  <div className="pq" key={i}>
+                    <div className="pqhead">
+                      <span className="pn">{q.num ?? pad2(i + 1)}</span>
+                      {q.chapitre !== undefined && <span className="pch">{L.plateauChapitre(q.chapitre)}</span>}
+                    </div>
+                    <p className="pt">{q.texte}</p>
+                    {q.note && <p className="pnote">{q.note}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {data.plateau.interdits.length > 0 && (
+              <div className="pinterdits">
+                <div className="lab">{L.plateauInterdits}</div>
+                <ul>{data.plateau.interdits.map((t, i) => <li key={i}>{t}</li>)}</ul>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ── Checklist pré-REC : bande rouge dépliée d'office, REC intégré,
             cliquable dépliée ou repliée (stopPropagation sur le trigger). ── */}

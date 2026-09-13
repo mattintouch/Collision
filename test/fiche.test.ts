@@ -10,16 +10,18 @@ describe("catalogue des sections (brief GDIY)", () => {
   it("section_id uniques", () => {
     expect(new Set(FICHE_SECTION_IDS).size).toBe(FICHE_SECTION_IDS.length);
   });
-  it("sections actives dans l'ordre imposé (v3.1 + closing du 11/09 avant les sources)", () => {
+  it("sections actives dans l'ordre imposé (v3.1 + closing du 11/09 + plateau du 13/09 en tête)", () => {
     const actifs = FICHE_SECTIONS.filter((s) => !s.retire).map((s) => s.id);
     expect(actifs).toEqual([
-      "sticky_header", "identite", "checklist_prerec", "tldr", "data",
+      "sticky_header", "dix_questions", "identite", "checklist_prerec", "tldr", "data",
       "apprentissages", "clips", "topics", "personnel", "revue_de_presse",
       "closing", "sources", "footer",
     ]);
   });
   it("les sections des contrats précédents restent lisibles, marquées retirées", () => {
-    for (const id of ["recit_canonique", "mecanique_succes", "univers", "parcours", "anecdotes", "enjeu", "trente_secondes", "polemiques", "questions_recurrentes", "sequencage", "dix_questions", "zone_grise", "a_lire", "entourage", "tensions"]) {
+    // dix_questions est SORTIE des retirées le 13/09 : réactivée en feuille de
+    // plateau, contenu v1 des fiches existantes affiché tel quel.
+    for (const id of ["recit_canonique", "mecanique_succes", "univers", "parcours", "anecdotes", "enjeu", "trente_secondes", "polemiques", "questions_recurrentes", "sequencage", "zone_grise", "a_lire", "entourage", "tensions"]) {
       expect(FICHE_SECTION_IDS, `${id} doit rester au catalogue`).toContain(id);
       expect(FICHE_SECTIONS.find((s) => s.id === id)?.retire, `${id} doit être retirée`).toBe(true);
     }

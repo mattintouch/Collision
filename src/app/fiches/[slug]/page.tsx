@@ -13,7 +13,7 @@ import { kickQueue } from "@/lib/enrichment/jobs";
 import type { ConsoleEvent, RecSession } from "@/lib/fiche/console";
 import { derniersJobsParGroupe } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections, seedSections } from "@/lib/fiche/store";
-import { asMandats,
+import { asMandats, asPlateau,
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
   DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST, promoClosingVisible,
 } from "@/lib/fiche/schema";
@@ -248,6 +248,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
   ];
 
   const data: FicheViewData = {
+    plateau: asPlateau(get("dix_questions")),
     slug: fiche.slug,
     fiche_id: fiche.id,
     viewer_email: viewerEmail,
