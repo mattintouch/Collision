@@ -13,7 +13,7 @@ import { kickQueue } from "@/lib/enrichment/jobs";
 import type { ConsoleEvent, RecSession } from "@/lib/fiche/console";
 import { derniersJobsParGroupe } from "@/lib/fiche/generation";
 import { resolveFiche, ficheSections, seedSections } from "@/lib/fiche/store";
-import {
+import { asMandats,
   asArray, asNumber, asString, asStringArray, safeUrl, isEmptyContent,
   DEFAULT_CHECKLIST, DEFAULT_CHECKLIST_POST, promoClosingVisible,
 } from "@/lib/fiche/schema";
@@ -270,6 +270,7 @@ export default async function FichePage({ params }: { params: { slug: string } }
         return label && url ? { label, url } : null;
       }),
       age: ageA(dateNaissance, fiche.date_enregistrement),
+      mandats_actuels: asMandats(identite.mandats_actuels),
       accompagnants: asArray(identite.accompagnants, (x) => {
         const nom = asString(x.nom);
         return nom ? { nom, fonction: asString(x.fonction) } : null;

@@ -33,7 +33,7 @@ import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 import { writeSection, type FicheRow } from "./store";
 import { motifIneligibleGeneration, cibleEstTest, type CibleGeneration } from "../qualification";
-import { asArray, asString, safeUrl, BUDGETS_V3, idZoneGrise } from "./schema";
+import { asArray, asMandats, asString, safeUrl, BUDGETS_V3, idZoneGrise } from "./schema";
 import { PILULES_STUDIO, PERSONNEL_BANDEAU } from "./chrome";
 
 type SB = ReturnType<typeof createServiceClient>;
@@ -337,6 +337,7 @@ interface LienJson { date?: string; titre?: string; apport?: string; url?: strin
 interface PortraitJson {
   sous_titre?: string;
   societe?: string;
+  mandats_actuels?: { societe?: string; role?: string; depuis?: string; une_ligne?: string }[];
   liens?: { label?: string; url?: string }[];
   date_naissance?: string;
   reseaux?: { label?: string; url?: string }[];
@@ -617,8 +618,8 @@ export async function processFicheGroupe(
 
   if (groupe === "portrait") {
     const r = await runWebSearchJSONVerbose<PortraitJson>(
-      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe.", langue),
-      promptGroupe(langue, `${intro}${faitsTxt}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`),
+      systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe. MANDATS ACTUELS (champ mandats_actuels, 13/09) : 1 à 4 mandats opérationnels ou de gouvernance EN COURS (CEO, chairman, fondateur actif, siège au board), appuyés sur les faits validés et la recherche ; JAMAIS un ancien poste ni un simple investissement, le mandat historique reste dans le sous-titre. Triés par importance pour l'entretien : ce dont l'invité veut parler en premier.", langue),
+      promptGroupe(langue, `${intro}${faitsTxt}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "mandats_actuels": [1 à 4, triés par importance pour l'entretien : {"societe", "role": "CEO, chairman, fondateur, board", "depuis": "AAAA-MM", "une_ligne": "ce que fait la société, 12 mots max"}] (UNIQUEMENT les mandats en cours, jamais les anciens postes ni les simples investissements),\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`),
       maxSearches, model, RECHERCHE_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
@@ -650,6 +651,7 @@ export async function processFicheGroupe(
     const { data: idRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "identite").maybeSingle();
     const identite = (((idRow as { content?: Content } | null)?.content) ?? {}) as Content;
     const pilules = Array.isArray(identite.pilules) && identite.pilules.length ? identite.pilules : buildPilules(fiche.date_enregistrement, langue);
+    const mandats = asMandats(raw.mandats_actuels);
     // accompagnants et mise_en_relation : saisis à la main, JAMAIS écrasés ici.
     await put("identite", {
       ...identite,
@@ -657,6 +659,7 @@ export async function processFicheGroupe(
       societe: asString(raw.societe) ?? identite.societe,
       liens: liens.length ? liens : identite.liens,
       date_naissance: dateNaissance ?? identite.date_naissance,
+      mandats_actuels: mandats.length ? mandats : identite.mandats_actuels,
       pilules,
     }, true);
     await put("sticky_header", { societe: asString(raw.societe) }, !!asString(raw.societe));

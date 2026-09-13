@@ -26,6 +26,11 @@ export interface IdentiteContent {
   date_naissance?: string;    // ISO AAAA-MM-JJ, sourcée
   accompagnants?: { nom: string; fonction?: string }[]; // "à confirmer" si inconnu
   mise_en_relation?: { qui?: string; canal?: string };  // qui a connecté, par quel canal
+  /** Mandats opérationnels ou de gouvernance EN COURS (13/09) : 1 à 4
+   *  entrées triées par importance pour l'entretien, rendues en pilules dans
+   *  le sticky header. Le mandat historique (ex. Google) reste dans le
+   *  sous-titre d'identité, jamais ici. */
+  mandats_actuels?: MandatActuel[];
   /** Langue de la fiche (04/09, cas Andy Yen) : "en" bascule TOUT l'habillage
    *  du template en anglais (titres de blocs, labels, checklists, pool de
    *  questions) pour qu'un contenu anglais ne baigne pas dans un chrome
@@ -84,6 +89,26 @@ export interface ALireContent {
 /** Anecdotes sourcées ; cachee=true = bonus bien caché, mis en avant au rendu. */
 export interface AnecdotesContent {
   items?: { texte: string; source?: string; cachee?: boolean }[];
+}
+
+/** Mandat en cours d'un invité (13/09) : société, rôle, depuis (AAAA-MM),
+ *  une_ligne (ce que fait la société, 12 mots max). */
+export interface MandatActuel { societe: string; role?: string; depuis?: string; une_ligne?: string }
+export const MANDATS_MAX = 4;
+
+/** Coercition défensive du champ mandats_actuels (PURE, testée) : societe
+ *  obligatoire, 4 entrées maximum, champs texte nettoyés. */
+export function asMandats(v: unknown): MandatActuel[] {
+  return asArray(v, (x) => {
+    const societe = asString(x.societe);
+    if (!societe) return null;
+    return {
+      societe,
+      ...(asString(x.role) ? { role: asString(x.role) } : {}),
+      ...(asString(x.depuis) ? { depuis: asString(x.depuis) } : {}),
+      ...(asString(x.une_ligne) ? { une_ligne: asString(x.une_ligne) } : {}),
+    };
+  }).slice(0, MANDATS_MAX);
 }
 
 // Libellé centralisé dans le dictionnaire fr/en (brief du 13/09) ; l'export
@@ -625,6 +650,7 @@ export const SECTION_CONTRACTS: Record<string, unknown> = {
     liens: [{ label: "Wikipedia", url: "https://fr.wikipedia.org/wiki/... (SYSTÉMATIQUE quand la page existe, en premier)" }, { label: "LinkedIn", url: "https://www.linkedin.com/in/..." }],
     date_naissance: "1972-08-25 (ISO, sourcée ; l'âge se calcule au rendu à la date d'enregistrement)",
     langue: "fr (défaut) ou en : bascule tout l'habillage du template en anglais (épisode enregistré en anglais)",
+    mandats_actuels: [{ societe: "iliad", role: "fondateur", depuis: "1999-01", une_ligne: "opérateur télécom français, marque Free" }],
     accompagnants: [{ nom: "Prénom Nom, ou « à confirmer »", fonction: "attachée de presse" }],
     mise_en_relation: { qui: "qui a connecté", canal: "par quel canal (intro email, DM, agence...)" },
   },

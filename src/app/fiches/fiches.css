@@ -185,6 +185,16 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-sticky .nom { font-family: "Barlow Condensed", sans-serif; font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1; white-space: nowrap; }
 .gdv4 .gd-sticky .meta { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #B8B4A6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 559px) { .gdv4 .gd-sticky .meta { display: none; } }
+/* Mandats actuels (13/09) : une pilule par mandat EN COURS dans le sticky,
+   format SOCIÉTÉ · RÔLE ; la une_ligne au survol (title) et au toucher (la
+   ligne se déplie sous le header). Le conteneur wrappe : jamais de
+   défilement horizontal, le header grandit en hauteur si besoin. */
+.gdv4 .gd-sticky { flex-wrap: wrap; }
+.gdv4 .gd-sticky .mandats { display: inline-flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin-right: auto; }
+.gdv4 .gd-sticky .mandat { font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; border: 1px solid #4A473C; background: transparent; color: #C4C0B2; padding: 3px 8px; cursor: pointer; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.gdv4 .gd-sticky .mandat:hover { border-color: #F5C542; color: #FAF9F6; }
+.gdv4 .gd-sticky .mandat.on { border-color: #F5C542; background: #F5C542; color: #16150F; }
+.gdv4 .gd-sticky .mandat-ligne { width: 100%; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #DDD9CC; line-height: 1.4; }
 
 /* marqueur de catégorie sticky (sous le header, 44px) */
 .gdv4 .gd-cat { position: sticky; top: 44px; z-index: 20; background: #FAF9F6; padding: 14px 0 10px; margin-top: 96px; border-bottom: 2px solid #16150F; display: flex; align-items: baseline; gap: 14px; }
