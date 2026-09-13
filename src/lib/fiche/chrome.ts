@@ -64,6 +64,8 @@ export const CHROME_FICHE = {
   fr: {
     eyebrow: "Fiche de préparation",
     age: (n: number) => `${n} ans`,
+    mandatsActuels: "Mandats actuels",
+    depuis: "depuis",
     graphComparaison: "Comparaison",
     graphRentabilite: "Rentabilité",
     rec: "● REC",
@@ -160,6 +162,8 @@ export const CHROME_FICHE = {
   },
   en: {
     age: (n: number) => `${n} yrs`,
+    mandatsActuels: "Current roles",
+    depuis: "since",
     graphComparaison: "Comparison",
     graphRentabilite: "Profitability",
     eyebrow: "Prep sheet",

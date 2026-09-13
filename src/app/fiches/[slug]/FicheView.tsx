@@ -103,6 +103,7 @@ export interface FicheViewData {
     pilules: string[];
     liens: { label: string; url: string }[];
     age?: number;
+    mandats_actuels: { societe: string; role?: string; depuis?: string; une_ligne?: string }[];
     accompagnants: { nom: string; fonction?: string }[];
     mise_en_relation?: { qui?: string; canal?: string };
   };
@@ -497,6 +498,9 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   );
   // Compteurs « N questions masquées » dépliés (par bloc, état local d'écran).
   const [masqueesOuvertes, setMasqueesOuvertes] = useState<Record<string, boolean>>({});
+  // Mandat du sticky déplié au toucher (13/09) : la une_ligne s'affiche sous
+  // le header ; au survol, l'attribut title suffit.
+  const [mandatOuvert, setMandatOuvert] = useState<number | null>(null);
 
   /* ── question de brique (rayable d'un tap, état partagé) ── */
   const questionRow = (q: FicheQuestion) => {
@@ -559,9 +563,31 @@ export default function FicheView({ data }: { data: FicheViewData }) {
       {/* Header sticky (retour du 07/09) : où on est, sur une longue fiche. */}
       <div className="gd-sticky">
         <span className="nom">{data.invite_nom}</span>
+        {data.identite.mandats_actuels.length > 0 && (
+          <span className="mandats" aria-label={L.mandatsActuels}>
+            {data.identite.mandats_actuels.map((m, i) => (
+              <button
+                key={i}
+                className={`mandat${mandatOuvert === i ? " on" : ""}`}
+                title={m.une_ligne}
+                onClick={() => setMandatOuvert(mandatOuvert === i ? null : i)}
+              >
+                {[m.societe, m.role].filter(Boolean).join(" · ").toUpperCase()}
+              </button>
+            ))}
+          </span>
+        )}
         <span className="meta">
           {[data.identite.societe, `${data.show_label}${numeroTag}`, `${data.statut.toUpperCase()} · V${data.version}`].filter(Boolean).join(" · ")}
         </span>
+        {mandatOuvert !== null && data.identite.mandats_actuels[mandatOuvert] && (
+          <span className="mandat-ligne">
+            {[
+              data.identite.mandats_actuels[mandatOuvert].une_ligne,
+              data.identite.mandats_actuels[mandatOuvert].depuis ? `${L.depuis} ${data.identite.mandats_actuels[mandatOuvert].depuis}` : null,
+            ].filter(Boolean).join(" · ")}
+          </span>
+        )}
       </div>
       <div className="gd-page">
 
