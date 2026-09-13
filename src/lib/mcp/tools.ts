@@ -38,7 +38,7 @@ import {
 } from "../fiche/store";
 import { suggestQuestionsReseaux, type GuestContext } from "../fiche/questions";
 import { FICHE_GROUPES, enqueueFicheGeneration, derniersJobsParGroupe, sectionsAReinitialiser, type FicheGroupe } from "../fiche/generation";
-import { cleRedactionEnCours } from "../fiche/redaction";
+import { cleRedactionEnCours, doitPurgerMarqueurRedaction, etapesExposees } from "../fiche/redaction";
 import { decisionValidation } from "../episode/validation";
 import { createCalendarEvent, deleteCalendarEvent, injectFicheLink, checkCalendar, getCalendarEvent, patchCalendarEvent, listCalendarEvents } from "../calendar";
 import { buildEventDescription, participants, staffEmails, DEFAULT_LIEU, DEFAULT_DUREE_MIN, DEFAULT_CONTACTS_JOUR_J } from "../episode/invitation";
@@ -1838,13 +1838,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   W(
     "generate_fiche",
-    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v3 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) PLUS la synthèse (tldr, clickbait) PLUS la passe de rédaction (redaction, exécutée en dernier, scindée en un plan puis une section par appel : déduplication, réconciliation des chiffres, budgets de longueur, format scannable, avec rapport). `langue` (fr, en) écrit identite.langue AVANT la génération : contenu et habillage suivent. `reinitialiser` vide d'abord les sections à reprise idempotente des groupes demandés (deroule : briques ; synthese : tldr et clips), OBLIGATOIRE pour changer la langue d'une fiche déjà générée (le deroule ne rejoue jamais une brique écrite) ; versionné, rollback possible. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes, changer de langue ou relancer la seule rédaction. Suivre via get_fiche.",
+    "Génère la fiche de préparation STRUCTURÉE d'un invité (deep research, contrat v3 Bloc A/B) : crée la fiche /fiches/{slug} si besoin, puis met en file 4 recherches web (portrait, chiffres, angles, déroulé) PLUS la synthèse (tldr, clickbait) PLUS la passe de rédaction (redaction, exécutée en dernier, scindée en un plan puis une section par appel : déduplication, réconciliation des chiffres, budgets de longueur, format scannable, avec rapport). `langue` (fr, en) écrit identite.langue AVANT la génération : contenu et habillage suivent. `reinitialiser` vide d'abord les sections à reprise idempotente des groupes demandés (deroule : briques ; synthese : tldr et clips), OBLIGATOIRE pour changer la langue d'une fiche déjà générée (le deroule ne rejoue jamais une brique écrite) ; versionné, rollback possible. `forcer` purge le marqueur de reprise de la rédaction (plan et étapes faites) : le prochain job redaction repart d'un plan neuf et rejoue TOUTES les étapes, au lieu des seules manquantes. La génération part AUSSI automatiquement à validate_cible : cet outil sert surtout à régénérer des groupes, changer de langue ou relancer la seule rédaction. Suivre via get_fiche (le journal generation expose les étapes de la rédaction en cours).",
     {
       show: z.string(),
       cible: z.string(),
       groupes: z.array(z.enum(["portrait", "chiffres", "angles", "deroule", "synthese", "redaction"])).optional().describe("groupes à (re)générer (défaut : les 4 recherches + synthese (tldr, clickbait) + la rédaction)"),
       langue: z.enum(["fr", "en"]).optional().describe("langue de la fiche : écrite sur identite.langue avant la génération, propagée dans tous les prompts et l'habillage"),
       reinitialiser: z.boolean().optional().describe("vide d'abord les sections à reprise idempotente des groupes demandés (deroule : topics ; synthese : tldr, clips). Nécessaire pour régénérer dans une autre langue."),
+      forcer: z.boolean().optional().describe("purge le marqueur de reprise de la rédaction (plan et étapes faites, system_state) avant la remise en file : le prochain job redaction repart d'un plan neuf et rejoue toutes les étapes. Sans effet sur les briques du deroule (les rejouer = reinitialiser). Défaut false."),
     },
     { destructiveHint: false, idempotentHint: false, openWorldHint: true },
     async (a, extra) => {
@@ -1884,8 +1885,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         reinitialisees = sectionsAReinitialiser(groupes);
         for (const id of reinitialisees) await writeSection(sb, fiche.id, id, {}, initiateur);
       }
-      // La matière ou la langue change : une rédaction suspendue repart d'un plan neuf.
-      if (langue_ecrite || reinitialisees.length) await sb.from("system_state").delete().eq("key", cleRedactionEnCours(fiche.id));
+      // La matière ou la langue change, ou l'appelant force le rejeu : une
+      // rédaction suspendue repart d'un plan neuf (13/09, paramètre forcer).
+      if (doitPurgerMarqueurRedaction({ groupes, forcer: a.forcer, langueEcrite: !!langue_ecrite, reinitialisees: reinitialisees.length })) {
+        await sb.from("system_state").delete().eq("key", cleRedactionEnCours(fiche.id));
+      }
 
       let enFile = 0;
       try {
@@ -2357,7 +2361,22 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       if (f.cible_id) {
         const derniers = await derniersJobsParGroupe(sb, f.cible_id);
         if (derniers.length) {
-          generation = derniers.map((j) => ({ groupe: j.groupe, statut: j.statut, ...(j.error ? { error: j.error } : {}), ...(j.quand ? { quand: j.quand } : {}) }));
+          // Observabilité de la passe scindée (13/09) : l'entrée redaction
+          // porte les étapes du marqueur system_state (plan puis une section
+          // par appel, statut et horodatage) tant qu'une passe est en vol ou
+          // suspendue ; le marqueur tombe au succès complet.
+          let etapesRedactionEnCours: unknown;
+          if (derniers.some((j) => j.groupe === "redaction")) {
+            const { data: mRow } = await sb.from("system_state").select("value").eq("key", cleRedactionEnCours(f.id)).maybeSingle();
+            etapesRedactionEnCours = etapesExposees((mRow as { value?: unknown } | null)?.value) ?? undefined;
+          }
+          generation = derniers.map((j) => ({
+            groupe: j.groupe,
+            statut: j.statut,
+            ...(j.error ? { error: j.error } : {}),
+            ...(j.quand ? { quand: j.quand } : {}),
+            ...(j.groupe === "redaction" && etapesRedactionEnCours ? { etapes: etapesRedactionEnCours } : {}),
+          }));
         }
       }
       return text({

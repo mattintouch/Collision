@@ -9,6 +9,21 @@
 
 export type FicheLangue = "fr" | "en";
 
+/** Pilules logistiques fixes du studio, écrites dans le CONTENU par
+ *  buildPilules (brief du 13/09 : plus aucun libellé fixe en français en dur
+ *  dans le code des sections, tout libellé bilingue vit dans ce dictionnaire). */
+export const PILULES_STUDIO: Record<FicheLangue, readonly string[]> = {
+  fr: ["STUDIO 71 · RDC SUR RUE", "2H30"],
+  en: ["STUDIO 71 · STREET LEVEL", "2 HRS 30"],
+};
+
+/** Bandeau d'avertissement par défaut de la section personnel, écrit dans le
+ *  CONTENU par la génération quand la section n'en porte pas déjà un. */
+export const PERSONNEL_BANDEAU: Record<FicheLangue, string> = {
+  fr: "Matière pour le rapport et les relances, diffusion à l'antenne à valider au cas par cas.",
+  en: "Material for the report and follow-ups, on-air use to be approved case by case.",
+};
+
 export const DEFAULT_CHECKLIST_EN = [
   "Airplane mode on both phones",
   "Notifications off, Slack closed",

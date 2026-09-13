@@ -33,7 +33,8 @@ import type { createServiceClient } from "../supabase/service";
 import type { CibleEnrichie } from "../types";
 import { writeSection, type FicheRow } from "./store";
 import { motifIneligibleGeneration, cibleEstTest, type CibleGeneration } from "../qualification";
-import { asArray, asString, safeUrl, DEFAULT_PERSONNEL_BANDEAU, BUDGETS_V3, idZoneGrise } from "./schema";
+import { asArray, asString, safeUrl, BUDGETS_V3, idZoneGrise } from "./schema";
+import { PILULES_STUDIO, PERSONNEL_BANDEAU } from "./chrome";
 
 type SB = ReturnType<typeof createServiceClient>;
 type Content = Record<string, unknown>;
@@ -118,14 +119,26 @@ export const BRIQUE_RESERVE_MS = 120_000;
  *  structurellement dépasser son budget. Le squelette produit le terrain, la
  *  zone grise et la LISTE des briques (titre + intention) ; chaque brique est
  *  ensuite un appel dédié dont le corps vise environ 1200 tokens.
- *  Squelette relevé de 4000 à 6000 le 11/09 (eric-schmidt : 4327 tokens
- *  rendus, sortie coupée) ; le prompt contraint AUSSI la longueur (zone grise
- *  compacte, sources plafonnées) pour garder une marge réelle sous le plafond. */
-export const SQUELETTE_MAX_TOKENS = 6000;
-// Brique relevée de 3000 à 4000 le 11/09 (eric-schmidt : une brique dense a
-// rendu 3116 tokens et la sortie a été coupée) ; le prompt borne AUSSI les
-// comptes (citations, réflexions, questions) pour viser environ 1500 tokens.
-export const BRIQUE_MAX_TOKENS = 4000;
+ *  Alignés à 8192 le 13/09 (plancher commun des plafonds de génération) : le
+ *  plafond est une ceinture de sécurité, jamais une cible, les prompts
+ *  contraignent la longueur (SORTIE COURTE) pour garder une marge réelle. */
+export const SQUELETTE_MAX_TOKENS = 8192;
+export const BRIQUE_MAX_TOKENS = 8192;
+
+/** Plafonds des groupes de recherche et de la synthèse (13/09) : angles coupé
+ *  en production à 8192 (8554 tokens rendus, la narration de recherche se paie
+ *  sur le même budget de sortie que le JSON) donc doublé ; portrait et
+ *  chiffres restent au plancher 8192 ; synthese alignée de 3000 à 8192. */
+export const RECHERCHE_MAX_TOKENS = 8192;
+export const ANGLES_MAX_TOKENS = 16384;
+export const SYNTHESE_MAX_TOKENS = 8192;
+
+/** Interdiction du préambule (13/09, angles eric-schmidt : « Je vais effectuer
+ *  des recherches approfondies... » en tête de sortie) : toute narration brûle
+ *  des tokens de sortie qui manquent ensuite au contenu structuré. Injectée
+ *  dans le system de tous les groupes et de la synthèse. */
+export const SANS_PREAMBULE =
+  "SORTIE : UNIQUEMENT l'objet JSON demandé, au format exact. AUCUN préambule, AUCUNE narration, AUCUN méta commentaire (« Je vais... », « Voici... », « I will... », « Let me... », « Here is... »), ni avant la première recherche, ni entre deux recherches, ni après : chaque token de texte hors JSON est retiré du budget de sortie du contenu.";
 
 /* ───────────────── erreurs lisibles et reprise (brief 07/09) ───────────────── */
 
@@ -192,6 +205,7 @@ export function blocLangue(langue: LangueFiche): string {
   if (langue !== "en") return "";
   return [
     "LANGUE DE LA FICHE : ANGLAIS. L'épisode s'enregistre en anglais.",
+    "TOUTE la sortie est en anglais, du premier au dernier token, y compris toute phrase hors du JSON.",
     "Écris TOUT le contenu produit en anglais : textes, titres, intentions, définitions, réflexions, zone grise, TL;DR, clickbait et questions.",
     "Les questions gardent le ton direct de l'émission, adressées à l'invité (you), sans point final.",
     "Les clés JSON restent EXACTEMENT celles demandées (elles ne se traduisent pas).",
@@ -278,7 +292,7 @@ function systemFor(mission: string, langue: LangueFiche = "fr"): string {
     "BUDGETS DE LONGUEUR (contrat v3.1, DURS, imposés aussi par le serveur au stockage) : la fiche est scannable en fragments pendant l'enregistrement, tout item de console tient en 3 lignes maximum (environ 240 caractères). Budgets par champ : tldr 1200 caractères au TOTAL, une idée par ligne ; intention de topic 200 ; note tactique de question 200 ; apport d'une lecture 120 ; marché UN paragraphe de 900 ; zone grise 12 items de 400 ; 16 KPI ; 5 à 8 apprentissages ; 1 à 2 graphiques. AUCUN plafond sur le NOMBRE de questions : peu si peu, beaucoup si beaucoup d'exceptionnelles. La concision prime sur l'exhaustivité : un fait fort et court bat trois faits délayés.",
     REGLES,
     STYLE,
-    "Réponds UNIQUEMENT en JSON, sans texte autour, au format exact demandé.",
+    SANS_PREAMBULE,
   ].join("\n\n");
 }
 
@@ -511,7 +525,10 @@ export async function processFicheGroupe(
   // Langue de la fiche (brief 07/09, item 6) : lue UNE fois, injectée dans le
   // system de TOUS les groupes (une fiche anglaise ne mélange plus les langues).
   const langue = await langueDeFiche(sb, fiche.id);
-  const intro = guestIntro(cible, fiche.date_enregistrement);
+  // Fuite du 13/09 (préambule français sur une fiche anglaise) : la consigne
+  // de langue vit dans le system ET dans le message utilisateur de chaque
+  // appel, elle n'est plus portée par le seul system.
+  const intro = [guestIntro(cible, fiche.date_enregistrement), blocLangue(langue)].filter(Boolean).join("\n\n");
   const written: string[] = [];
   let sourcesCount = 0;
   const compte = (u: WebSearchUsage) => {
@@ -529,11 +546,11 @@ export async function processFicheGroupe(
     const r = await runWebSearchJSONVerbose<PortraitJson>(
       systemFor("Mission : l'IDENTITÉ et la REVUE DE PRESSE. Identité : le sous-titre d'épisode en DEUX phrases (une phrase de fait d'armes vérifiable, une phrase de thèse en « le comment de ») ; la date de naissance sourcée ; la page WIKIPEDIA, à chercher SYSTÉMATIQUEMENT (quand elle existe, elle est le PREMIER lien, non négociable), sinon LinkedIn. Revue de presse : les RÉSEAUX SOCIAUX de l'invité (liens directs réellement trouvés : X, Instagram, LinkedIn, YouTube, profils officiels selon l'archétype) ; la BIO TIMELINE (v4, champ palmares) : une ligne = une date = un fait, PRO ET PERSO MÊLÉS dans l'ordre chronologique (naissance, études, fondations, sorties majeures, mariages et séparations PUBLICS, titres, exits, records, échecs marquants), section PROPRIÉTAIRE des jalons datés : ils vivent là et nulle part ailleurs ; la liste À LIRE LA VEILLE : 3 entrées MINIMUM, 5 si le détour se justifie, jamais du remplissage mais un vrai travail de mise dans le bain (long format, documentaire, dossier qui apporte du contexte que la fiche ne porte pas) ; la page Wikipedia y figure systématiquement quand elle existe.", langue),
       `${intro}\n\nRenvoie un objet JSON : {\n  "sous_titre": "fait d'armes vérifiable en une phrase. Thèse en « le comment de » en une phrase.",\n  "societe": "sa société ou structure principale",\n  "liens": [{"label": "Wikipedia", "url": "..."} EN PREMIER quand la page existe, {"label": "LinkedIn", "url": "..."}] (seulement si réellement trouvés),\n  "date_naissance": "AAAA-MM-JJ (sourcée, omise si introuvable)",\n  "reseaux": [{"label": "X", "url": "..."}, {"label": "Instagram", "url": "..."}] (liens DIRECTS réellement trouvés, selon l'archétype),\n  "palmares": [{"date": "16 nov. 1981", "texte": "un fait daté, pro ou perso public, sans point final"}] (la bio timeline entière, chronologique, exhaustive et datée),\n  "a_lire": [3 à 5 : {"niveau": "indispensable|utile", "titre", "date", "temps_lecture": "12 min", "apport": "l'apport en une ligne de 120 caractères max", "url"}] (Wikipedia inclus quand la page existe),\n  "sources": [tous les liens consultés : {"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model, 8192, opts.heartbeat
+      maxSearches, model, RECHERCHE_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(messageEchecAppel("Recherche portrait", r, 8192));
+    if (!raw) throw new Error(messageEchecAppel("Recherche portrait", r, RECHERCHE_MAX_TOKENS));
     const liens = await verifiedLinks(
       asArray(raw.liens, (x) => {
         const label = asString(x.label); const url = safeUrl(x.url);
@@ -559,7 +576,7 @@ export async function processFicheGroupe(
 
     const { data: idRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "identite").maybeSingle();
     const identite = (((idRow as { content?: Content } | null)?.content) ?? {}) as Content;
-    const pilules = Array.isArray(identite.pilules) && identite.pilules.length ? identite.pilules : buildPilules(fiche.date_enregistrement);
+    const pilules = Array.isArray(identite.pilules) && identite.pilules.length ? identite.pilules : buildPilules(fiche.date_enregistrement, langue);
     // accompagnants et mise_en_relation : saisis à la main, JAMAIS écrasés ici.
     await put("identite", {
       ...identite,
@@ -592,11 +609,11 @@ export async function processFicheGroupe(
         "LEXIQUE (v4, champ lexique) : 8 à 12 termes du jargon du secteur de l'invité, définis en UNE phrase chacun, écrits pour quelqu'un qui ne vient pas du secteur ; privilégie les termes qui reviendront dans l'épisode, ancre les définitions dans le cas de l'invité quand c'est éclairant. INTERDICTION de laisser dans le reste de la fiche un terme de jargon ni défini au lexique ni explicité inline.",
       ].join("\n\n"), langue),
       `${intro}${dejaPose}\n\nRenvoie un objet JSON : {\n  "kpis": [8 à 15, les 3 plus fortes valeurs EN PREMIER : {"valeur": "9,9 Md€", "libelle": "CA groupe 2024", "source": "source, datée", "zg": "motcle (UNIQUEMENT si le chiffre n'est pas confirmé, à la place de source)"}],\n  "barres": {"titre", "note", "source", "valeurs": [{"label": "24", "affiche": "9,9", "valeur": 9.9, "plein": true}]} (seulement si la trajectoire raconte quelque chose),\n  "comparaison": {"titre", "source", "valeurs": [{"nom", "affiche": "+125 %", "pct": 125, "hero": true (l'invité)}]} (seulement si vérifiable ; 2 graphiques MAXIMUM au total),\n  "marche_graphs": [0 à 3 : {"titre": "phrase en langage clair", "sous_titre": "unité et périmètre de la série", "type": "barres" ou "barres_jumelees", "valeurs": [{"label": "2019", "valeur": 42.3, "affiche": "42,3", "accent": "noir|rouge|jaune (les points saillants seulement)", "legende": "sous-libellé optionnel", "valeur2"/"affiche2": seconde série si barres_jumelees}], "legende": {"serie1", "serie2"} (si barres_jumelees), "callout": "ce qu'il faut retenir, 1 à 3 phrases", "source": "sources datées, OBLIGATOIRE"}] (série non sourçable = graph OMIS, jamais estimé),\n  "lexique": [8 à 12 : {"terme": "Slate", "definition": "une phrase pour quelqu'un qui ne vient pas du secteur"}],\n  "marche_texte": "l'essentiel du marché en UN paragraphe de 900 caractères max, chiffres sourcés dans le texte",\n  "comparables": [2 à 5 : {"nom": "pair ou concurrent", "position": "positionnement relatif de l'invité, une ligne"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model, 8192, opts.heartbeat
+      maxSearches, model, RECHERCHE_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(messageEchecAppel("Recherche data", r, 8192));
+    if (!raw) throw new Error(messageEchecAppel("Recherche data", r, RECHERCHE_MAX_TOKENS));
     const kpis = asArray(raw.kpis, (x) => {
       const valeur = asString(x.valeur); const libelle = asString(x.libelle);
       const source = asString(x.source); const zg = asString(x.zg);
@@ -668,11 +685,11 @@ export async function processFicheGroupe(
     const r = await runWebSearchJSONVerbose<AnglesJson>(
       systemFor("Mission : les APPRENTISSAGES (section reine) et le PERSONNEL. Apprentissages : 5 à 8 SYSTÈMES, répartis sur les trois familles de mécaniques (action, réflexion, innovation), calibrés sur l'archétype ; les points de DÉCISION structurants (les décisions datées qui ont fait décrocher sa trajectoire de celle de ses pairs) sont des apprentissages à part entière, formulés comme décisions. Pour chaque système, trois puces COURTES de 2 lignes maximum : ce que les sources établissent, ce qui reste opaque, et la question qui FORCE l'invité à révéler la mécanique (critère, seuil, arbitrage ou cas précis, jamais une réponse d'article). Test de qualité : la réponse change la façon de travailler d'un auditeur dès lundi matin. Personnel, deux sous-blocs : l'ENTOURAGE (mentors, associés, coachs, rencontres pivots, ennemis utiles : pour chaque personne, son rôle, ce qu'elle éclaire, ce qu'il faut pré-confirmer avec elle avant plateau) et les DONNÉES CACHÉES (vieux dossiers, anecdotes introuvables dans les interviews récentes, archives, en bien ou en mal ; chaque item SOURCÉ, ou pointé zg s'il vient d'une note interne non vérifiée).", langue),
       `${intro}${dejaPose}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "apprentissages": [5 à 8, couvrant action, réflexion ET innovation, décisions structurantes incluses : {"titre": "le système", "connu": "ce que les sources établissent, 2 lignes max", "manque": "ce qui reste opaque, 2 lignes max", "question": "la question qui force la mécanique (critère, seuil, arbitrage, cas précis), tutoiement, sans point final, 2 lignes max"}],\n  "entourage": [3 à 6 : {"nom", "role", "eclaire": "ce que cette personne éclaire, 2 lignes max", "preconfirmer": "ce qu'il faut pré-confirmer avec elle avant plateau, 1 ligne"}],\n  "donnees_cachees": [3 à 8 : {"texte": "3 lignes max, en bien ou en mal", "source": "où c'est documenté, daté (OBLIGATOIRE sauf zg)", "zg": "motcle (si non sourçable, à faire confirmer)"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`,
-      maxSearches, model, 8192, opts.heartbeat
+      maxSearches, model, ANGLES_MAX_TOKENS, opts.heartbeat
     );
     compte(r.usage);
     const raw = r.json;
-    if (!raw) throw new Error(messageEchecAppel("Recherche angles", r, 8192));
+    if (!raw) throw new Error(messageEchecAppel("Recherche angles", r, ANGLES_MAX_TOKENS));
     const apprentissages = asArray(raw.apprentissages, (x) => {
       const titre = asString(x.titre);
       return titre ? { titre, connu: asString(x.connu), manque: asString(x.manque), question: asString(x.question) } : null;
@@ -692,7 +709,7 @@ export async function processFicheGroupe(
     const perso = (((persoRow as { content?: Content } | null)?.content) ?? {}) as Content;
     await put("personnel", {
       ...perso,
-      bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU,
+      bandeau: asString(perso.bandeau) ?? PERSONNEL_BANDEAU[langue],
       entourage: entourage.length ? entourage : perso.entourage,
       donnees_cachees: donneesCachees.length ? donneesCachees : perso.donnees_cachees,
     }, entourage.length > 0 || donneesCachees.length > 0);
@@ -786,7 +803,7 @@ export async function processFicheGroupe(
       });
       await put("personnel", {
         ...perso,
-        bandeau: asString(perso.bandeau) ?? DEFAULT_PERSONNEL_BANDEAU,
+        bandeau: asString(perso.bandeau) ?? PERSONNEL_BANDEAU[langue],
         zone_grise: [...existants, ...nouveaux],
       }, nouveaux.length > 0);
       if (nouveaux.length && notes.length) {
@@ -910,7 +927,8 @@ export async function processFicheGroupe(
       "TL;DR : le brief d'attaque lisible en 60 secondes (1200 caractères au TOTAL), phrases courtes, une idée par ligne, NEUF labels dans cet ordre exact : Qui, Fait d'armes, Fil rouge, Le comment, Polémique, Pourquoi maintenant, Piège, Levier, État d'esprit.",
       "CLICKBAIT : EXACTEMENT 10 questions en deux registres. 5 QUI PIQUENT, jusqu'à la gêne assumée : l'héritage, l'argent personnel, les échecs, ce qu'il referait ou pas, chacune adossée à un fait de la fiche, jamais une insinuation. 5 QUI FONT APPRENDRE, l'extraction du meilleur de sa catégorie : sa grille de lecture, sa règle unique transmissible, son habitude contre-intuitive, le coût de ses non, comment on entre dans son club. Tutoiement, pas de guillemets, formulations directes. INTERDICTION de reprendre ou de paraphraser une question déjà présente dans la fiche (la liste t'est fournie).",
       STYLE,
-      'Réponds UNIQUEMENT en JSON : {"tldr": [{"label": "Qui", "texte": "..."}], "clickbait": {"piquantes": ["..."], "apprentissages": ["..."]}}',
+      SANS_PREAMBULE,
+      'Format : {"tldr": [{"label": "Qui", "texte": "..."}], "clickbait": {"piquantes": ["..."], "apprentissages": ["..."]}}',
     ].join("\n\n");
     const promptSynthese = `${intro}\n\nFiche assemblée (JSON par section) :\n${JSON.stringify(matiere)}${dejaQuestions.length ? `\n\nQuestions DÉJÀ posées dans la fiche, interdites de reprise dans le clickbait :\n${dejaQuestions.map((q) => `- ${q}`).join("\n")}` : ""}`;
     const client = new Anthropic();
@@ -921,13 +939,13 @@ export async function processFicheGroupe(
       opts.usageOut.tokens_out += res.usage?.output_tokens ?? 0;
     };
     const texteDe = (m: Anthropic.Message) => m.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("\n");
-    let res = await client.messages.create({ model: model ?? "claude-sonnet-4-6", max_tokens: 3000, system: systemSynthese, messages });
+    let res = await client.messages.create({ model: model ?? "claude-sonnet-4-6", max_tokens: SYNTHESE_MAX_TOKENS, system: systemSynthese, messages });
     compteSynthese(res);
     let raw = extractJson<SyntheseJson>(texteDe(res));
     // Sortie coupée par la limite de tokens : le finisher retaperait le même
     // plafond, l'erreur chiffrée part tout de suite (brief 07/09, item 4).
     if (!raw && res.stop_reason === "max_tokens") {
-      throw new Error(`Synthèse : sortie coupée par la limite de tokens (plafond 3000, ${res.usage?.output_tokens ?? "?"} tokens rendus). Début : ${texteDe(res).slice(0, 200) || "(vide)"}`);
+      throw new Error(`Synthèse : sortie coupée par la limite de tokens (plafond ${SYNTHESE_MAX_TOKENS}, ${res.usage?.output_tokens ?? "?"} tokens rendus). Début : ${texteDe(res).slice(0, 200) || "(vide)"}`);
     }
     if (!raw) {
       // Finisher : une relance unique pour exiger le JSON (même mécanique que
@@ -935,7 +953,7 @@ export async function processFicheGroupe(
       await opts.heartbeat?.().catch(() => {});
       messages.push({ role: "assistant", content: res.content });
       messages.push({ role: "user", content: "Réponds maintenant UNIQUEMENT avec l'objet JSON demandé, complet, sans aucun texte autour." });
-      res = await client.messages.create({ model: model ?? "claude-sonnet-4-6", max_tokens: 3000, system: systemSynthese, messages });
+      res = await client.messages.create({ model: model ?? "claude-sonnet-4-6", max_tokens: SYNTHESE_MAX_TOKENS, system: systemSynthese, messages });
       compteSynthese(res);
       raw = extractJson<SyntheseJson>(texteDe(res));
     }
@@ -1005,16 +1023,18 @@ export async function enqueueFicheGeneration(
   return nouveaux.length;
 }
 
-/** Pilules logistiques par défaut depuis la date (Europe/Paris) + studio GDIY. */
-export function buildPilules(dateEnr: string | null): string[] {
+/** Pilules logistiques par défaut depuis la date (Europe/Paris) + studio GDIY.
+ *  Bilingues (13/09) : la date suit la locale de la fiche et les libellés fixes
+ *  vivent dans le dictionnaire fr/en (PILULES_STUDIO), plus rien en dur ici. */
+export function buildPilules(dateEnr: string | null, langue: LangueFiche = "fr"): string[] {
   const pilules: string[] = [];
   if (dateEnr) {
     const label = new Date(dateEnr)
-      .toLocaleString("fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
+      .toLocaleString(langue === "en" ? "en-GB" : "fr-FR", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" })
       .toUpperCase()
-      .replace(",", " ·");
+      .replace(/,/g, " ·");
     pilules.push(label);
   }
-  pilules.push("STUDIO 71 · RDC SUR RUE", "2H30");
+  pilules.push(...PILULES_STUDIO[langue]);
   return pilules;
 }

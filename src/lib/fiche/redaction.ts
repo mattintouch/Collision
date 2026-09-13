@@ -111,17 +111,22 @@ export type EtapeRedaction = (typeof ORDRE_REDACTION)[number];
 
 /** Plafonds de sortie par étape : aucun appel ne peut structurellement
  *  dépasser son budget. topics est le plus gros (jusqu'à 8 briques) mais ne
- *  renvoie QUE les briques modifiées, indexées. */
+ *  renvoie QUE les briques modifiées, indexées. Relevés le 13/09 au plancher
+ *  commun 8192 (le plan a saturé 4000 exactement en production, troncature
+ *  franche) : le plafond est une ceinture, jamais une cible, les formats
+ *  d'étape restent SORTIE COURTE. */
 export const PLAFONDS_REDACTION: Record<EtapeRedaction, number> = {
-  data: 6000,
-  revue_de_presse: 6000,
-  personnel: 6000,
-  apprentissages: 4000,
-  topics: 12000,
-  titres: 800,
-  tldr: 2500,
+  data: 8192,
+  revue_de_presse: 8192,
+  personnel: 8192,
+  apprentissages: 8192,
+  topics: 16384,
+  titres: 8192,
+  tldr: 8192,
 };
-export const PLAN_MAX_TOKENS = 4000;
+export const PLAN_MAX_TOKENS = 16384;
+/** Réécriture ciblée du TL;DR encore hors budget après l'étape tldr. */
+export const TLDR_REECRITURE_MAX_TOKENS = 8192;
 
 /** Sections lues pour une étape (celles que l'étape peut écrire). */
 const SECTIONS_PAR_ETAPE: Record<EtapeRedaction, readonly string[]> = {
@@ -218,11 +223,26 @@ export function blocPlan(plan: PlanRedaction, etape: EtapeRedaction): string {
 
 /* ───────────────────────── marqueur de reprise ───────────────────────── */
 
+/** Trace d'une étape jouée par la passe scindée (13/09, observabilité) :
+ *  mémorisée dans le marqueur, exposée par get_fiche dans le journal de
+ *  génération. Un rejeu réussi d'une étape échouée pousse une entrée done
+ *  APRÈS l'entrée failed : la plus récente gagne à l'exposition. */
+export interface HistoriqueEtape {
+  etape: string;
+  statut: "done" | "failed";
+  quand: string;
+  erreur?: string;
+}
+
 export interface MarqueurRedaction {
   plan: PlanRedaction;
   faites: EtapeRedaction[];
   rapport: Partial<RapportRedaction>;
   started_at: string;
+  /** Étapes prévues par la passe (13/09) : figées au plan, pour exposer aussi
+   *  les étapes pas encore jouées. Absent d'un marqueur d'avant le 13/09. */
+  etapes?: EtapeRedaction[];
+  historique?: HistoriqueEtape[];
 }
 
 /** Une reprise est-elle possible depuis ce marqueur ? (PURE, testée.) Le
@@ -241,6 +261,54 @@ export function reprisePossible(marqueur: unknown, nowMs: number = Date.now()): 
 export function etapesRestantes(etapes: EtapeRedaction[], faites: readonly string[]): EtapeRedaction[] {
   const done = new Set(faites);
   return etapes.filter((e) => !done.has(e));
+}
+
+/** Étape exposée au journal de génération de get_fiche. */
+export interface EtapeExposee {
+  etape: string;
+  statut: "pending" | "done" | "failed";
+  quand?: string;
+  erreur?: string;
+}
+
+/** Étapes de la passe scindée lues du marqueur system_state (PURE, testée) :
+ *  le plan puis chaque étape prévue, avec statut et horodatage. null quand le
+ *  marqueur est absent, invalide ou périmé (aucune passe en vol : soit jamais
+ *  scindée, soit terminée, le marqueur tombe au succès complet). Compatible
+ *  avec un marqueur d'avant le 13/09 (sans historique : les étapes faites
+ *  sortent done sans horodatage, les autres pending). */
+export function etapesExposees(marqueur: unknown, nowMs: number = Date.now()): EtapeExposee[] | null {
+  if (!reprisePossible(marqueur, nowMs)) return null;
+  const m = marqueur as MarqueurRedaction;
+  const histo = Array.isArray(m.historique) ? m.historique : [];
+  // La plus récente des entrées d'une étape gagne (un rejeu réussi efface
+  // l'échec précédent) : la Map écrase dans l'ordre de l'historique.
+  const parEtape = new Map<string, HistoriqueEtape>(histo.map((h) => [h.etape, h]));
+  const faites = new Set<string>(m.faites);
+  const prevues = ["plan", ...(Array.isArray(m.etapes) && m.etapes.length ? m.etapes : ORDRE_REDACTION)];
+  return prevues.map((etape) => {
+    const h = parEtape.get(etape);
+    if (h) return { etape, statut: h.statut, quand: h.quand, ...(h.erreur ? { erreur: h.erreur } : {}) };
+    // Le plan existe dès que le marqueur existe ; une étape de faites sans
+    // historique vient d'un marqueur ancien format.
+    if (etape === "plan" || faites.has(etape)) return { etape, statut: "done" as const };
+    return { etape, statut: "pending" as const };
+  });
+}
+
+/** La remise en file doit-elle purger le marqueur de reprise de la rédaction ?
+ *  (PURE, testée.) Oui quand la matière change (sections réinitialisées), quand
+ *  la langue change, ou quand l'appelant force un rejeu complet du groupe
+ *  redaction (paramètre forcer de generate_fiche, 13/09) : sans purge, une
+ *  relance ne rejoue que les étapes manquantes du marqueur encore valide. */
+export function doitPurgerMarqueurRedaction(args: {
+  groupes: readonly string[];
+  forcer?: boolean;
+  langueEcrite?: boolean;
+  reinitialisees?: number;
+}): boolean {
+  if (args.langueEcrite || (args.reinitialisees ?? 0) > 0) return true;
+  return args.forcer === true && args.groupes.includes("redaction");
 }
 
 /* ───────────────────────── rapport ───────────────────────── */
@@ -787,9 +855,14 @@ export async function processRedaction(
       ? `SECTIONS DÉJÀ CONSOLIDÉES PAR LES ÉTAPES PRÉCÉDENTES (elles REMPLACENT celles du JSON initial, travaille à partir de ces versions) :\n${JSON.stringify(consolidees)}\n\n`
       : "";
 
+  // Fuite du 13/09 (plan de consolidation en français sur une fiche anglaise,
+  // « fait »: « Valeur nette Schmidt ») : comme pour les groupes de recherche,
+  // la consigne de langue vit dans le system ET dans le message utilisateur de
+  // CHAQUE appel de la passe (plan puis chaque section).
+  const prefixeLangue = blocLangue(langue) ? `${blocLangue(langue)}\n\n` : "";
   const appel = async (quoi: string, consigne: string, plafond: number): Promise<{ sortie: unknown; res: Anthropic.Message }> => {
     const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: [ficheInitiale, { type: "text", text: `${blocConsolidees()}${consigne}` }] },
+      { role: "user", content: [ficheInitiale, { type: "text", text: `${blocConsolidees()}${prefixeLangue}${consigne}` }] },
     ];
     let res = await client.messages.create({ model, max_tokens: plafond, system, messages });
     compte(res);
@@ -814,22 +887,24 @@ export async function processRedaction(
   const marque = (marqueRow as { value?: unknown } | null)?.value;
   let plan: PlanRedaction | null = null;
   let faites: EtapeRedaction[] = [];
+  let historique: HistoriqueEtape[] = [];
   let rapportAcc: Partial<RapportRedaction> = {};
   let startedAt = new Date().toISOString();
   if (reprisePossible(marque)) {
     plan = marque.plan;
     faites = [...marque.faites];
+    historique = Array.isArray(marque.historique) ? [...marque.historique] : [];
     rapportAcc = { ...marque.rapport };
     startedAt = marque.started_at;
     // À la reprise, `actuel` relu en base porte déjà les sections consolidées
     // par la passe précédente : le bloc initial est à jour, rien à répéter.
   }
+  const etapes = etapesRedaction(actuel);
   const memoriser = async () => {
-    const valeur: MarqueurRedaction = { plan: plan!, faites, rapport: rapportAcc, started_at: startedAt };
+    const valeur: MarqueurRedaction = { plan: plan!, faites, rapport: rapportAcc, started_at: startedAt, etapes, historique };
     await sb.from("system_state").upsert({ key: cle, value: valeur, updated_at: new Date().toISOString() });
   };
 
-  const etapes = etapesRedaction(actuel);
   const written: string[] = [];
 
   // ── Appel 1 : le PLAN (sauf reprise) ──
@@ -839,6 +914,7 @@ export async function processRedaction(
     const { sortie } = await appel("Plan de consolidation", FORMAT_PLAN, PLAN_MAX_TOKENS);
     plan = planDepuisJson(sortie);
     rapportAcc = { chiffres_reconcilies: plan.chiffres_reconcilies, noms_unifies: plan.noms_unifies };
+    historique.push({ etape: "plan", statut: "done", quand: new Date().toISOString() });
     await memoriser();
   }
 
@@ -875,9 +951,9 @@ export async function processRedaction(
           try {
             const resTldr = await client.messages.create({
               model,
-              max_tokens: 2048,
+              max_tokens: TLDR_REECRITURE_MAX_TOKENS,
               system: blocLangue(langue) ? `${SYSTEM_TLDR}\n\n${blocLangue(langue)}` : SYSTEM_TLDR,
-              messages: [{ role: "user", content: `Invité : ${cible.nom}. TL;DR actuel (JSON) :\n${JSON.stringify(tldrFinal)}` }],
+              messages: [{ role: "user", content: `${prefixeLangue}Invité : ${cible.nom}. TL;DR actuel (JSON) :\n${JSON.stringify(tldrFinal)}` }],
             });
             compte(resTldr);
             const reecrit = admettreTldrReecrit(tldrFinal, extractJson<Content>(texteDe(resTldr)));
@@ -898,9 +974,15 @@ export async function processRedaction(
       }
       rapportAcc = cumuleRapport(rapportAcc, etape, so.rapport);
       faites.push(etape);
+      historique.push({ etape, statut: "done", quand: new Date().toISOString() });
       await memoriser();
     } catch (e) {
-      echecs.push(`${etape} : ${e instanceof Error ? e.message : String(e)}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      echecs.push(`${etape} : ${msg}`);
+      historique.push({ etape, statut: "failed", quand: new Date().toISOString(), erreur: msg.slice(0, 300) });
+      // Best-effort : l'échec de l'étape est visible au journal même si la
+      // passe est tuée avant sa fin.
+      await memoriser().catch(() => {});
     }
   }
 
