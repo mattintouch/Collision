@@ -25,13 +25,12 @@ describe("rédaction scindée (12/09, cas eric-schmidt)", () => {
     expect(ORDRE_REDACTION[ORDRE_REDACTION.length - 1]).toBe("tldr");
   });
 
-  it("aucun appel ne peut dépasser l'ancien plafond monolithique, topics est le plus gros", () => {
+  it("chaque étape tient le plancher commun de 8192 (13/09, plan saturé à 4000 en prod), topics est le plus gros", () => {
     for (const etape of ORDRE_REDACTION) {
-      expect(PLAFONDS_REDACTION[etape]).toBeLessThanOrEqual(12000);
-      expect(PLAFONDS_REDACTION[etape]).toBeGreaterThan(0);
+      expect(PLAFONDS_REDACTION[etape]).toBeGreaterThanOrEqual(8192);
     }
     expect(Math.max(...Object.values(PLAFONDS_REDACTION))).toBe(PLAFONDS_REDACTION.topics);
-    expect(PLAN_MAX_TOKENS).toBeLessThanOrEqual(6000);
+    expect(PLAN_MAX_TOKENS).toBeGreaterThanOrEqual(16384);
   });
 
   it("les étapes suivent la matière présente ; le tldr est toujours joué dès qu'il y a de la matière", () => {
