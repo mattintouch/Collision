@@ -35,7 +35,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { extractJson, type WebSearchUsage } from "../ai/websearch";
-import { blocLangue, langueDeFiche, renumeroteQuestions } from "./generation";
+import { blocFaitsValides, blocLangue, estSourceEquipe, langueDeFiche, pendingNotes, renumeroteQuestions } from "./generation";
 import { hasAnthropicKey } from "../copilot/config";
 import { isEmptyContent, BUDGETS_V3 } from "./schema";
 import { lintFiche, doublonsQuestions, type LintRapport } from "./lint";
@@ -844,9 +844,13 @@ export async function processRedaction(
   // consolidées par les étapes précédentes suivent dans un bloc séparé, avec
   // la consigne explicite qu'elles REMPLACENT la version initiale.
   const lintAvant = lintFiche(actuel);
+  // Hiérarchie des sources (addendum E du 13/09) : les faits validés par
+  // l'équipe de l'invité précèdent la matière de la fiche dans le bloc mis en
+  // cache, donc présents à CHAQUE appel de la passe (plan et sections).
+  const faitsValides = blocFaitsValides((await pendingNotes(sb, fiche.id)).filter((n) => estSourceEquipe(n.source)));
   const ficheInitiale: Anthropic.TextBlockParam = {
     type: "text",
-    text: `Invité : ${cible.nom}. Fiche au début de la passe (JSON par section) :\n${JSON.stringify(actuel)}${consignesLint(lintAvant)}`,
+    text: `Invité : ${cible.nom}.${faitsValides}\n\nFiche au début de la passe (JSON par section) :\n${JSON.stringify(actuel)}${consignesLint(lintAvant)}`,
     cache_control: { type: "ephemeral" },
   };
   const consolidees: Record<string, Content> = {};
