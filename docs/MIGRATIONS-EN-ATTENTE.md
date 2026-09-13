@@ -76,7 +76,6 @@
   test-invitation-magellan-ignorer (deux briques de test posées avec les
   consignes dans les réflexions), jamais une fiche de production.
 
-## En attente
 - `0053_validate_cible_idempotent.sql` : la fonction validate_cible réutilise
   l'épisode existant le plus récent au lieu d'en insérer un second (brief du
   12/09, chantier 5 ; doublon nettoyé à la main le 11/09). `create or
@@ -84,7 +83,10 @@
   épisode existant n'est pas réécrit. `setup_all.sql` porte la même version.
   L'outil MCP validate_cible est idempotent AVANT même cette migration (il lit
   l'épisode existant et n'appelle plus la RPC en re-validation) : 0053 couvre
-  les autres appelants (action validerCible de l'app, copilote).
+  les autres appelants (action validerCible de l'app, copilote). Appliquée par
+  Matt le 13/09 via l'éditeur SQL Supabase.
+
+## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
 
