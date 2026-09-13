@@ -11,8 +11,8 @@
 import { waitUntil } from "@vercel/functions";
 import { createServiceClient } from "../supabase/service";
 import { enrichCibleProfile, applyProfileProposal } from "./profile";
-import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, FICHE_GROUPES_RECHERCHE, DEROULE_RESERVE_MS, type FicheGroupe } from "../fiche/generation";
-import { processRedaction, redactionAdmissible } from "../fiche/redaction";
+import { processFicheGroupe, FICHE_JOB_PREFIX, FICHE_GROUPES, FICHE_GROUPES_RECHERCHE, DEROULE_RESERVE_MS, EchecCascade, type FicheGroupe } from "../fiche/generation";
+import { processRedaction, redactionAdmissible, cleRedactionEnCours } from "../fiche/redaction";
 import { syncCibleToFolk } from "../folk/sync";
 import { classifyApiError, sanitizeError, breakerOuvert, breakerEchec, breakerSucces } from "../ai/sante";
 import { verifierBudget } from "../ai/cout";
@@ -86,11 +86,11 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 
   // 2) Traiter les jobs en attente un par un, dans la limite `max` et le budget mural.
   while (traites < max && Date.now() - startedAt < budgetMs) {
-    // Réserve murale (correctif du 03/08) : une passe de rédaction ne démarre
-    // que si le drain dispose encore du budget pour la finir. Sinon elle reste
-    // en file pour le cron (800 s) : démarrée trop tard, la fonction était
-    // tuée en plein appel modèle et le job finissait au faucheur en
-    // « timeout », systématiquement sur les fiches les plus lourdes.
+    // Réserve murale (correctif du 03/08, révisée le 12/09) : une passe de
+    // rédaction ne démarre que si le drain dispose du budget d'au moins un
+    // appel de section ; scindée, elle avance étape par étape et se suspend
+    // proprement (le job retourne en file) au lieu de mourir en plein appel et
+    // de finir au faucheur en « timeout » (eric-schmidt, trois fois).
     const resteMs = budgetMs - (Date.now() - startedAt);
     let requete = sb
       .from("enrichment_jobs")
@@ -207,7 +207,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
             .limit(1);
           const dernier = (derniersDeroule ?? [])[0] as { statut: string; error: string | null } | undefined;
           if (dernier?.statut === "failed") {
-            throw new Error(
+            // Échec en cascade (12/09) : le journal dit quoi relancer, mais
+            // aucune alerte email (la cause racine, le deroule, a la sienne).
+            throw new EchecCascade(
               `Passe ${groupe} refusée : le dernier deroule de la fiche a échoué (${dernier.error ?? "sans détail"}). Relancer generate_fiche (deroule), qui ne rejoue que les briques manquantes, puis remettre ${groupe} en file.`
             );
           }
@@ -219,7 +221,7 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         // 5xx, réseau) mérite une seconde tentative, après une courte pause. Un
         // JSON illisible est déjà couvert par le finisher ; un crédit épuisé ne
         // se réessaie pas, il alimente le disjoncteur.
-        let r: { sections: string[]; rapport?: unknown } | null = null;
+        let r: { sections: string[]; rapport?: unknown; suspendu?: { restant: string[]; raison: string } } | null = null;
         let lastErr: unknown;
         for (let tentative = 1; tentative <= 2 && !r; tentative++) {
           try {
@@ -232,6 +234,10 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
                   heartbeat: async () => {
                     await sb.from("enrichment_jobs").update({ updated_at: nowIso() }).eq("id", job.id);
                   },
+                  // Budget mural restant (12/09) : la rédaction scindée se
+                  // SUSPEND proprement entre deux sections plutôt que de
+                  // mourir en vol et de tout perdre.
+                  resteMs: () => budgetMs - (Date.now() - startedAt),
                 })
               : await processFicheGroupe(sb, groupe, row as CibleEnrichie, fiche as FicheRow, {
                   model,
@@ -255,9 +261,26 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
         }
         if (!r) throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
         await breakerSucces(sb);
+        if (r.suspendu) {
+          // Rédaction SUSPENDUE faute de budget mural (12/09) : l'acquis est
+          // écrit et mémorisé (marqueur system_state), le job retourne en
+          // file, ni done ni failed, aucune alerte. Le drain suivant reprend
+          // les étapes restantes. La réserve d'admission (REDACTION_RESERVE_MS)
+          // est supérieure à la réserve d'appel : CE drain ne le reprend pas.
+          await sb
+            .from("enrichment_jobs")
+            .update({ statut: "pending", error: null, created_at: nowIso(), updated_at: nowIso() })
+            .eq("id", job.id);
+          await ecrireTelemetrie();
+          details.push({ id: job.id, suspendu: true, groupe, sections: r.sections, restant: r.suspendu.restant, raison: r.suspendu.raison });
+          continue;
+        }
         // Succès du groupe : le marqueur d'alerte tombe, un échec FUTUR de ce
         // groupe redéclenchera un email (une alerte par groupe échoué, 11/09).
         await sb.from("system_state").delete().eq("key", `alerte_echec:${job.cible_id}:${job.objectif}`);
+        // Succès d'un groupe AMONT : la matière de la fiche a changé, une
+        // rédaction suspendue ou tuée repart d'un plan neuf (12/09).
+        if (groupe !== "redaction") await sb.from("system_state").delete().eq("key", cleRedactionEnCours((fiche as FicheRow).id));
         await sb
           .from("enrichment_jobs")
           .update({ statut: "done", resultat: { groupe, sections: r.sections, ...(r.rapport ? { rapport: r.rapport } : {}) }, error: null, updated_at: nowIso() })
@@ -310,7 +333,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
       // échoué (11/09 : cinq emails identiques à sept destinataires la veille).
       // Le marqueur system_state tient 24 h ou jusqu'au prochain succès du
       // groupe ; les échecs suivants restent dans le journal, sans email.
-      if (job.objectif.startsWith(FICHE_JOB_PREFIX)) {
+      // Un échec EN CASCADE (passe aval refusée parce que le deroule a échoué)
+      // n'envoie rien : la cause racine a déjà son alerte (12/09).
+      if (job.objectif.startsWith(FICHE_JOB_PREFIX) && !(e instanceof EchecCascade)) {
         const cle = `alerte_echec:${job.cible_id}:${job.objectif}`;
         const { data: marque } = await sb.from("system_state").select("updated_at").eq("key", cle).maybeSingle();
         const depuis = marque ? Date.now() - new Date((marque as { updated_at: string }).updated_at).getTime() : Infinity;
@@ -355,8 +380,9 @@ export async function processEnrichmentJobs(opts: ProcessOpts = {}): Promise<{ t
 export function kickQueue(): void {
   // Budget 240 s : les fonctions qui appellent kickQueue déclarent
   // maxDuration 300 (Fluid compute). Un kick draine les groupes de recherche
-  // d'une fiche ; la passe de rédaction, sous la réserve murale de 420 s,
-  // reste en file pour le cron et son budget de 800 s.
+  // légers d'une fiche ; le deroule (réserve 600 s) attend le cron ; la
+  // rédaction scindée (12/09) peut y entamer son plan et une ou deux sections
+  // puis se suspend, le cron et ses 740 s reprennent le reste.
   const work = processEnrichmentJobs({ max: 6, model: FAST_MODEL, maxSearches: 3, budgetMs: 240_000 }).catch(() => {});
   try {
     waitUntil(work);

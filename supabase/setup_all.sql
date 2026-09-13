@@ -388,16 +388,25 @@ begin
      order by position desc limit 1;
   end if;
 
-  contexte := jsonb_build_object(
-    'cible',   to_jsonb(c),
-    'appuis',  coalesce((select jsonb_agg(to_jsonb(a)) from public.appuis  a where a.cible_id = c.id), '[]'::jsonb),
-    'touches', coalesce((select jsonb_agg(to_jsonb(t)) from public.touches t where t.cible_id = c.id), '[]'::jsonb),
-    'signals', coalesce((select jsonb_agg(to_jsonb(s)) from public.signals s where s.cible_id = c.id), '[]'::jsonb)
-  );
+  -- Idempotence (0053) : un épisode existe déjà pour cette cible, il est réutilisé.
+  select id into new_episode
+    from public.episodes
+   where cible_id = c.id
+   order by created_at desc
+   limit 1;
 
-  insert into public.episodes (cible_id, show_id, nom, contexte)
-  values (c.id, c.show_id, c.nom, contexte)
-  returning id into new_episode;
+  if new_episode is null then
+    contexte := jsonb_build_object(
+      'cible',   to_jsonb(c),
+      'appuis',  coalesce((select jsonb_agg(to_jsonb(a)) from public.appuis  a where a.cible_id = c.id), '[]'::jsonb),
+      'touches', coalesce((select jsonb_agg(to_jsonb(t)) from public.touches t where t.cible_id = c.id), '[]'::jsonb),
+      'signals', coalesce((select jsonb_agg(to_jsonb(s)) from public.signals s where s.cible_id = c.id), '[]'::jsonb)
+    );
+
+    insert into public.episodes (cible_id, show_id, nom, contexte)
+    values (c.id, c.show_id, c.nom, contexte)
+    returning id into new_episode;
+  end if;
 
   if final_stage is not null then
     update public.cibles set stage_id = final_stage where id = c.id;

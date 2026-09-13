@@ -56,6 +56,57 @@ export type FicheGroupe = (typeof FICHE_GROUPES)[number];
  *  tué en plein appel et de finir au faucheur en « timeout (> 15 min) ». */
 export const DEROULE_RESERVE_MS = 600_000;
 
+/** Échec EN CASCADE (12/09) : une passe aval (synthese, redaction) refusée
+ *  parce que le dernier deroule de la fiche a échoué. Le job passe bien en
+ *  échec (le journal dit quoi relancer) mais il ne déclenche AUCUNE alerte
+ *  email : la cause racine a déjà la sienne. Avant : un deroule tombé =
+ *  trois emails (deroule, synthese refusée, redaction refusée). */
+export class EchecCascade extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EchecCascade";
+  }
+}
+
+/** Dernier état de génération PAR GROUPE (12/09) : une requête par groupe,
+ *  la plus récente gagne. La lecture précédente prenait les 20 derniers jobs
+ *  toutes passes confondues puis réduisait par groupe : une rafale d'échecs
+ *  d'un groupe masquait le succès d'un autre, et un échec périmé restait
+ *  affiché en tête de fiche après la réussite du groupe. Ordre : celui des
+ *  passes ; un groupe jamais lancé est absent. */
+export async function derniersJobsParGroupe(
+  sb: SB,
+  cibleId: string
+): Promise<{ groupe: FicheGroupe; statut: string; error?: string; quand?: string }[]> {
+  const lignes = await Promise.all(
+    FICHE_GROUPES.map(async (groupe) => {
+      const { data } = await sb
+        .from("enrichment_jobs")
+        .select("statut, error, updated_at")
+        .eq("cible_id", cibleId)
+        .eq("objectif", `${FICHE_JOB_PREFIX}${groupe}`)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const j = data as { statut: string; error: string | null; updated_at: string } | null;
+      return j ? { groupe, statut: j.statut, error: j.error ?? undefined, quand: j.updated_at } : null;
+    })
+  );
+  return lignes.filter((l): l is NonNullable<typeof l> => l !== null);
+}
+
+/** Sections à VIDER avant une régénération « reinitialiser » (PURE, testée) :
+ *  seules les passes à reprise idempotente accumulent sans écraser (le
+ *  deroule ne rejoue jamais une brique écrite, la synthèse repose sur la
+ *  fiche assemblée). Les groupes de recherche réécrivent leurs sections de
+ *  toute façon. Cas d'usage : changer la langue d'une fiche déjà générée. */
+export function sectionsAReinitialiser(groupes: readonly FicheGroupe[]): string[] {
+  const out: string[] = [];
+  if (groupes.includes("deroule")) out.push("topics");
+  if (groupes.includes("synthese")) out.push("tldr", "clips");
+  return out;
+}
+
 /** Budget mural MINIMAL pour lancer UNE brique du déroulé (scission du 07/09) :
  *  un appel court (plafond 3000 tokens, 0 à 2 recherches). Passé sous cette
  *  réserve, le deroule s'arrête PROPREMENT : les briques écrites restent
