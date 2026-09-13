@@ -316,7 +316,13 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-q.ghost { opacity: 0.4; border-style: dashed; }
 .gdv4 .gd-q .qacts { position: absolute; top: 7px; right: 7px; display: none; gap: 4px; }
 .gdv4 .gd-q:hover .qacts { display: inline-flex; }
-@media (hover: none) { .gdv4 .gd-q .qacts { display: inline-flex; } }
+/* Écran tactile (13/09) : les actions sont toujours visibles, la ligne leur
+   réserve leur largeur (2 boutons de 24 px + interstice + marge droite) pour
+   que le texte de la question ne passe jamais dessous. */
+@media (hover: none) {
+  .gdv4 .gd-q { padding-right: 66px; }
+  .gdv4 .gd-q .qacts { display: inline-flex; }
+}
 .gdv4 .gd-q .qact { width: 24px; height: 24px; border: 1px solid #C4C0B2; background: #FFF; color: #6B675C; cursor: pointer; font-size: 13px; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
 .gdv4 .gd-q .qact:hover { color: #16150F; border-color: #16150F; }
 .gdv4 .gd-q .qact.on { background: #F5C542; border-color: #B3651A; color: #16150F; }
@@ -472,7 +478,13 @@ html { scroll-behavior: smooth; }
 .gdv4 .gd-pastille .badge { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; border-radius: 10px; background: #D4231A; color: #FFF; font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
 
 @media (max-width: 900px) {
-  .gdv4 .gd-page { padding: 0 16px 120px; }
+  .gdv4 .gd-page { padding: 0 16px 120px; overflow-wrap: break-word; }
+  /* Graphs marché et barres (13/09) : les colonnes 1fr ne rétrécissent pas
+     sous la largeur intrinsèque des nombres (min-width auto de la grille),
+     un graph de 5 à 8 colonnes dépassait le viewport et faisait défiler
+     TOUTE la page latéralement. Le graph défile désormais à l'INTÉRIEUR de
+     sa carte, la page ne bouge plus. */
+  .gdv4 .cgrid { overflow-x: auto; padding-bottom: 8px; }
   /* Écran étroit : la console passe en overlay plein écran refermable. */
   .gdv4 .gd-console { width: 100vw; left: 0; border-left: 0; border-top: 3px solid #1FB46A; }
   .gdv4.with-console { padding-right: 0; }
@@ -481,7 +493,12 @@ html { scroll-behavior: smooth; }
      jamais de défilement horizontal de la page (recette point 7). */
   .gdv4 .gd-btn { white-space: normal; }
   .gdv4 .gd-lede { font-size: 20px; white-space: normal; }
-  .gdv4 .gd-tldr .grid, .gdv4 .gd-briques, .gdv4 .gd-2col, .gdv4 .gd-lex { grid-template-columns: 1fr; }
+  .gdv4 .gd-tldr .grid, .gdv4 .gd-briques, .gdv4 .gd-2col { grid-template-columns: 1fr; }
+  /* Lexique (13/09) : colonne unique SANS plancher min-content (minmax(0, 1fr))
+     et pastille de terme autorisée à passer à la ligne, un terme long ne
+     pousse plus la page au delà du viewport. */
+  .gdv4 .gd-lex { grid-template-columns: minmax(0, 1fr); }
+  .gdv4 .gd-lex b.term { white-space: normal; }
   .gdv4 .gd-brique.span2 { grid-column: auto; }
   .gdv4 .gd-brique.span2 .gd-brique__cols { grid-template-columns: 1fr; }
   .gdv4 .gd-brique.span2 .gd-brique__fond { border-right: 0; }

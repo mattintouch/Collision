@@ -63,6 +63,9 @@ export const POOL_QUESTIONS_GENERALES_EN = [
 export const CHROME_FICHE = {
   fr: {
     eyebrow: "Fiche de préparation",
+    age: (n: number) => `${n} ans`,
+    graphComparaison: "Comparaison",
+    graphRentabilite: "Rentabilité",
     rec: "● REC",
     recOn: "■ En cours",
     preTitle: (n: number) => `Avant d'appuyer sur REC · ${n} gestes`,
@@ -156,6 +159,9 @@ export const CHROME_FICHE = {
     },
   },
   en: {
+    age: (n: number) => `${n} yrs`,
+    graphComparaison: "Comparison",
+    graphRentabilite: "Profitability",
     eyebrow: "Prep sheet",
     rec: "● REC",
     recOn: "■ Recording",

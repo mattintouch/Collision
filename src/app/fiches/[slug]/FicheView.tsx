@@ -428,7 +428,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
   const echecs = data.generation.filter((g) => g.statut === "failed");
   const enCours = data.generation.filter((g) => g.statut === "pending" || g.statut === "running");
 
-  const lede = [data.identite.age !== undefined ? `${data.identite.age} ans` : null, data.identite.sous_titre].filter(Boolean);
+  const lede = [data.identite.age !== undefined ? L.age(data.identite.age) : null, data.identite.sous_titre].filter(Boolean);
   const aChiffres = data.kpis.length > 0 || !!data.visuels.barres || !!data.visuels.comparaison || !!data.visuels.rentabilite;
   const aMarche = data.marche_graphs.length > 0 || !!(data.marche && (data.marche.texte || data.marche.comparables.length)) || data.lexique.length > 0;
   const aLegacy = !!data.legacy.enjeu || data.legacy.recit.length > 0 || data.legacy.questions.length > 0;
@@ -623,7 +623,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
           <div className="gd-rule" />
           {lede.length > 0 && (
             <p className="gd-lede">
-              {data.identite.age !== undefined && <span className="age">{data.identite.age} ans</span>}
+              {data.identite.age !== undefined && <span className="age">{L.age(data.identite.age)}</span>}
               {data.identite.age !== undefined && data.identite.sous_titre ? " · " : ""}
               {data.identite.sous_titre ?? ""}
             </p>
@@ -733,7 +733,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               const max = Math.max(...g.valeurs.map((x) => Math.abs(x.pct)), 1);
               return (
                 <div className="gd-card">
-                  <h3>{g.titre ?? "Comparaison"}</h3>
+                  <h3>{g.titre ?? L.graphComparaison}</h3>
                   {g.source && <p className="csub">{g.source}</p>}
                   {g.valeurs.map((v, j) => (
                     <div className="hbar-row" key={j}>
@@ -748,7 +748,7 @@ export default function FicheView({ data }: { data: FicheViewData }) {
               const g = data.visuels.rentabilite;
               return (
                 <div className="gd-card">
-                  <h3>{g.titre ?? "Rentabilité"}</h3>
+                  <h3>{g.titre ?? L.graphRentabilite}</h3>
                   {(g.note || g.source) && <p className="csub">{[g.note, g.source].filter(Boolean).join(" · ")}</p>}
                   {g.valeurs.map((v, j) => (
                     <div className="hbar-row" key={j}>
