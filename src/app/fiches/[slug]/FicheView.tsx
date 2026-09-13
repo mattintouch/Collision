@@ -63,7 +63,7 @@ export function sujetZoneGrise(z: { sujet?: string; id?: string; texte: string }
   return mots.length < z.texte.length ? `${mots}…` : mots;
 }
 
-export interface FicheQuestion { num: string; texte: string; clip?: boolean; note?: string }
+export interface FicheQuestion { num: string; texte: string; clip?: boolean; plateau?: boolean; note?: string }
 export interface ALireLien {
   niveau?: "indispensable" | "utile" | "optionnel";
   titre: string;

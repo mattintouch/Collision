@@ -69,6 +69,86 @@ export class EchecCascade extends Error {
   }
 }
 
+/* ── Dépendances entre groupes (mandat du 13/09, chantier 1) ────────────────
+   Le deroule construit ses chapitres sur les angles ; la rédaction consolide
+   le deroule et la synthèse. Relancer un amont périme ses avals. */
+
+/** Aval direct de chaque groupe. */
+export const AVAL_DIRECT: Partial<Record<FicheGroupe, FicheGroupe[]>> = {
+  angles: ["deroule"],
+  deroule: ["redaction"],
+  synthese: ["redaction"],
+};
+/** Amont direct de chaque groupe (miroir de AVAL_DIRECT). */
+export const AMONT_DIRECT: Partial<Record<FicheGroupe, FicheGroupe[]>> = {
+  deroule: ["angles"],
+  redaction: ["deroule", "synthese"],
+};
+
+/** Avals à REMETTRE EN FILE quand des groupes amont sont relancés (PURE,
+ *  testée) : fermeture transitive des avals des groupes demandés, limitée aux
+ *  groupes qui ont déjà un job (leur contenu devient périmé), hors groupes
+ *  déjà dans la demande. Cas type : retry d'un angles échoué, le deroule (et
+ *  la rédaction derrière lui) est rejoué. */
+export function avalsARejouer(groupes: readonly FicheGroupe[], dejaJoues: ReadonlySet<string>): FicheGroupe[] {
+  const demande = new Set(groupes);
+  const out: FicheGroupe[] = [];
+  const visites = new Set<FicheGroupe>();
+  const walk = (g: FicheGroupe) => {
+    for (const aval of AVAL_DIRECT[g] ?? []) {
+      if (visites.has(aval)) continue;
+      visites.add(aval);
+      if (!demande.has(aval) && dejaJoues.has(aval)) out.push(aval);
+      walk(aval);
+    }
+  };
+  for (const g of groupes) walk(g);
+  return out;
+}
+
+/** Ligne du journal de génération, enrichie du marquage stale. */
+export interface LigneGeneration {
+  groupe: FicheGroupe;
+  statut: string;
+  error?: string;
+  quand?: string;
+  stale?: boolean;
+  stale_cause?: string;
+}
+
+/** Marque STALE les groupes done dont un amont a été rejoué depuis (PURE,
+ *  testée) : amont done plus récent, amont en file ou en cours, ou amont
+ *  lui-même périmé (transitivité). Calculé À LA LECTURE depuis les
+ *  horodatages des jobs : aucun nouveau statut en base (contrainte CHECK),
+ *  rétroactif sur les fiches existantes. */
+export function marqueStale(lignes: LigneGeneration[]): LigneGeneration[] {
+  const par = new Map(lignes.map((l) => [l.groupe, l]));
+  const t = (l?: LigneGeneration) => (l?.quand ? new Date(l.quand).getTime() : NaN);
+  const cache = new Map<FicheGroupe, string | null>();
+  const cause = (g: FicheGroupe): string | null => {
+    if (cache.has(g)) return cache.get(g)!;
+    cache.set(g, null);
+    const ligne = par.get(g);
+    let c: string | null = null;
+    if (ligne && ligne.statut === "done") {
+      for (const amont of AMONT_DIRECT[g] ?? []) {
+        const la = par.get(amont);
+        if (!la) continue;
+        if (la.statut === "pending" || la.statut === "running") { c = `${amont} en file`; break; }
+        if (la.statut === "done" && Number.isFinite(t(la)) && Number.isFinite(t(ligne)) && t(la) > t(ligne)) { c = `${amont} rejoué après ce groupe`; break; }
+        const ca = cause(amont);
+        if (ca) { c = `${amont} périmé (${ca})`; break; }
+      }
+    }
+    cache.set(g, c);
+    return c;
+  };
+  return lignes.map((l) => {
+    const c = cause(l.groupe);
+    return c ? { ...l, stale: true, stale_cause: c } : l;
+  });
+}
+
 /** Dernier état de génération PAR GROUPE (12/09) : une requête par groupe,
  *  la plus récente gagne. La lecture précédente prenait les 20 derniers jobs
  *  toutes passes confondues puis réduisait par groupe : une rafale d'échecs
@@ -78,7 +158,7 @@ export class EchecCascade extends Error {
 export async function derniersJobsParGroupe(
   sb: SB,
   cibleId: string
-): Promise<{ groupe: FicheGroupe; statut: string; error?: string; quand?: string }[]> {
+): Promise<LigneGeneration[]> {
   const lignes = await Promise.all(
     FICHE_GROUPES.map(async (groupe) => {
       const { data } = await sb
@@ -93,7 +173,7 @@ export async function derniersJobsParGroupe(
       return j ? { groupe, statut: j.statut, error: j.error ?? undefined, quand: j.updated_at } : null;
     })
   );
-  return lignes.filter((l): l is NonNullable<typeof l> => l !== null);
+  return marqueStale(lignes.filter((l): l is NonNullable<typeof l> => l !== null));
 }
 
 /** Sections à VIDER avant une régénération « reinitialiser » (PURE, testée) :
@@ -373,7 +453,7 @@ interface AnglesJson {
  *  grise et la LISTE des briques (titre + intention), sortie courte. */
 interface SqueletteJson {
   terrain_connu?: { question?: string; reponse?: string; depassement?: string }[];
-  topics?: { titre?: string; intention?: string; pleine_largeur?: boolean }[];
+  topics?: { titre?: string; intention?: string; pleine_largeur?: boolean; idees_couvertes?: string[] }[];
   zone_grise?: { id?: string; sujet?: string; texte?: string; origine?: string }[];
   sources?: LienJson[];
 }
@@ -385,7 +465,8 @@ interface BriqueJson {
   hero?: { valeur?: string; libelle?: string };
   extras?: { titre?: string; items?: string[] };
   reflexions?: string[];
-  questions?: { texte?: string; clip?: boolean; zg?: string }[];
+  questions?: { texte?: string; clip?: boolean; plateau?: boolean; zg?: string }[];
+  idees_couvertes?: string[];
   sources?: LienJson[];
 }
 
@@ -489,11 +570,11 @@ async function ideesBacklog(sb: SB, cibleId: string): Promise<IdeeEditoriale[]> 
 
 /** Bloc de prompt des idées (PURE, testée) : l'intégration est OBLIGATOIRE,
  *  une idée inutilisable telle quelle finit en zone grise, jamais ignorée. */
-export function blocIdees(idees: Pick<IdeeEditoriale, "type" | "texte" | "source_url">[]): string {
+export function blocIdees(idees: (Pick<IdeeEditoriale, "type" | "texte" | "source_url"> & { id?: string })[]): string {
   if (!idees.length) return "";
   const ordonnees = idees.some((i) => prioriteIdee(i) !== null);
-  return `\n\nIDÉES ÉDITORIALES DE L'ÉQUIPE (backlog posé avant la fiche, à INTÉGRER OBLIGATOIREMENT : chaque idée doit se retrouver dans une question, un topic, un clip ou un angle ; une idée inutilisable telle quelle devient un item de zone grise avec son origine, JAMAIS ignorée en silence) :\n${idees
-    .map((i) => `- [${i.type}] ${i.texte}${i.source_url ? ` (source : ${i.source_url})` : ""}`)
+  return `\n\nIDÉES ÉDITORIALES DE L'ÉQUIPE (backlog posé avant la fiche, à INTÉGRER OBLIGATOIREMENT : chaque idée doit se retrouver dans une question, un topic, un clip ou un angle ; une idée inutilisable telle quelle devient un item de zone grise avec son origine, JAMAIS ignorée en silence. Chaque idée porte un id : reporte dans idees_couvertes les ids des idées RÉELLEMENT portées par chaque brique, aucun id inventé) :\n${idees
+    .map((i) => `- [${i.type}]${i.id ? ` (id: ${i.id})` : ""} ${i.texte}${i.source_url ? ` (source : ${i.source_url})` : ""}`)
     .join("\n")}${ordonnees ? "\nORDRE : la liste est triée, les idées de type angle avec un ordre de priorité explicite viennent en premier, dans cet ordre ; l'ordre des angles produits (apprentissages, briques) RESPECTE cet ordre." : ""}`;
 }
 
@@ -573,6 +654,14 @@ async function marqueIdeesIntegrees(sb: SB, idees: IdeeEditoriale[]): Promise<vo
 // ne requalifie que les jobs réellement morts.
 // resteMs (07/09) : budget mural restant du drain, consulté entre deux briques
 // du deroule ; sous BRIQUE_RESERVE_MS, arrêt PROPRE (l'acquis est écrit).
+/** Rapport d'un groupe (13/09) : la couverture des idées éditoriales, stockée
+ *  dans enrichment_jobs.resultat et dans le marqueur system_state
+ *  idees_non_couvertes:{cible_id} (lu par le journal de get_fiche). */
+export interface RapportGroupe {
+  idees_couvertes: string[];
+  idees_non_couvertes: { id: string; type: string; texte: string }[];
+}
+
 export interface FicheJobOpts { model?: string; maxSearches?: number; usageOut?: WebSearchUsage; heartbeat?: () => Promise<void>; resteMs?: () => number }
 
 /**
@@ -586,7 +675,7 @@ export async function processFicheGroupe(
   cible: CibleEnrichie,
   fiche: FicheRow,
   opts: FicheJobOpts = {}
-): Promise<{ sections: string[]; sources: number }> {
+): Promise<{ sections: string[]; sources: number; rapport?: RapportGroupe }> {
   if (!hasAnthropicKey()) throw new Error("Clé Anthropic absente : génération impossible (poser ANTHROPIC_API_KEY).");
   const { model, maxSearches = 4 } = opts;
   // Langue de la fiche (brief 07/09, item 6) : lue UNE fois, injectée dans le
@@ -605,6 +694,7 @@ export async function processFicheGroupe(
   const faitsTxt = blocFaitsValides(notesValidees);
   const written: string[] = [];
   let sourcesCount = 0;
+  let rapport: RapportGroupe | undefined;
   const compte = (u: WebSearchUsage) => {
     if (!opts.usageOut) return;
     opts.usageOut.tokens_in += u.tokens_in;
@@ -806,6 +896,14 @@ export async function processFicheGroupe(
     // vides ; une brique écrite (génération précédente OU saisie manuelle)
     // n'est jamais régénérée ni écrasée.
     const idees = trieIdees(await ideesBacklog(sb, cible.id));
+    // Hiérarchie de la matière (chantier 3 du 13/09) : les angles de l'auteur
+    // du show définissent les chapitres, dans leur ordre ; la matière web les
+    // documente. Budget plateau quand des angles auteur existent : 3 à 4
+    // briques, 12 questions au total, une question de plateau par brique.
+    const anglesAuteur = idees.filter((i) => i.type === "angle");
+    const budgetPlateau = anglesAuteur.length > 0;
+    const nbBriques = budgetPlateau ? "3 à 4" : "5 à 8";
+    const nbQuestions = budgetPlateau ? "3 à 4" : "4 à 8";
     const dejaPose = await faitsDejaPoses(sb, fiche.id);
     const { data: appRow } = await sb.from("fiche_sections").select("content").eq("fiche_id", fiche.id).eq("section_id", "apprentissages").maybeSingle();
     const app = (((appRow as { content?: Content } | null)?.content ?? {}) as { items?: { titre?: string; question?: string }[] }).items ?? [];
@@ -830,12 +928,15 @@ export async function processFicheGroupe(
       const r = await runWebSearchJSONVerbose<SqueletteJson>(
         systemFor([
           "Mission : le SQUELETTE du déroulé : le TERRAIN CONNU, la ZONE GRISE et le PLAN des main topics. Les corps des briques sont rédigés par des appels séparés : ne les produis PAS ici (ni contexte, ni dates, ni questions).",
+          ...(budgetPlateau ? [
+            "CHAPITRES IMPOSÉS PAR L'AUTEUR DU SHOW : les idées de type angle listées plus bas DÉFINISSENT les briques, DANS LEUR ORDRE. La recherche web DOCUMENTE ces chapitres, elle n'en crée AUCUN nouveau tant que ces angles ne sont pas tous couverts. BUDGET PLATEAU : 3 à 4 briques MAXIMUM (l'épisode vise 90 minutes), 12 questions au TOTAL sur la fiche. Chaque brique reporte dans idees_couvertes les ids des idées qu'elle couvre.",
+          ] : []),
           "TERRAIN CONNU (SYSTÉMATIQUE, exactement 3 items) : les questions qu'il a déjà eues partout, pour chacune sa réponse rodée en une ligne ET le dépassement prévu (« tu racontes souvent X, mais qu'est-ce qui s'est passé juste avant »).",
-          "PLAN DES MAIN TOPICS : 5 à 8 briques, chacune réduite à son TITRE et son INTENTION (une phrase : l'angle de la brique, ce qu'elle doit faire dire à l'invité). Ensemble, les briques couvrent le dosage 60 pour cent mécanique personnelle, 20 pour cent domaine subordonné à l'individu, 20 pour cent leçons transférables. La ou les briques CŒUR DE L'ÉPISODE (une ou deux) portent \"pleine_largeur\": true. Chaque idée éditoriale de l'équipe se retrouve portée par l'intention d'une brique, ou en zone grise, JAMAIS ignorée en silence.",
+          `PLAN DES MAIN TOPICS : ${nbBriques} briques, chacune réduite à son TITRE et son INTENTION (une phrase : l'angle de la brique, ce qu'elle doit faire dire à l'invité). Ensemble, les briques couvrent le dosage 60 pour cent mécanique personnelle, 20 pour cent domaine subordonné à l'individu, 20 pour cent leçons transférables. La ou les briques CŒUR DE L'ÉPISODE (une ou deux) portent "pleine_largeur": true. Chaque idée éditoriale de l'équipe se retrouve portée par l'intention d'une brique (son id dans idees_couvertes), ou en zone grise, JAMAIS ignorée en silence.`,
           "ZONE GRISE : chaque élément non vérifié (notes internes, chiffres non tranchés, sujets sensibles à ne jamais amener) porte un identifiant court zg_motcle ET un sujet court lisible (2 à 4 mots, affiché en tête de ligne) ; les autres sections ne recopient JAMAIS le texte complet.",
           "SORTIE COURTE, IMPÉRATIF : le squelette est un PLAN, pas la fiche. Zone grise : 12 items maximum, 400 caractères chacun. Sources : les 12 liens les plus utiles seulement, apport en une demi-ligne. Aucun contexte, aucune question, aucun développement : la sortie entière doit rester bien sous le plafond de tokens.",
         ].join("\n\n"), langue),
-        promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [5 à 8 : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement)}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
+        promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${appTxt}${notesTxt}${ideesTxt}\n\nRenvoie un objet JSON : {\n  "terrain_connu": [EXACTEMENT 3 : {"question": "déjà posée partout", "reponse": "sa réponse rodée en une ligne", "depassement": "le dépassement prévu"}],\n  "topics": [${nbBriques} : {"titre", "intention": "l'angle de la brique en une phrase", "pleine_largeur": true (la ou les briques cœur seulement), "idees_couvertes": ["ids des idées éditoriales couvertes par cette brique"]}],\n  "zone_grise": [{"id": "zg_motcle (court, stable, snake_case)", "sujet": "libellé court, 2 à 4 mots", "texte": "à faire confirmer ou à ne jamais affirmer, 400 caractères max", "origine": "note Matthieu / écho non recoupé / chiffre non tranché"}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
         maxSearches, model, SQUELETTE_MAX_TOKENS, opts.heartbeat
       );
       compte(r.usage);
@@ -845,13 +946,20 @@ export async function processFicheGroupe(
         const question = asString(x.question);
         return question ? { question, reponse: asString(x.reponse), depassement: asString(x.depassement) } : null;
       });
+      const idsIdees = new Set(idees.map((i) => i.id));
       const shells = asArray(raw.topics, (x) => {
         const titre = asString(x.titre);
         if (!titre) return null;
+        // Couverture des idées (chantier 2 du 13/09) : seuls les ids RÉELS
+        // sont conservés, un id inventé par le modèle est écarté.
+        const couvertes = Array.isArray(x.idees_couvertes)
+          ? (x.idees_couvertes as unknown[]).filter((v): v is string => typeof v === "string" && idsIdees.has(v))
+          : [];
         return {
           titre,
           intention: asString(x.intention),
           ...(x.pleine_largeur === true ? { pleine_largeur: true } : {}),
+          ...(couvertes.length ? { idees_couvertes: couvertes } : {}),
           questions: [] as unknown[],
         };
       });
@@ -916,11 +1024,11 @@ export async function processFicheGroupe(
         const rb = await runWebSearchJSONVerbose<BriqueJson>(
           systemFor([
             `Mission : rédiger le corps d'UNE SEULE brique (main topic) de la fiche : « ${titre} ».${intention ? ` Intention de la brique : ${intention}` : ""}`,
-            "La brique complète : le CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet) ; les DATES CLÉS (une ligne chacune) ; les CITATIONS exactes de l'invité quand la recherche en trouve ; un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique) ; des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate) ; les RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) ; les QUESTIONS cœur (4 à 8, SANS numéro : la numérotation continue est posée par le serveur). Marque \"clip\": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre. Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. NI minutage NI note tactique : ces champs n'existent plus.",
+            `La brique complète : le CONTEXTE en un paragraphe (ce qu'il faut avoir en tête pour tenir le sujet) ; les DATES CLÉS (une ligne chacune) ; les CITATIONS exactes de l'invité quand la recherche en trouve ; un CHIFFRE HÉROÏQUE facultatif (hero : la valeur qui résume la brique) ; des EXTRAS facultatifs (liste titrée : tour de table, modèles cités, slate) ; les RÉFLEXIONS (2 à 5 : la lecture tactique de l'équipe, ce qu'il faut écouter, où il défausse, ce qu'il faut lui faire dire) ; les QUESTIONS cœur (${nbQuestions}, SANS numéro : la numérotation continue est posée par le serveur${budgetPlateau ? " ; BUDGET PLATEAU : 12 questions au TOTAL sur la fiche, chaque brique reste dans sa part" : ""}). Marque "clip": true sur les questions candidates aux réseaux (frontales, partageables), environ une sur quatre, et "plateau": true sur LA question de la brique à poser sur le plateau (une par brique maximum). Chaque question en comment va AU FOND : elle exige le mode opératoire répétable (critère de décision, seuil chiffré, arbitrage vécu, cas précis), jamais une réponse qui tiendrait dans un article. NI minutage NI note tactique : ces champs n'existent plus.`,
             "RECHERCHE : 0 à 2 requêtes MAXIMUM, ciblées sur cette brique précise. La concision prime : un fait fort et court bat trois faits délayés.",
             "SORTIE COURTE, IMPÉRATIF : le corps entier de la brique vise environ 1500 tokens. Citations : 2 à 4, les meilleures seulement. Dates : 3 à 6 lignes. Réflexions : 2 à 4. Questions : 4 à 8, chacune en une ou deux phrases. Extras : 5 items maximum. La sortie doit rester bien sous le plafond de tokens.",
           ].join("\n\n"), langue),
-          promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [4 à 8 : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
+          promptGroupe(langue, `${intro}${faitsTxt}${dejaPose}${poseesTxt}\n\nRenvoie un objet JSON : {\n  "contexte": "un paragraphe",\n  "dates": ["Avril 2012 : Le Prénom"],\n  "citations": ["citation exacte trouvée en recherche"],\n  "hero": {"valeur": "60 M€ → 1 Md€", "libelle": "ce que la valeur résume"} (facultatif),\n  "extras": {"titre", "items": ["..."]} (facultatif),\n  "reflexions": [2 à 5 : "lecture tactique de l'équipe"],\n  "questions": [${nbQuestions} : {"texte": "courte, tutoiement, sans point final, adossée à un fait", "clip": true (environ une sur quatre), "plateau": true (LA question de la brique à poser sur le plateau, une par brique maximum)}],\n  "sources": [{"date", "titre", "apport", "url"}]\n}`),
           2, model, BRIQUE_MAX_TOKENS, opts.heartbeat
         );
         compte(rb.usage);
@@ -928,7 +1036,7 @@ export async function processFicheGroupe(
         if (!corps) throw new Error(messageEchecAppel(`brique « ${titre} »`, rb, BRIQUE_MAX_TOKENS));
         const questions = asArray(corps.questions, (q) => {
           const texte = asString(q.texte);
-          return texte ? { texte, ...(q.clip === true ? { clip: true } : {}), ...(asString(q.zg) ? { zg: asString(q.zg) } : {}) } : null;
+          return texte ? { texte, ...(q.clip === true ? { clip: true } : {}), ...(q.plateau === true ? { plateau: true } : {}), ...(asString(q.zg) ? { zg: asString(q.zg) } : {}) } : null;
         });
         if (!questions.length) throw new Error(`brique « ${titre} » : corps sans question (stop: ${rb.stop ?? "?"})`);
         const asStrList = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && !!s.trim()) : []);
@@ -941,8 +1049,16 @@ export async function processFicheGroupe(
         topicsContent = await lireTopics();
         const arr = [...(Array.isArray(topicsContent.topics) ? (topicsContent.topics as Content[]) : [])];
         if (!arr[i]) throw new Error(`brique « ${titre} » : la liste des briques a changé pendant la génération`);
+        const idsIdeesBrique = new Set(idees.map((x) => x.id));
+        const couvertesBrique = Array.isArray(corps.idees_couvertes)
+          ? (corps.idees_couvertes as unknown[]).filter((v): v is string => typeof v === "string" && idsIdeesBrique.has(v))
+          : [];
+        const couvertesShell = Array.isArray((arr[i] as Content).idees_couvertes)
+          ? ((arr[i] as Content).idees_couvertes as string[])
+          : [];
         arr[i] = {
           ...arr[i],
+          ...(couvertesBrique.length || couvertesShell.length ? { idees_couvertes: [...new Set([...couvertesShell, ...couvertesBrique])] } : {}),
           contexte: asString(corps.contexte),
           dates: asStrList(corps.dates),
           citations: asStrList(corps.citations),
@@ -967,11 +1083,35 @@ export async function processFicheGroupe(
       const faites = total - briquesVides(topicsContent.topics).length;
       throw new Error(`Déroulé PARTIEL : ${faites} brique(s) écrite(s) sur ${total}, l'acquis est conservé. Échecs : ${echecs.join(" ; ")}. Une relance de generate_fiche (deroule) ne rejoue que les briques manquantes.`);
     }
-    // Idées éditoriales : passées en integree UNIQUEMENT quand le squelette de
-    // CE passage les a injectées et que toutes les briques sont écrites. Un
-    // squelette repris d'un passage précédent ne les a pas vues : elles
-    // restent en backlog, jamais soldées à tort.
-    if (squeletteFait) await marqueIdeesIntegrees(sb, idees);
+    // Idées éditoriales, statut à l'ATTERRISSAGE (chantier 2 du 13/09) : une
+    // idée ne passe en integree que si une brique la référence par id dans
+    // idees_couvertes. Les autres RESTENT en backlog et sont listées
+    // nominativement : dans le rapport du job (resultat.rapport) et dans le
+    // marqueur system_state lu par le journal de get_fiche. Uniquement quand
+    // le squelette de CE passage a injecté les idées (un squelette repris
+    // d'un passage précédent ne les a pas vues).
+    if (squeletteFait && idees.length) {
+      const couvertesIds = new Set<string>();
+      for (const t of listeTopics()) {
+        for (const cid of Array.isArray(t.idees_couvertes) ? (t.idees_couvertes as string[]) : []) couvertesIds.add(cid);
+      }
+      const couvertes = idees.filter((i) => couvertesIds.has(i.id));
+      const nonCouvertes = idees.filter((i) => !couvertesIds.has(i.id));
+      await marqueIdeesIntegrees(sb, couvertes);
+      const cle = `idees_non_couvertes:${cible.id}`;
+      if (nonCouvertes.length) {
+        rapport = {
+          idees_couvertes: couvertes.map((i) => i.id),
+          idees_non_couvertes: nonCouvertes.map((i) => ({ id: i.id, type: i.type, texte: i.texte.slice(0, 140) })),
+        };
+        try {
+          await sb.from("system_state").upsert({ key: cle, value: rapport, updated_at: new Date().toISOString() });
+        } catch { /* marqueur best-effort, le rapport du job reste */ }
+      } else {
+        rapport = { idees_couvertes: couvertes.map((i) => i.id), idees_non_couvertes: [] };
+        try { await sb.from("system_state").delete().eq("key", cle); } catch { /* best-effort */ }
+      }
+    }
   }
 
   if (groupe === "synthese") {
@@ -1046,7 +1186,7 @@ export async function processFicheGroupe(
     await put("clips", { piquantes, apprentissages: cbApprentissages }, piquantes.length > 0 || cbApprentissages.length > 0);
   }
 
-  return { sections: written, sources: sourcesCount };
+  return { sections: written, sources: sourcesCount, ...(rapport ? { rapport } : {}) };
 }
 
 /** Met en file les jobs de génération d'une cible (sans doublon sur les jobs
@@ -1081,7 +1221,17 @@ export async function enqueueFicheGeneration(
     .eq("cible_id", cibleId)
     .in("statut", ["pending", "running"]);
   const deja = new Set(((encours ?? []) as { objectif: string }[]).map((j) => j.objectif));
-  const nouveaux = Array.from(new Set(groupes)).map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
+  // Chantier 1 (13/09) : relancer un amont périme ses avals déjà générés, ils
+  // sont remis en file avec lui (retry d'un angles échoué = deroule rejoué,
+  // et la rédaction derrière). Un aval jamais joué n'est pas ajouté.
+  const { data: histo } = await sb
+    .from("enrichment_jobs")
+    .select("objectif")
+    .eq("cible_id", cibleId)
+    .like("objectif", `${FICHE_JOB_PREFIX}%`);
+  const dejaJoues = new Set(((histo ?? []) as { objectif: string }[]).map((j) => j.objectif.slice(FICHE_JOB_PREFIX.length)));
+  const groupesEffectifs = [...new Set([...groupes, ...avalsARejouer([...new Set(groupes)], dejaJoues)])];
+  const nouveaux = groupesEffectifs.map((g) => `${FICHE_JOB_PREFIX}${g}`).filter((o) => !deja.has(o));
   if (nouveaux.length) {
     const lignes = nouveaux.map((objectif) => ({ cible_id: cibleId, objectif, apply: false }));
     if (initiateur) {

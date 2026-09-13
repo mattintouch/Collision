@@ -208,8 +208,12 @@ export interface TopicsContent {
     reflexions?: string[];
     /** v4 : brique rendue en pleine largeur (les sujets cœur d'épisode). */
     pleine_largeur?: boolean;
-    /** v4 : note tactique TOLÉRÉE en lecture, plus affichée ni exigée. */
-    questions?: { num?: string; texte: string; note?: string; zg?: string; clip?: boolean }[];
+    /** 13/09 : ids des idées éditoriales couvertes par la brique (la
+     *  couverture décide du passage en integree, jamais l'injection). */
+    idees_couvertes?: string[];
+    /** v4 : note tactique TOLÉRÉE en lecture, plus affichée ni exigée.
+     *  13/09 : plateau = LA question de la brique à poser sur le plateau. */
+    questions?: { num?: string; texte: string; note?: string; zg?: string; clip?: boolean; plateau?: boolean }[];
   }[];
 }
 
