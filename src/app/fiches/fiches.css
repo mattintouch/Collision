@@ -521,3 +521,50 @@ html { scroll-behavior: smooth; }
   .gdv4 .gd-zg { grid-template-columns: 1fr; gap: 4px; }
   .gdv4 .cgrid.cgrid8 { grid-template-columns: repeat(4, 1fr) !important; }
 }
+
+/* ── Plateau (dix_questions réactivée le 13/09) : la feuille d'enregistrement
+   en tête de fiche, pleine largeur, fond noir de régie. Le mode plateau
+   (/fiches/{slug}/plateau) réutilise les mêmes classes en plus grand. ── */
+.gdv4 .gd-plateau { margin: 24px 0 8px; background: #16150F; color: #FAF9F6; padding: 26px 28px 30px; }
+.gdv4 .gd-plateau__head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.gdv4 .gd-plateau h2 { font-family: "Barlow Condensed", sans-serif; font-size: 34px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; }
+.gdv4 .gd-plateau .sub { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #B8B4A6; }
+.gdv4 .gd-plateau .ouvrir { margin-left: auto; font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #F5C542; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+.gdv4 .gd-plateau .pintro { font-size: 17px; line-height: 1.5; color: #DDD9CC; margin: 14px 0 0; max-width: 760px; }
+.gdv4 .gd-plateau .pchaps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.gdv4 .gd-plateau .pchap { display: flex; align-items: baseline; gap: 8px; border: 1px solid #4A473C; padding: 7px 12px; min-width: 0; }
+.gdv4 .gd-plateau .pchap .n { font-family: "Archivo Black", sans-serif; font-size: 15px; color: #F5C542; }
+.gdv4 .gd-plateau .pchap .t { font-size: 14px; font-weight: 600; }
+.gdv4 .gd-plateau .pchap .mn { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #B8B4A6; white-space: nowrap; }
+.gdv4 .gd-plateau .pqs { margin-top: 20px; display: grid; gap: 10px; }
+.gdv4 .gd-plateau .pq { background: #201E16; border-left: 4px solid #F5C542; padding: 14px 18px; }
+.gdv4 .gd-plateau .pqhead { display: flex; align-items: baseline; gap: 10px; }
+.gdv4 .gd-plateau .pn { font-family: "Archivo Black", sans-serif; font-size: 20px; color: #F5C542; }
+.gdv4 .gd-plateau .pch { font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #B8B4A6; }
+.gdv4 .gd-plateau .pt { font-size: 18px; font-weight: 600; line-height: 1.45; margin: 8px 0 0; }
+.gdv4 .gd-plateau .pnote { font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #B8B4A6; margin: 8px 0 0; }
+.gdv4 .gd-plateau .pinterdits { margin-top: 22px; border: 1.5px solid #D4231A; padding: 14px 18px; }
+.gdv4 .gd-plateau .pinterdits .lab { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #FF6B61; margin-bottom: 8px; }
+.gdv4 .gd-plateau .pinterdits ul { margin: 0; padding-left: 18px; }
+.gdv4 .gd-plateau .pinterdits li { font-size: 15px; line-height: 1.5; margin-bottom: 4px; }
+@media (max-width: 900px) {
+  .gdv4 .gd-plateau { padding: 20px 16px 24px; }
+  /* Une question par écran maximum : chaque carte occupe la hauteur de
+     l'écran, le lecteur défile de question en question. */
+  .gdv4 .gd-plateau .pq { min-height: 82vh; display: flex; flex-direction: column; justify-content: center; }
+  .gdv4 .gd-plateau .pt { font-size: 22px; }
+}
+
+/* ── Mode plateau (/fiches/{slug}/plateau, 13/09) : sticky + feuille seule,
+   typographie de plateau, navigation par chapitre. ── */
+.gdv4 .gd-plateau--page { margin: 0; min-height: 100vh; padding-bottom: 80px; }
+.gdv4 .gd-plateau--page .pt { font-size: 26px; line-height: 1.4; }
+.gdv4 .gd-plateau--page .pq { padding: 22px 26px; }
+.gdv4 .gd-plateau--page .pn { font-size: 30px; }
+.gdv4 .gd-plateau--page .pintro { font-size: 20px; }
+.gdv4 .gd-plateau--page .pchaps { position: sticky; top: 44px; z-index: 30; background: #16150F; padding: 10px 0; margin-top: 12px; }
+.gdv4 .gd-plateau--page .pchap { text-decoration: none; color: inherit; }
+@media (max-width: 900px) {
+  .gdv4 .gd-plateau--page .pt { font-size: 24px; }
+  .gdv4 .gd-plateau--page .pq { min-height: 84vh; }
+}

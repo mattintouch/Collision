@@ -284,8 +284,57 @@ export interface SequencageContent {
     rappel?: string;
   }[];
 }
+/** 00 Plateau (dix_questions, réactivée le 13/09) : la feuille de plateau.
+ *  intro libre, chapitres minutés, questions rattachées à un chapitre,
+ *  interdits. L'ancien format v3.1 {questions:[{num, bloc, texte, note}]}
+ *  reste lisible : bloc vaut chapitre. */
 export interface DixQuestionsContent {
-  questions?: { num?: string; bloc?: number; texte: string; note?: string }[];
+  intro?: string;
+  chapitres?: { num?: number; titre: string; debut_min?: number; fin_min?: number }[];
+  interdits?: string[];
+  questions?: { num?: string; chapitre?: number; bloc?: number; texte: string; note?: string }[];
+}
+
+/** Feuille de plateau normalisée pour le rendu. */
+export interface PlateauView {
+  intro?: string;
+  chapitres: { num: number; titre: string; debut_min?: number; fin_min?: number }[];
+  questions: { num?: string; chapitre?: number; texte: string; note?: string }[];
+  interdits: string[];
+}
+
+/** Coercition défensive de la section plateau (PURE, testée) : null si vide,
+ *  chapitres numérotés (défaut : rang), questions rattachées par chapitre ou
+ *  par l'ancien champ bloc (v3.1), interdits nettoyés. */
+export function asPlateau(v: unknown): PlateauView | null {
+  const c = (v && typeof v === "object" && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const chapitres = asArray(c.chapitres, (x) => {
+    const titre = asString(x.titre);
+    if (!titre) return null;
+    return {
+      num: asNumber(x.num) ?? 0,
+      titre,
+      ...(asNumber(x.debut_min) !== undefined ? { debut_min: asNumber(x.debut_min) } : {}),
+      ...(asNumber(x.fin_min) !== undefined ? { fin_min: asNumber(x.fin_min) } : {}),
+    };
+  }).map((ch, i) => ({ ...ch, num: ch.num || i + 1 }));
+  const questions = asArray(c.questions, (x) => {
+    const texte = asString(x.texte);
+    if (!texte) return null;
+    const chapitre = asNumber(x.chapitre) ?? asNumber(x.bloc);
+    return {
+      ...(asString(x.num) ? { num: asString(x.num) } : {}),
+      ...(chapitre !== undefined ? { chapitre } : {}),
+      texte,
+      ...(asString(x.note) ? { note: asString(x.note) } : {}),
+    };
+  });
+  const interdits = Array.isArray(c.interdits)
+    ? (c.interdits as unknown[]).filter((x): x is string => typeof x === "string" && !!x.trim())
+    : [];
+  const intro = asString(c.intro);
+  if (!questions.length && !chapitres.length && !intro && !interdits.length) return null;
+  return { ...(intro ? { intro } : {}), chapitres, questions, interdits };
 }
 /** Zone grise (correctif du 27/07, règle 6) : chaque item porte un identifiant
  *  court et stable (zg_gautier). Les rappels du séquençage et les notes des
