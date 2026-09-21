@@ -7,6 +7,7 @@
 // nouveaux). Indispensable pour industrialiser sans perdre la saisie manuelle.
 
 import { runWebSearchJSON, type WebSearchUsage } from "../ai/websearch";
+import { ajouteAlias, normNomDoublon } from "../doublons";
 import { ENRICH_MODEL, hasAnthropicKey } from "../copilot/config";
 import { mapKindConstraintError } from "../mcp/kind";
 import { createServiceClient } from "../supabase/service";
@@ -24,6 +25,7 @@ export interface ProfileProposal {
   raison_de_selection?: string | null;
   resume?: string | null;
   sujets?: string[];
+  pseudos?: string[];
   reseaux?: { label?: string | null; url: string }[];
   sources?: string[];
 }
@@ -32,7 +34,8 @@ const SYSTEM = [
   "Tu es l'agent d'enrichissement de fiches invités de Magellan (Collision Productions).",
   "Recherche des informations PUBLIQUES et VÉRIFIABLES pour préparer une invitation podcast.",
   "Règles : sources publiques uniquement ; n'invente JAMAIS ; cite les URLs ; reste factuel et concis.",
-  "Réponds UNIQUEMENT en JSON : { role, organisation, secteur, pays, ville, photo_url, sujets:[...], reseaux:[{label,url}], resume, raison_de_selection, sources:[url] }.",
+  "Réponds UNIQUEMENT en JSON : { role, organisation, secteur, pays, ville, photo_url, sujets:[...], pseudos:[...], reseaux:[{label,url}], resume, raison_de_selection, sources:[url] }.",
+  "pseudos = autres noms sous lesquels la personne est CONNUE PUBLIQUEMENT : nom de scène, pseudonyme, nom de plume, nom d'état civil si le nom de la fiche est un nom de scène. Liste vide si aucun.",
   "ville = ville principale / base de la personne (pour planifier un tournage), distincte du pays.",
   "photo_url = URL DIRECTE d'un fichier image (se terminant par .jpg/.jpeg/.png/.webp), PAS une page web. Si tu n'as pas d'URL d'image directe fiable, mets null. Jamais de texte autour de l'URL.",
   "resume = 2-3 phrases de fond. raison_de_selection = pourquoi cette personne ferait un bon épisode. sujets = mots-clés.",
@@ -41,7 +44,7 @@ const SYSTEM = [
 /** Champs de la cible utilisés pour la fusion non destructive. */
 type CibleForApply = Pick<
   CibleEnrichie,
-  "id" | "kind" | "note" | "role" | "organisation" | "secteur" | "pays" | "ville" | "photo_url" | "raison_de_selection" | "sujets"
+  "id" | "kind" | "nom" | "note" | "role" | "organisation" | "secteur" | "pays" | "ville" | "photo_url" | "raison_de_selection" | "sujets"
 >;
 
 export async function enrichCibleProfile(
@@ -135,6 +138,19 @@ export async function applyProfileProposal(
   if (applied.length) {
     const { error } = await sb.from("cibles").update(patch).eq("id", cible.id);
     if (error) throw new Error(`MAJ cible (${applied.join(", ")}) : ${mapKindConstraintError(error.message) ?? error.message}`);
+  }
+
+  // Pseudos → alias (table cible_alias, anti-doublon 21/09) : la prochaine
+  // création sous ce nom remonte la fiche. Best-effort, table 0054 absente
+  // ou pseudo identique au nom = rien.
+  const pseudos = (p.pseudos ?? []).map((s) => (s ?? "").trim()).filter(Boolean).slice(0, 4);
+  if (pseudos.length) {
+    let poses = 0;
+    for (const pseudo of pseudos) {
+      if (normNomDoublon(pseudo) === normNomDoublon(cible.nom)) continue;
+      if (await ajouteAlias(sb, cible.id, pseudo, "enrichissement")) poses += 1;
+    }
+    if (poses) applied.push(`${poses} alias`);
   }
 
   // Réseaux → contacts, dédoublonnés contre les coordonnées déjà présentes.

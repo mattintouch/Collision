@@ -89,6 +89,16 @@
 ## En attente
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
 - `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
+- `0054_anti_doublon.sql` : anti-doublon au-delà du nom exact (brief du 21/09).
+  Extensions unaccent + pg_trgm + fuzzystrmatch, fonction norm_nom (minuscules,
+  accents, particules, parenthèses, tokens triés), table cible_alias (fusion,
+  enrichissement), colonne cibles.doublon_suspect, fonctions candidats_doublon
+  (création) et paires_doublons (passe rétroactive). Rejouable (if not exists /
+  or replace). Dormante-safe : sans elle, le contrôle P1 (nom normalisé exact)
+  reste seul, les alias et drapeaux sont best-effort silencieux. La passe
+  rétroactive (outil MCP admin audit_doublons) exige cette migration et renvoie
+  une erreur claire (cause migration_0054_manquante) tant qu'elle n'est pas
+  appliquée.
 
 
 > Leçon du 17/07 : le registre peut dériver de la base (cas 0021). En cas de
