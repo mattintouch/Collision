@@ -17,6 +17,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { extractJson } from "../ai/websearch";
 import { assurerResumes, tronqueProprement } from "./resume";
 import { collecteLivraisons, type Livraison } from "./livraisons";
+import { reboucleBacklog } from "../backlog/reboucle";
+import { lienLancement, urlClaudeCode } from "../dev/lien";
 import { normName } from "../contacts/resolve";
 import { depenseDepuisEur, depenseMoisEur, plafondEur } from "../ai/cout";
 import { estivalActif, isPlaceholder } from "../domain";
@@ -78,6 +80,21 @@ export interface RecapData {
   stock: { total: number; anciens: number };
   /** P3 doublons (25/08) : groupes de cibles actives au même nom normalisé. */
   doublons: GroupeDoublon[];
+  /** Chantier du 21/09 : les items a_faire sans PR, avec leur lien de
+   *  lancement signé. C'est la section qui rend le statut a_faire actionnable :
+   *  un clic ouvre une session Claude Code au prompt pré-rempli. Le lien vaut
+   *  null quand DEV_LINK_SECRET manque (repli sur la page /backlog). */
+  chantiers: ChantierALancer[];
+  /** Rebouclage du 21/09 : PR rattachées à leur item depuis le dernier récap. */
+  reboucle: { rattachements: number; erreur?: string };
+}
+
+export interface ChantierALancer {
+  id: string;
+  resume: string;
+  type: string;
+  age_jours: number;
+  lien: string | null;
 }
 
 export interface TriageProposal { id: string; triage: "a_faire" | "a_preciser" | "rejete"; justification: string }
@@ -538,6 +555,18 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
   const demandes_semaine = demandesSemaine(backlog, depuis);
   const stock = stockDemandes(backlog);
 
+  /* ── Chantier du 21/09, rebouclage puis chantiers à lancer. Le rebouclage
+        passe EN PREMIER : un item dont la PR vient d'être ouverte ne doit plus
+        apparaître comme à lancer dans l'email du même envoi. */
+  let reboucle: RecapData["reboucle"] = { rattachements: 0 };
+  try {
+    const r = await reboucleBacklog(sb);
+    reboucle = { rattachements: r.rattachements.length, ...(r.erreur ? { erreur: r.erreur } : {}) };
+  } catch (e) {
+    reboucle = { rattachements: 0, erreur: e instanceof Error ? e.message : String(e) };
+  }
+  const chantiers = await collecteChantiers(sb);
+
   /* ── P3 doublons : scan hebdomadaire nom normalisé + show (actives). */
   let doublonsScan: GroupeDoublon[] = [];
   try {
@@ -582,7 +611,49 @@ export async function compileRecap(sb: SB, joursFenetre = 7): Promise<RecapData>
     cout = { semaine_eur: coutSemaine, mois_eur: coutMois, plafond_eur: plafondEur() };
   }
 
-  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, livraisons, livraisons_incompletes, demandes_semaine, stock, doublons: doublonsScan };
+  return { depuis, mouvements, sandbox: sandboxFinal, notes, besoins, generations, echecs, cout, prompt_correction, backlog, livraisons, livraisons_incompletes, demandes_semaine, stock, doublons: doublonsScan, chantiers, reboucle };
+}
+
+/** Chantier du 21/09 : les items a_faire sans PR, prêts à lancer, chacun avec
+ *  son lien signé (30 jours). Le tri met les plus anciens devant : ce sont eux
+ *  qui dorment depuis juillet. Jamais bloquant, la liste part vide en cas
+ *  d'erreur. */
+export async function collecteChantiers(sb: SB, limite = 8): Promise<ChantierALancer[]> {
+  let lignes: { id: string; contenu: string; type?: string | null; resume?: string | null; created_at: string }[] = [];
+  try {
+    const enrichi = await sb
+      .from("product_backlog")
+      .select("id, contenu, type, resume, created_at, pr_url")
+      .eq("statut", "a_faire")
+      .is("pr_url", null)
+      .order("created_at")
+      .limit(limite);
+    if (enrichi.error) {
+      const base = await sb
+        .from("product_backlog")
+        .select("id, contenu, created_at, pr_url")
+        .eq("statut", "a_faire")
+        .is("pr_url", null)
+        .order("created_at")
+        .limit(limite);
+      lignes = (base.data ?? []) as typeof lignes;
+    } else {
+      lignes = (enrichi.data ?? []) as typeof lignes;
+    }
+  } catch {
+    return [];
+  }
+  const out: ChantierALancer[] = [];
+  for (const l of lignes) {
+    out.push({
+      id: l.id,
+      resume: (l.resume ?? "").trim() || tronqueProprement(l.contenu, 150),
+      type: l.type ?? "feature",
+      age_jours: ageJours(l.created_at),
+      lien: await lienLancement(l.id),
+    });
+  }
+  return out;
 }
 
 /** Triage proposé par item (écrit en commentaire du backlog par le cron,
@@ -625,6 +696,8 @@ function esc(s: unknown): string {
 
 /** Base des liens console dans l'email (page /backlog). */
 const appUrl = () => (process.env.APP_URL ?? "https://magellan.collision.studio").replace(/\/+$/, "");
+/** Dépôt visé par les liens de lancement dev (chantier du 21/09). */
+const depotGit = () => process.env.GITHUB_REPO ?? "mattintouch/Collision";
 /** Conversation Claude préremplie (liens Valider / Rejeter de la section D). */
 export const lienClaude = (q: string) => `https://claude.ai/new?q=${encodeURIComponent(q)}`;
 
@@ -668,8 +741,11 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
   }
   const partieB = [
     `<h2 style="font-size:17px">B. Échecs et coûts</h2><ul style="padding-left:18px">${b.join("")}</ul>`,
+    // Chantier du 21/09 : plus aucun prompt en texte brut dans l'email. Le
+    // prompt de correction part en lien de lancement, pré-rempli dans Claude
+    // Code, à relire avant envoi.
     data.prompt_correction
-      ? `<p style="margin:6px 0 0 0"><b>Échec systématique détecté.</b> Prompt de correction à coller dans Claude Code :</p>${pre(data.prompt_correction)}`
+      ? `<p style="margin:6px 0 0 0"><b>Échec systématique détecté.</b> <a href="${esc(urlClaudeCode(data.prompt_correction, depotGit()))}" style="color:#1D6FD8;font-weight:600">Ouvrir la correction dans Claude Code</a> (prompt prérempli, à relire avant de lancer).</p>`
       : "",
     data.doublons.length
       ? `<p style="margin:10px 0 0 0"><b>Doublons détectés</b> (même nom, même show) : ${data.doublons
@@ -715,11 +791,39 @@ export function buildRecapEmail(data: RecapData): { subject: string; html: strin
   const ligneStock = data.stock.total > 0
     ? `<a href="${esc(backlogUrl)}" style="color:#1B1D1E">${data.stock.total} demande${data.stock.total > 1 ? "s" : ""} en attente de triage${data.stock.anciens > 0 ? `, dont ${data.stock.anciens} de plus de 2 semaines` : ""}</a>.`
     : `Le backlog est à jour : <a href="${esc(backlogUrl)}" style="color:#1B1D1E">aucune demande en attente de triage</a>.`;
+  /* Chantier du 21/09 : les items validés qui attendent leur PR. Chaque ligne
+     porte son lien de lancement, qui ouvre une session Claude Code au prompt
+     prérempli. C'est ce qui rend le statut a_faire actionnable : avant, un
+     item validé attendait une Routine qui n'a jamais tourné. */
+  // Une ligne par chantier, l'âge seulement quand il est ANORMAL : un item
+  // validé qui dort depuis plus d'un mois est le signal à faire remonter,
+  // « il y a 3 jours » ne dit rien et coûte de la place.
+  const chantiers = data.chantiers ?? [];
+  const VIEUX_JOURS = 30;
+  const lignesLancement = chantiers.map((c) =>
+    li(
+      `${c.type !== "feature" ? `<b>[${esc(c.type)}]</b> ` : ""}${esc(c.resume)} ` +
+        (c.lien
+          ? `<a href="${esc(c.lien)}" style="color:#177A4C;font-weight:600">Lancer le dev</a>`
+          : `<a href="${esc(`${backlogUrl}#${c.id.slice(0, 8)}`)}" style="color:#1D6FD8">Voir le détail</a>`) +
+        (c.age_jours >= VIEUX_JOURS ? ` <span style="color:#8a8d88;font-size:12px">en attente depuis ${c.age_jours} jours</span>` : "")
+    )
+  );
+  // Sous-partie de D, jamais une cinquième section : la structure de l'email
+  // reste A, B, C, D (contrainte produit du 25/08, testée).
+  const partieLancement = chantiers.length
+    ? `<p style="margin:16px 0 6px 0"><b>Prêts à développer</b></p><ul style="padding-left:18px">${lignesLancement.join("")}</ul>`
+    : "";
+  const piedD = chantiers.length && chantiers.some((c) => c.lien)
+    ? "Valider et Rejeter ouvrent une conversation Claude préremplie ; Lancer le dev ouvre une session Claude Code, prompt prérempli et non envoyé, dont la PR se rattachera seule à sa demande."
+    : "Les liens Valider et Rejeter ouvrent une conversation Claude préremplie, à envoyer telle quelle ou à compléter ; le triage manuel reste « passe l'item xxxxxxxx en a_faire » dans Claude.";
+
   const partieD = [
     `<h2 style="font-size:17px">D. Demandes produit</h2>`,
     d.length ? `<ul style="padding-left:18px">${d.join("")}</ul>` : `<p>Aucune demande nouvelle cette semaine.</p>`,
     `<p style="margin:10px 0 0 0">${ligneStock}</p>`,
-    `<p style="color:#8a8d88;font-size:12px;margin:12px 0 0 0">Les liens Valider et Rejeter ouvrent une conversation Claude préremplie, à envoyer telle quelle ou à compléter ; le triage manuel reste « passe l'item xxxxxxxx en a_faire » dans Claude.</p>`,
+    partieLancement,
+    `<p style="color:#8a8d88;font-size:12px;margin:12px 0 0 0">${piedD}</p>`,
   ].join("");
 
   const html = [
