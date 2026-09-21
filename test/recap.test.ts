@@ -37,6 +37,11 @@ const data: RecapData = {
   ],
   stock: { total: 9, anciens: 3 },
   doublons: [],
+  chantiers: [
+    { id: "ddb5bfb0-4843-4913-9316-b445c00a9747", resume: "find_cible échoue à détecter les cibles existantes sur fragment de nom.", type: "bug", age_jours: 3, lien: "https://magellan.collision.studio/dev/ddb5bfb0-4843-4913-9316-b445c00a9747?t=jeton" },
+    { id: "a181d8ff-9f9b-4b21-8a15-fc37793fc441", resume: "Regrouper les ajouts du weekly par show.", type: "feature", age_jours: 20, lien: null },
+  ],
+  reboucle: { rattachements: 0 },
 };
 
 /** Texte visible de l'email : blocs pre exclus (prompts, tirets autorisés),
@@ -140,9 +145,14 @@ describe("récap hebdo v2 — B, échecs et coûts", () => {
 
   it("le prompt de correction n'apparaît QUE s'il est fourni (échec systématique)", () => {
     expect(buildRecapEmail(data).html).not.toContain("Échec systématique détecté");
-    const { html } = buildRecapEmail({ ...data, prompt_correction: "Découpe la recherche web en sous-requêtes plus courtes." });
+    const prompt_correction = "Découpe la recherche web en sous-requêtes plus courtes.";
+    const { html } = buildRecapEmail({ ...data, prompt_correction });
     expect(html).toContain("Échec systématique détecté");
-    expect(html).toContain("sous-requêtes plus courtes");
+    // Chantier du 21/09 : le prompt part en LIEN de lancement, plus jamais en
+    // texte brut dans le corps de l'email.
+    expect(html).toContain("https://claude.ai/code?");
+    expect(html).toContain(new URLSearchParams({ prompt: prompt_correction }).toString());
+    expect(texteVisible(html)).not.toContain("sous-requêtes plus courtes");
   });
 });
 
