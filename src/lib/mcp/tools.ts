@@ -23,6 +23,22 @@ import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
+import {
+  CLE_DOUBLONS_SUSPECTS,
+  ajouteAlias,
+  arbitrageLLM,
+  candidatsDoublon,
+  cibleParIdentifiantFort,
+  classifieCandidat,
+  emailsDesCibles,
+  identifiantsForts,
+  normNomDoublon,
+  poseDrapeauSuspect,
+  verseALaFile,
+  type CandidatDoublon,
+  type ClasseDoublon,
+  type VerdictLLM,
+} from "../doublons";
 import { kickQueue } from "../enrichment/jobs";
 import { ficheUrl, baseUrl } from "../fiche/token";
 import { FICHE_SECTIONS, FICHE_SECTION_IDS, SECTIONS_OBLIGATOIRES, canonicalSectionId, parseSectionsParam } from "../fiche/sections";
@@ -944,9 +960,85 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         const { data: preRow } = await sb.from("cibles").select("archive").eq("id", pre.id).maybeSingle();
         was_archived = !!(preRow as { archive?: boolean } | null)?.archive;
       }
+      // P2 anti-doublon (brief du 21/09), seulement quand une NOUVELLE fiche
+      // va naître (ni force, ni réutilisation d'une existante). Ordre de
+      // résolution : identifiants FORTS d'abord (email, LinkedIn ; le folk_id
+      // ne se pose qu'en update_cible), puis similarité de nom via le RPC de
+      // la migration 0054 (pg_trgm indexé + levenshtein) sur {nom, alias,
+      // organisation, rôle}. Deux seuils : blocage dur (lev<=1 sur nom long,
+      // ou très haute similarité avec organisation concordante) ; sinon la
+      // création passe avec drapeau doublon_suspect et file d'arbitrage.
+      // Migration 0054 absente : candidats vides, seul le P1 exact joue.
+      let suspicion: { candidats: CandidatDoublon[]; verdict: VerdictLLM } | null = null;
+      if (!a.force && !pre) {
+        const ids = identifiantsForts(a.contacts);
+        const fort = await cibleParIdentifiantFort(sb, show.id, ids);
+        if (fort) {
+          return text({
+            doublon: true,
+            motif: "identifiant_fort",
+            identifiant: fort.identifiant,
+            cible_id: fort.cible_id,
+            nom_existant: fort.nom,
+            avertissement: `Une cible de ce show porte déjà cet identifiant (${fort.identifiant}) : rien n'a été créé ni modifié. Pour compléter la fiche existante : update_cible sur ${fort.cible_id}. Pour créer quand même : rappeler avec force: true.`,
+          });
+        }
+        const candidats = await candidatsDoublon(sb, show.id, a.nom);
+        if (candidats.length) {
+          // Des emails connus et DIFFÉRENTS valent non-doublon définitif.
+          const emailsConnus = ids.emails.length
+            ? await emailsDesCibles(sb, [...new Set(candidats.map((x) => x.cible_id))])
+            : new Map<string, string[]>();
+          const nomNorm = normNomDoublon(a.nom);
+          const orgNorm = normNomDoublon(a.organisation);
+          const retenus: { c: CandidatDoublon; classe: ClasseDoublon }[] = [];
+          for (const cand of candidats) {
+            const leurs = emailsConnus.get(cand.cible_id) ?? [];
+            if (ids.emails.length && leurs.length && !leurs.some((e) => ids.emails.includes(e))) continue;
+            const orgConcordante = !!orgNorm && normNomDoublon(cand.organisation) === orgNorm;
+            const classe = classifieCandidat(cand, nomNorm, orgConcordante);
+            if (classe !== "distinct") retenus.push({ c: cand, classe });
+          }
+          const bloque = retenus.find((r) => r.classe === "bloque");
+          if (bloque) {
+            return text({
+              doublon: true,
+              motif: "similarite",
+              champ: bloque.c.champ,
+              valeur_proche: bloque.c.valeur,
+              similarite: bloque.c.sim,
+              distance_edition: bloque.c.lev,
+              cible_id: bloque.c.cible_id,
+              nom_existant: bloque.c.nom,
+              candidats: retenus.map((r) => ({ id: r.c.cible_id, nom: r.c.nom, champ: r.c.champ, sim: r.c.sim, lev: r.c.lev })),
+              avertissement: `« ${a.nom} » est très probablement la même personne que « ${bloque.c.nom} » (${bloque.c.champ} proche : ${bloque.c.valeur}). Rien n'a été créé ni modifié. Pour compléter la fiche existante : update_cible sur ${bloque.c.cible_id}. Pour un homonyme réel volontaire : rappeler avec force: true.`,
+            });
+          }
+          const grise = retenus.filter((r) => r.classe === "zone_grise").map((r) => r.c);
+          if (grise.length) {
+            const verdict = await arbitrageLLM(a.nom, a.organisation, grise);
+            if (verdict.verdict === "doublon_probable") suspicion = { candidats: grise, verdict };
+          }
+        }
+      }
       // force:true : création brute assumée, aucune réutilisation d'homonyme.
       const c = a.force ? await creeCible(sb, show, a.nom) : await ensureCible(sb, show, a.nom);
       if (!c) return text({ error: "Création échouée" });
+      // Zone grise : la cible EST créée (le faux négatif prime, jamais de
+      // blocage à tort), mais drapeau posé et versement dans la file
+      // d'arbitrage (list_doublons_suspects, digest de 19h).
+      let doublon_suspect: Record<string, unknown> | undefined;
+      if (suspicion && !pre) {
+        const detecte_le = new Date().toISOString();
+        const candidatsResume = suspicion.candidats.slice(0, 5).map((x) => ({ cible_id: x.cible_id, nom: x.nom, champ: x.champ, sim: x.sim, lev: x.lev }));
+        const detail = { verdict: suspicion.verdict, candidats: candidatsResume, origine: "creation", detecte_le };
+        await poseDrapeauSuspect(sb, c.id, detail);
+        await verseALaFile(sb, { cible_id: c.id, nom: c.nom, candidats: candidatsResume, verdict: suspicion.verdict, origine: "creation", detecte_le });
+        doublon_suspect = {
+          ...detail,
+          avertissement: `Cible créée mais DOUBLON SUSPECT (${suspicion.verdict.raison ?? "similarité en zone grise"}) : versée à la file d'arbitrage (list_doublons_suspects). Doublon avéré : fusionner_cibles.`,
+        };
+      }
       delete patch.nom; // déjà posé par ensureCible
       if (a.is_test !== undefined) patch.is_test = a.is_test; // A6 (hors kindAwarePatch)
       if (Object.keys(patch).length) await sb.from("cibles").update(patch).eq("id", c.id);
@@ -994,6 +1086,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         contacts_crees,
         touche_creee,
         contacts_auto: attaches,
+        ...(doublon_suspect ? { doublon_suspect } : {}),
       });
     }
   );
@@ -2978,10 +3071,14 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         }
         return text({ error: error.message });
       }
+      // Anti-doublon (21/09) : le nom de l'absorbée devient un ALIAS de la
+      // survivante (table cible_alias, migration 0054) : la prochaine création
+      // sous ce nom remonte la survivante. Best-effort, table absente = rien.
+      const alias_pose = await ajouteAlias(sb, surv.id, abso.nom, "fusion");
       // Synchro Folk best-effort : la survivante a pu hériter d'un folk_id et
       // de nouvelles coordonnées.
       kickFolkSync(surv.id);
-      return text({ ok: true, rapport: data, survivante: { id: surv.id, nom: surv.nom }, absorbee: { id: abso.id, nom: abso.nom, statut: "archivée, note de renvoi posée" } });
+      return text({ ok: true, rapport: data, alias_pose, survivante: { id: surv.id, nom: surv.nom }, absorbee: { id: abso.id, nom: abso.nom, statut: "archivée, note de renvoi posée" } });
     }
   );
 
@@ -2995,6 +3092,107 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
       const { data } = await sb.from("system_state").select("value, updated_at").eq("key", CLE_FOLK_REPARATION).maybeSingle();
       if (!data) return text({ rapport: null, note: "Aucune réparation enregistrée : le job tourne dans la fenêtre quotidienne de 06h UTC." });
       return text({ rapport: (data as { value: unknown }).value, mis_a_jour: (data as { updated_at: string }).updated_at });
+    }
+  );
+
+  // Anti-doublon (21/09) : file d'arbitrage des créations en zone grise et
+  // des paires remontées par la passe rétroactive. Même mécanique que
+  // list_folk_ambigus (system_state), même débouché : le digest de 19h.
+  RT(
+    "list_doublons_suspects",
+    "File d'arbitrage des DOUBLONS SUSPECTS (anti-doublon 21/09) : cibles créées en zone grise de similarité (drapeau doublon_suspect) et paires remontées par la passe rétroactive audit_doublons. Chaque entrée porte les candidats (nom, champ qui matche, similarité, distance d'édition) et le verdict LLM. Rien n'est fusionné automatiquement : trancher à la main via fusionner_cibles (doublon avéré) ou update_cible pour retirer le drapeau. C'est une source du digest quotidien de Vadim (19h). Intentions : lister les doublons à arbitrer.",
+    {},
+    { readOnlyHint: true },
+    async () => {
+      const sb = createServiceClient();
+      const { data } = await sb.from("system_state").select("value, updated_at").eq("key", CLE_DOUBLONS_SUSPECTS).maybeSingle();
+      if (!data) return text({ suspects: [], note: "File vide : aucune création en zone grise ni passe rétroactive enregistrée." });
+      const value = (data as { value?: { suspects?: unknown[] } }).value;
+      return text({ suspects: value?.suspects ?? [], mis_a_jour: (data as { updated_at: string }).updated_at });
+    }
+  );
+
+  // Anti-doublon (21/09) : passe RÉTROACTIVE unique sur la base. Sortie en
+  // file d'arbitrage uniquement, AUCUNE fusion automatique (le faux négatif
+  // prime : une fusion erronée coûte de l'historique et de la confiance).
+  W(
+    "audit_doublons",
+    "Passe RÉTROACTIVE de détection de doublons sur TOUTE la base (admin, anti-doublon 21/09) : paires candidates par similarité pg_trgm (nom contre nom, alias, organisation), arbitrage LLM des meilleures paires en zone grise, drapeau doublon_suspect posé sur la plus récente de chaque paire retenue et versement dans la file d'arbitrage (list_doublons_suspects, digest de 19h). AUCUNE fusion automatique : chaque paire se tranche à la main via fusionner_cibles. Nécessite la migration 0054. Intentions : résorber rétroactivement les doublons existants.",
+    {
+      seuil: z.number().min(0.3).max(1).optional().describe("similarité minimale des paires (défaut 0.55)"),
+      max_paires: z.number().int().min(1).max(500).optional().describe("paires examinées au plus (défaut 100)"),
+      max_llm: z.number().int().min(0).max(60).optional().describe("arbitrages LLM au plus, les meilleures paires d'abord (défaut 25)"),
+    },
+    { destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    async (a, extra) => {
+      const roleAppelant = extra?.authInfo?.extra?.role ?? null;
+      if (roleAppelant !== "admin") {
+        return text({ error: "Cette opération demande le rôle admin, vérifié sur le jeton de l'appelant. Adresse-toi à Matthieu." });
+      }
+      const sb = createServiceClient();
+      const seuil = a.seuil ?? 0.55;
+      const maxPaires = a.max_paires ?? 100;
+      const maxLlm = a.max_llm ?? 25;
+      const { data, error } = await sb.rpc("paires_doublons", { p_seuil: seuil, p_limite: maxPaires });
+      if (error) {
+        if (/paires_doublons/.test(error.message) && /function|schema/i.test(error.message)) {
+          return text({ error: "Fonction paires_doublons absente : appliquer la migration 0054, puis réessayer.", cause: "migration_0054_manquante" });
+        }
+        return text({ error: error.message });
+      }
+      type Paire = { a_id: string; a_nom: string; b_id: string; b_nom: string; champ: string; sim: number; lev: number; show_id: string };
+      const paires = ((data ?? []) as Paire[]).filter((p) => p.a_id && p.b_id);
+      // Une seule paire par couple (le RPC peut remonter nom ET alias), la
+      // meilleure similarité gagne ; tri déjà décroissant côté SQL.
+      const vues = new Set<string>();
+      const uniques = paires.filter((p) => {
+        const cle = [p.a_id, p.b_id].sort().join(":");
+        if (vues.has(cle)) return false;
+        vues.add(cle);
+        return true;
+      });
+      // Dates de création : le drapeau se pose sur la plus RÉCENTE de la
+      // paire (la copie probable), jamais sur la fiche d'origine.
+      const ids = [...new Set(uniques.flatMap((p) => [p.a_id, p.b_id]))];
+      const creation = new Map<string, string>();
+      for (let i = 0; i < ids.length; i += 200) {
+        const { data: rows } = await sb.from("cibles").select("id, created_at").in("id", ids.slice(i, i + 200));
+        for (const r of (rows ?? []) as { id: string; created_at: string }[]) creation.set(r.id, r.created_at);
+      }
+      let arbitrages = 0;
+      const retenues: { suspect: string; suspect_nom: string; face_a: string; face_a_nom: string; champ: string; sim: number; lev: number; verdict: VerdictLLM }[] = [];
+      const ecartees: { a: string; b: string; champ: string; sim: number; raison: string }[] = [];
+      const detecte_le = new Date().toISOString();
+      for (const p of uniques) {
+        const [ancienne, recente] = (creation.get(p.a_id) ?? "") <= (creation.get(p.b_id) ?? "")
+          ? [{ id: p.a_id, nom: p.a_nom }, { id: p.b_id, nom: p.b_nom }]
+          : [{ id: p.b_id, nom: p.b_nom }, { id: p.a_id, nom: p.a_nom }];
+        const candidat: CandidatDoublon = { cible_id: ancienne.id, nom: ancienne.nom, champ: p.champ as CandidatDoublon["champ"], valeur: normNomDoublon(ancienne.nom), sim: p.sim, lev: p.lev };
+        let verdict: VerdictLLM;
+        if (arbitrages < maxLlm) {
+          arbitrages += 1;
+          verdict = await arbitrageLLM(recente.nom, undefined, [candidat]);
+        } else {
+          verdict = { verdict: "doublon_probable", cible_id: ancienne.id, raison: `plafond LLM atteint, versé par prudence (similarité ${p.sim.toFixed(2)})` };
+        }
+        if (verdict.verdict === "distinct") {
+          ecartees.push({ a: p.a_id, b: p.b_id, champ: p.champ, sim: p.sim, raison: verdict.raison ?? "jugées distinctes" });
+          continue;
+        }
+        const candidatsResume = [{ cible_id: ancienne.id, nom: ancienne.nom, champ: p.champ, sim: p.sim, lev: p.lev }];
+        await poseDrapeauSuspect(sb, recente.id, { verdict, candidats: candidatsResume, origine: "retro", detecte_le });
+        await verseALaFile(sb, { cible_id: recente.id, nom: recente.nom, candidats: candidatsResume, verdict, origine: "retro", detecte_le });
+        retenues.push({ suspect: recente.id, suspect_nom: recente.nom, face_a: ancienne.id, face_a_nom: ancienne.nom, champ: p.champ, sim: p.sim, lev: p.lev, verdict });
+      }
+      return text({
+        ok: true,
+        paires_examinees: uniques.length,
+        arbitrages_llm: arbitrages,
+        suspects_verses: retenues.length,
+        ecartees: ecartees.length,
+        retenues,
+        detail: "Aucune fusion automatique : arbitrer via list_doublons_suspects puis fusionner_cibles au cas par cas.",
+      });
     }
   );
 
