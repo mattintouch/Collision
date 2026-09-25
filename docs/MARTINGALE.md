@@ -104,20 +104,26 @@ lecture seule, alors que le brief lui demande de travailler sur son show. Un
 membre qui a accès à tous les shows n'a pas de périmètre du tout, ce qui laisse
 l'équipe actuelle strictement inchangée.
 
+**L'ouverture d'accès est une donnée, plus un geste** (décision de Matt du
+25/09). La migration 0057 pose la table `show_domaines`, qui dit quel domaine
+ouvre quel show : `orsomedia.io` donne `la-martingale`, et rien d'autre. Le
+trigger d'accueil la consulte. Lhou et Christofer se connectent donc par Google
+avec leur adresse Orso, comme le reste de l'équipe, et travaillent
+immédiatement. Ajouter un partenaire plus tard ne demande plus de migration,
+seulement une ligne dans cette table.
+
+Le rôle applicatif d'un partenaire est `interne`, parce que c'est ce rôle qui
+ouvre l'écriture côté connecteur MCP. Ce n'est pas lui qui décide du périmètre,
+c'est la ligne `user_shows` : confondre les deux enfermerait un partenaire en
+lecture seule sur son propre show.
+
 **Reste à faire, côté configuration, hors code.**
 1. Ajouter `orsomedia.io` à `GOOGLE_OAUTH_ALLOWED_DOMAINS` sur Vercel. Sans
    cela, Lhou ne peut pas se connecter du tout : la liste par défaut est
-   `stefani.fr,collision.studio`.
-2. Après leur première connexion, ouvrir `la-martingale` à Lhou et Christofer
-   (une ligne `user_shows` chacun, la requête est dans la migration 0055), et
-   retirer les lignes `user_shows` que le trigger aurait posées ailleurs si
-   leur compte existait avant la migration 0055.
-3. Les passer en `profiles.type = 'interne'`. Le trigger les aura posées en
-   `externe`, ce qui est le bon défaut (aucun accès), mais `externe` ne donne
-   que la lecture côté connecteur MCP : ce rôle les empêcherait de travailler.
-   Le rôle dit ce qu'elles ont le droit de faire, la ligne `user_shows` dit où.
-4. Reconnecter leur connecteur : rôle et périmètre sont figés dans le jeton à
-   son émission.
+   `stefani.fr,collision.studio`, et cette variable garde la porte d'entrée,
+   quand `show_domaines` ne décrit que ce que voit une personne déjà entrée.
+2. Rien d'autre. Un compte partenaire déjà créé avant la 0057 est rattrapé par
+   la migration elle même.
 
 ## 2. Décisions prises sans arbitrage
 
