@@ -17,21 +17,36 @@ async function roleForSub(sub: string): Promise<string | null> {
 }
 
 /** Prérequis 1.3 du brief La Martingale : périmètre de shows d'un membre
- *  RESTREINT. Un externe ne travaille que sur les shows que user_shows lui
- *  donne ; la RLS l'applique déjà côté application, le connecteur MCP passe
+ *  RESTREINT. La RLS l'applique déjà côté application ; le connecteur MCP passe
  *  par le service role et a besoin de la liste dans le jeton pour filtrer.
  *
- *  Admin et interne : aucun périmètre (null), rien ne change pour eux.
- *  Externe sans aucune ligne user_shows : périmètre VIDE, donc aucun show.
- *  Best-effort : en cas d'échec de lecture, aucune clé n'est posée, et le
+ *  Le périmètre se lit dans user_shows, PAS dans le rôle. Le rôle dit ce qu'un
+ *  membre a le droit de faire (lire, écrire), user_shows dit où il a le droit
+ *  de le faire : ce sont deux questions distinctes. Lier le périmètre au seul
+ *  rôle « externe » aurait condamné un collaborateur d'un autre studio à la
+ *  lecture seule, alors que le brief lui demande de travailler sur son show.
+ *
+ *  Admin : aucun périmètre, il voit tout. Membre ayant accès à TOUS les shows :
+ *  aucun périmètre non plus, la clé reste absente et rien ne change pour
+ *  l'équipe actuelle. Membre ayant accès à une partie : la liste. Membre sans
+ *  aucune ligne : liste VIDE, donc aucun show (et non la base entière).
+ *
+ *  Best-effort : en cas d'échec de lecture, aucune clé n'est posée et le
  *  connecteur se comporte comme avant (fail-open assumé, cohérent avec les
  *  scopes de rôle). */
 async function showsForSub(sub: string, role: string | null): Promise<string[] | null> {
-  if (role !== "externe") return null;
+  if (role === "admin") return null;
   try {
     const sb = createServiceClient();
-    const { data } = await sb.from("user_shows").select("show_id").eq("user_id", sub);
-    return ((data ?? []) as { show_id: string }[]).map((r) => r.show_id);
+    const { data, error } = await sb.from("user_shows").select("show_id").eq("user_id", sub);
+    if (error) return null;
+    const ids = ((data ?? []) as { show_id: string }[]).map((r) => r.show_id);
+    const { count, error: err2 } = await sb.from("shows").select("id", { count: "exact", head: true });
+    if (err2) return null;
+    // Accès à tous les shows : pas de périmètre. Figer la liste ici ferait
+    // vieillir le jeton au premier show créé.
+    if (count !== null && ids.length >= count) return null;
+    return ids;
   } catch {
     return null;
   }

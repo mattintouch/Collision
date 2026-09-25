@@ -63,3 +63,22 @@ describe("périmètre par show (connecteur MCP)", () => {
     });
   });
 });
+
+// Correction du 25/09 : le périmètre se lit dans user_shows, pas dans le rôle.
+// Lier le périmètre au seul rôle « externe » condamnait un collaborateur
+// extérieur à la lecture seule (scopesForRole("externe") ne donne que "read"),
+// alors que le brief lui demande de travailler sur son show.
+describe("rôle et périmètre sont deux questions distinctes", () => {
+  it("un membre restreint garde ses droits d'écriture dans son périmètre", async () => {
+    const { scopesForRole } = await import("../src/lib/mcp/oauth");
+    // Lhou : interne (donc écriture) mais restreinte à un seul show.
+    expect(scopesForRole("interne")).toContain("write");
+    await avecPerimetre([MARTINGALE], async () => {
+      expect(showDansPerimetre(MARTINGALE)).toBe(true);
+      expect(showDansPerimetre(GDIY)).toBe(false);
+    });
+    // Le rôle externe, lui, resterait en lecture seule : ce n'est pas le
+    // réglage attendu pour quelqu'un qui doit produire.
+    expect(scopesForRole("externe")).toEqual(["read"]);
+  });
+});
