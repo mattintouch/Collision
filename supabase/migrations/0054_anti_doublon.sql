@@ -21,21 +21,30 @@ create extension if not exists pg_trgm;
 create extension if not exists fuzzystrmatch;
 
 -- unaccent est STABLE (dictionnaire), les index exigent IMMUTABLE : wrapper
--- figé sur le dictionnaire public.unaccent (pratique standard).
-create or replace function f_unaccent(text) returns text
-language sql immutable parallel safe strict as
-$$ select public.unaccent('public.unaccent'::regdictionary, $1) $$;
+-- figé sur le dictionnaire unaccent (pratique standard).
+--
+-- CORRECTION DU 25/09, constatée à l'application : Supabase installe les
+-- extensions dans le schéma `extensions`, pas dans `public`. Qualifier
+-- `public.unaccent` échouait donc. Les fonctions portent désormais leur propre
+-- search_path, ce qui les rend insensibles au schéma d'installation ET au
+-- search_path de l'appelant (un cron, un connecteur, l'éditeur SQL).
+create or replace function public.f_unaccent(text) returns text
+language sql immutable parallel safe strict
+set search_path = public, extensions
+as $$ select unaccent('unaccent'::regdictionary, $1) $$;
 
 -- Normalisation de comparaison : minuscules, accents retirés, contenu entre
 -- parenthèses retiré, ponctuation en espace, particules retirées, tokens
 -- TRIÉS (l'ordre prénom/nom ou nom de scène inversé ne compte plus).
-create or replace function norm_nom(text) returns text
-language sql immutable parallel safe as $$
+create or replace function public.norm_nom(text) returns text
+language sql immutable parallel safe
+set search_path = public, extensions
+as $$
   select coalesce((
     select string_agg(t, ' ' order by t)
     from unnest(string_to_array(
       regexp_replace(
-        regexp_replace(lower(f_unaccent(coalesce($1, ''))), '\(.*?\)', ' ', 'g'),
+        regexp_replace(lower(public.f_unaccent(coalesce($1, ''))), '\(.*?\)', ' ', 'g'),
         '[^a-z0-9]+', ' ', 'g'
       ), ' ')) as t
     where t <> ''
@@ -72,7 +81,9 @@ alter table cibles add column if not exists doublon_suspect jsonb;
 -- comptent (une absorbée reste un signal).
 create or replace function candidats_doublon(p_show uuid, p_nom text, p_limite int default 10)
 returns table (cible_id uuid, nom text, champ text, valeur text, sim real, lev int, organisation text, role text, archive boolean)
-language sql stable as $$
+language sql stable
+set search_path = public, extensions
+as $$
   with q as (select norm_nom(p_nom) as n)
   select t.cible_id, t.nom, t.champ, t.valeur, t.sim, t.lev, t.organisation, t.role, t.archive
   from (
@@ -114,7 +125,9 @@ $$;
 -- (moins de mille cibles) : le scan est acceptable pour une passe unique.
 create or replace function paires_doublons(p_seuil real default 0.55, p_limite int default 500)
 returns table (a_id uuid, a_nom text, b_id uuid, b_nom text, champ text, sim real, lev int, show_id uuid)
-language sql stable as $$
+language sql stable
+set search_path = public, extensions
+as $$
   select * from (
     select c1.id, c1.nom, c2.id, c2.nom, 'nom'::text,
            similarity(norm_nom(c1.nom), norm_nom(c2.nom)),
