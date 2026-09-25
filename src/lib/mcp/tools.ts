@@ -23,6 +23,8 @@ import { computeEligibilite, evaluerCouverture } from "../editorial";
 import { computeCibleScore, computeResurgence, estivalActif, type ScoreInput } from "../domain";
 import { computeShowStats } from "../stats";
 import { kindAwarePatch, mapKindConstraintError } from "./kind";
+import { avecPerimetre, showDansPerimetre, showsAutorises } from "./perimetre";
+import { ETAPES_PLANNING, collisionsFamille, phraseAlerte, triePlanning, type LignePlanning } from "../martingale/rotation";
 import {
   CLE_DOUBLONS_SUSPECTS,
   ajouteAlias,
@@ -81,7 +83,12 @@ async function showRow(sb: SB, ref: string) {
   let q = sb.from("shows").select("id, slug, type_pipe");
   q = isId ? q.eq("id", ref) : q.ilike("slug", ref);
   const { data } = await q.maybeSingle();
-  return data as { id: string; slug: string; type_pipe: "invites" | "thematique" } | null;
+  const row = data as { id: string; slug: string; type_pipe: "invites" | "thematique" } | null;
+  // Périmètre par show (prérequis 1.3 du brief La Martingale) : un membre
+  // restreint ne résout QUE ses shows. Hors périmètre, le show est INTROUVABLE
+  // plutôt qu'interdit : personne n'a à apprendre l'existence des autres shows.
+  if (row && !showDansPerimetre(row.id)) return null;
+  return row;
 }
 
 async function showId(sb: SB, ref: string): Promise<string | null> {
@@ -90,8 +97,13 @@ async function showId(sb: SB, ref: string): Promise<string | null> {
 
 async function resolveCible(sb: SB, sid: string, ref: string) {
   if (UUID_RE.test(ref)) {
-    const { data } = await sb.from("cibles").select("id, nom").eq("id", ref).maybeSingle();
-    if (data) return data as { id: string; nom: string };
+    // Un id de cible traverse le show : le périmètre se vérifie sur la ligne
+    // elle-même, sinon un membre restreint atteindrait une cible d'un autre
+    // show en donnant son uuid.
+    const { data } = await sb.from("cibles").select("id, nom, show_id").eq("id", ref).maybeSingle();
+    const row = data as { id: string; nom: string; show_id: string } | null;
+    if (row && showDansPerimetre(row.show_id)) return { id: row.id, nom: row.nom };
+    if (row) return null;
   }
   const { data } = await sb
     .from("cibles")
@@ -355,7 +367,11 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
   const strictSchema = (schema: unknown) => z.object((schema ?? {}) as z.ZodRawShape).strict();
   const RT = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
     if (!gated(name)) return;
-    reg(name, { description: desc, inputSchema: strictSchema(schema), annotations: ann }, cb);
+    // Même enveloppe de périmètre que W() : une lecture hors périmètre ne doit
+    // pas davantage aboutir qu'une écriture (prérequis 1.3).
+    reg(name, { description: desc, inputSchema: strictSchema(schema), annotations: ann }, (a: any, extra: any) =>
+      avecPerimetre(extra?.authInfo?.extra?.shows, () => cb(a, extra))
+    );
   };
   const W = (name: string, desc: string, schema: unknown, ann: unknown, cb: (a: any, extra?: any) => Promise<{ content: { type: "text"; text: string }[] }>) => {
     if (!gated(name)) return;
@@ -373,7 +389,7 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
         await auditWrite(name, actor, a, false, `accès refusé (scope ${need} manquant)`);
         return denial;
       }
-      const res = await cb(a, extra);
+      const res = await avecPerimetre(extra?.authInfo?.extra?.shows, () => cb(a, extra));
       const parsed = (() => { try { return JSON.parse(res?.content?.[0]?.text ?? "{}") as { error?: string; detail?: string }; } catch { return {}; } })();
       await auditWrite(name, actor, a, !parsed.error, parsed.error ?? parsed.detail ?? null);
       return res;
@@ -382,9 +398,66 @@ export function registerMagellanTools(server: McpServer, opts: { allow?: readonl
 
   RT("list_shows", "Liste les shows (podcasts) et leurs étapes.", {}, { readOnlyHint: true }, async () => {
     const sb = createServiceClient();
-    const { data } = await sb.from("shows").select("*, stages(key, label, position, is_final)").order("nom");
+    let q = sb.from("shows").select("*, stages(key, label, position, is_final)").order("nom");
+    // Périmètre par show (prérequis 1.3) : un membre restreint ne voit lister
+    // que ses shows. Périmètre vide (externe sans accès) : liste vide.
+    const autorises = showsAutorises();
+    if (autorises) q = q.in("id", autorises.length ? autorises : ["00000000-0000-0000-0000-000000000000"]);
+    const { data } = await q;
     return text(data);
   });
+
+  // La Martingale, brief 2.3 : la vue planning et l'alerte de rotation. Les
+  // épisodes à programmer, à enregistrer et planifiés, ordonnés par date de
+  // diffusion, avec leur famille de thème. L'alerte est NON BLOQUANTE : aucune
+  // règle d'interdiction n'existe en base, le brief est explicite là dessus.
+  RT(
+    "planning_martingale",
+    "Planning de La Martingale : les épisodes en à programmer, enregistrement à venir et planifié, ordonnés par date de diffusion, avec leur famille de thème. Signale les ALERTES DE ROTATION (deux épisodes consécutifs de la même famille), qui informent sans rien interdire. Intentions : voir le planning, vérifier l'alternance des familles avant de caler une date.",
+    { show: z.string().optional().describe("slug ou id (défaut : la-martingale)") },
+    { readOnlyHint: true },
+    async (a) => {
+      const sb = createServiceClient();
+      const show = await showRow(sb, a.show ?? "la-martingale");
+      if (!show) return text({ error: "Show introuvable (migration 0055 appliquée ?)" });
+      const { data: stages } = await sb.from("stages").select("id, key").eq("show_id", show.id);
+      const parCle = new Map(((stages ?? []) as { id: string; key: string }[]).map((s) => [s.key, s.id]));
+      const ids = ETAPES_PLANNING.map((k) => parCle.get(k)).filter((v): v is string => !!v);
+      if (!ids.length) return text({ error: "Étapes du planning absentes : appliquer la migration 0055.", cause: "migration_0055_manquante" });
+      const { data: familles } = await sb.from("familles_theme").select("id, cle, label").eq("show_id", show.id);
+      const parFamille = new Map(((familles ?? []) as { id: string; cle: string; label: string }[]).map((f) => [f.id, f]));
+      const parStage = new Map(((stages ?? []) as { id: string; key: string }[]).map((s) => [s.id, s.key]));
+      const { data: brut } = await sb
+        .from("cibles")
+        .select("id, nom, stage_id, famille_theme_id, date_diffusion, og")
+        .eq("show_id", show.id)
+        .eq("archive", false)
+        .is("statut_sortie", null)
+        .in("stage_id", ids)
+        .limit(200);
+      const lignes: LignePlanning[] = ((brut ?? []) as { id: string; nom: string; stage_id: string | null; famille_theme_id: string | null; date_diffusion: string | null; og: boolean | null }[]).map((c) => {
+        const f = c.famille_theme_id ? parFamille.get(c.famille_theme_id) : undefined;
+        return {
+          cible_id: c.id,
+          nom: c.nom,
+          etape: c.stage_id ? parStage.get(c.stage_id) ?? "" : "",
+          famille: f?.cle ?? null,
+          famille_label: f?.label ?? null,
+          date_diffusion: c.date_diffusion,
+          og: !!c.og,
+        };
+      });
+      const collisions = collisionsFamille(lignes);
+      return text({
+        show: show.slug,
+        planning: triePlanning(lignes),
+        alertes_rotation: collisions.map(phraseAlerte),
+        detail: collisions.length
+          ? "Alerte non bloquante : deux épisodes consécutifs partagent une famille. Rien n'interdit de publier ainsi."
+          : "Aucune répétition de famille sur des épisodes consécutifs.",
+      });
+    }
+  );
 
   RT(
     "list_cibles",

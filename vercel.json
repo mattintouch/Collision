@@ -1,7 +1,20 @@
 {
   "crons": [
-    { "path": "/api/cron/enrich", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/recap", "schedule": "0 6 * * 1" },
-    { "path": "/api/cron/reboucle", "schedule": "0 5 * * *" }
+    {
+      "path": "/api/cron/enrich",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/recap",
+      "schedule": "0 6 * * 1"
+    },
+    {
+      "path": "/api/cron/reboucle",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/martingale",
+      "schedule": "30 6 * * *"
+    }
   ]
 }
