@@ -87,6 +87,20 @@
   Matt le 13/09 via l'éditeur SQL Supabase.
 
 ## En attente
+- `0056_paires_doublons_perf.sql` : la passe rétroactive de doublons dépassait
+  le délai de garde de l'API (elle aboutissait dans l'éditeur SQL, dont le
+  délai est plus large). La cause était le nombre d'appels, pas le volume :
+  l'auto-jointure évaluait norm_nom sur chaque paire. Les deux fonctions
+  normalisent désormais une fois par cible (CTE materialized) et portent leur
+  propre délai de garde. Aucun changement de sémantique. Rejouable.
+- `0057_domaines_partenaires.sql` : accès partenaire par domaine (décision de
+  Matt du 25/09). Table `show_domaines` qui dit quel domaine ouvre quel show,
+  avec `orsomedia.io` vers `la-martingale`. Le trigger d'accueil la consulte :
+  un collaborateur d'un studio partenaire se connecte par Google avec son
+  adresse et travaille immédiatement sur son show, sans geste manuel. Un
+  domaine inconnu n'obtient toujours rien, et la connexion reste gardée en
+  amont par GOOGLE_OAUTH_ALLOWED_DOMAINS. Porte une passe de rattrapage pour
+  les comptes partenaires déjà créés. Rejouable.
 - `0055_la_martingale.sql` : La Martingale (brief du 25/09, lot A). Crée le show
   `la-martingale` et son pipe de 13 étapes (jamais cloné de GDIY), la table de
   référence `familles_theme` et ses cinq familles, les champs de cible (og,
