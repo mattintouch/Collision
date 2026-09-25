@@ -31,7 +31,14 @@ const authed = experimental_withMcpAuth(
       token: bearer,
       clientId: "claude",
       scopes: scopesForRole(claims.role as string | undefined),
-      extra: { userId: String(claims.sub ?? ""), email: String(claims.email ?? ""), role: (claims.role as string) ?? null },
+      // `shows` (prérequis 1.3 du brief La Martingale) : périmètre d'un membre
+      // restreint. Absent du jeton = aucune restriction.
+      extra: {
+        userId: String(claims.sub ?? ""),
+        email: String(claims.email ?? ""),
+        role: (claims.role as string) ?? null,
+        shows: Array.isArray(claims.shows) ? (claims.shows as string[]) : null,
+      },
     };
   },
   { required: true }

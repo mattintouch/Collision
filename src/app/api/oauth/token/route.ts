@@ -16,6 +16,27 @@ async function roleForSub(sub: string): Promise<string | null> {
   }
 }
 
+/** Prérequis 1.3 du brief La Martingale : périmètre de shows d'un membre
+ *  RESTREINT. Un externe ne travaille que sur les shows que user_shows lui
+ *  donne ; la RLS l'applique déjà côté application, le connecteur MCP passe
+ *  par le service role et a besoin de la liste dans le jeton pour filtrer.
+ *
+ *  Admin et interne : aucun périmètre (null), rien ne change pour eux.
+ *  Externe sans aucune ligne user_shows : périmètre VIDE, donc aucun show.
+ *  Best-effort : en cas d'échec de lecture, aucune clé n'est posée, et le
+ *  connecteur se comporte comme avant (fail-open assumé, cohérent avec les
+ *  scopes de rôle). */
+async function showsForSub(sub: string, role: string | null): Promise<string[] | null> {
+  if (role !== "externe") return null;
+  try {
+    const sb = createServiceClient();
+    const { data } = await sb.from("user_shows").select("show_id").eq("user_id", sub);
+    return ((data ?? []) as { show_id: string }[]).map((r) => r.show_id);
+  } catch {
+    return null;
+  }
+}
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -55,8 +76,9 @@ export async function POST(request: Request) {
   }
 
   const role = await roleForSub(String(claims.sub));
+  const shows = await showsForSub(String(claims.sub), role);
   const access = await signToken(
-    { typ: "access", sub: String(claims.sub), email: String(claims.email ?? ""), ...(role ? { role } : {}) },
+    { typ: "access", sub: String(claims.sub), email: String(claims.email ?? ""), ...(role ? { role } : {}), ...(shows ? { shows } : {}) },
     60 * 60 * 24 * 30
   );
   return NextResponse.json(

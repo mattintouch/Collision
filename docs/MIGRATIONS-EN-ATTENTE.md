@@ -87,8 +87,25 @@
   Matt le 13/09 via l'éditeur SQL Supabase.
 
 ## En attente
+- `0055_la_martingale.sql` : La Martingale (brief du 25/09, lot A). Crée le show
+  `la-martingale` et son pipe de 13 étapes (jamais cloné de GDIY), la table de
+  référence `familles_theme` et ses cinq familles, les champs de cible (og,
+  statut_sortie, contexte, date_tournage, date_diffusion, famille_theme_id,
+  relances_envoyees), la table `cible_calls`, la table `email_brouillons`, le
+  paramètre `mode_envoi` sur les shows, et corrige le trigger d'accueil des
+  nouveaux membres (un domaine hors maison arrive en externe SANS show,
+  prérequis 1.3). Aucun enum Postgres nouveau, du texte avec CHECK modifiable.
+  Rejouable (if not exists, on conflict do nothing). Dormante-safe : sans elle,
+  La Martingale n'apparaît nulle part et les trois shows existants ne changent
+  pas. À appliquer avant toute simulation d'import.
 - `0032_cible_is_test.sql` : flag is_test sur cibles (A6). Dormant (exclusion filtrée côté code, défensif si colonne absente).
-- `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5). Dormant (repli sur l'env EPISODE_STAFF_EMAILS si non configuré).
+- `0033_show_sender_staff.sql` : expéditeur + staff par show (B3/B4/B5).
+  CORRECTION DU 25/09 : cette migration est en réalité APPLIQUÉE en base. Les
+  colonnes sender_email, sender_name et staff existent et sont lues (le staff
+  GDIY y est renseigné). Le registre la disait dormante : même dérive que 0032,
+  constatée en établissant les prérequis de La Martingale. Le mécanisme d'envoi
+  sous l'identité du show, lui, n'est toujours pas implémenté (voir
+  docs/MARTINGALE.md, prérequis 1.2).
 - `0054_anti_doublon.sql` : anti-doublon au-delà du nom exact (brief du 21/09).
   Extensions unaccent + pg_trgm + fuzzystrmatch, fonction norm_nom (minuscules,
   accents, particules, parenthèses, tokens triés), table cible_alias (fusion,
