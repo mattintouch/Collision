@@ -95,14 +95,26 @@ domaines de la maison. La migration 0055 le corrige : un membre d'un domaine de
 la maison garde le comportement actuel, un membre d'un autre domaine arrive en
 `externe` sans aucun show, et Matt lui ouvre le sien à la main.
 
+**Le périmètre se lit dans `user_shows`, jamais dans le rôle.** Le rôle dit ce
+qu'un membre a le droit de faire (lire, écrire), `user_shows` dit où : ce sont
+deux questions distinctes, et les confondre coûte cher. Une première version de
+ce chantier posait le périmètre pour les seuls membres `externe` ; or un
+`externe` n'a que le scope lecture côté MCP. Lhou aurait donc été enfermée en
+lecture seule, alors que le brief lui demande de travailler sur son show. Un
+membre qui a accès à tous les shows n'a pas de périmètre du tout, ce qui laisse
+l'équipe actuelle strictement inchangée.
+
 **Reste à faire, côté configuration, hors code.**
 1. Ajouter `orsomedia.io` à `GOOGLE_OAUTH_ALLOWED_DOMAINS` sur Vercel. Sans
    cela, Lhou ne peut pas se connecter du tout : la liste par défaut est
    `stefani.fr,collision.studio`.
 2. Après leur première connexion, ouvrir `la-martingale` à Lhou et Christofer
-   (une ligne `user_shows` chacun, la requête est dans la migration 0055).
-3. Vérifier que leur `profiles.type` vaut bien `externe`, et reconnecter leur
-   connecteur : le rôle et le périmètre sont figés dans le jeton à son émission.
+   (une ligne `user_shows` chacun, la requête est dans la migration 0055), et
+   retirer les lignes `user_shows` que le trigger aurait posées ailleurs si
+   leur compte existait avant la migration 0055.
+3. Laisser leur `profiles.type` à `interne` : c'est ce rôle qui ouvre l'écriture
+   côté connecteur, et le périmètre vient de `user_shows`. Puis reconnecter leur
+   connecteur : rôle et périmètre sont figés dans le jeton à son émission.
 
 ## 2. Décisions prises sans arbitrage
 
