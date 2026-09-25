@@ -112,9 +112,12 @@ l'équipe actuelle strictement inchangée.
    (une ligne `user_shows` chacun, la requête est dans la migration 0055), et
    retirer les lignes `user_shows` que le trigger aurait posées ailleurs si
    leur compte existait avant la migration 0055.
-3. Laisser leur `profiles.type` à `interne` : c'est ce rôle qui ouvre l'écriture
-   côté connecteur, et le périmètre vient de `user_shows`. Puis reconnecter leur
-   connecteur : rôle et périmètre sont figés dans le jeton à son émission.
+3. Les passer en `profiles.type = 'interne'`. Le trigger les aura posées en
+   `externe`, ce qui est le bon défaut (aucun accès), mais `externe` ne donne
+   que la lecture côté connecteur MCP : ce rôle les empêcherait de travailler.
+   Le rôle dit ce qu'elles ont le droit de faire, la ligne `user_shows` dit où.
+4. Reconnecter leur connecteur : rôle et périmètre sont figés dans le jeton à
+   son émission.
 
 ## 2. Décisions prises sans arbitrage
 

@@ -229,7 +229,14 @@ create policy email_brouillons_write on public.email_brouillons
 --
 -- Nouvelle règle : un membre d'un domaine de la maison garde le comportement
 -- actuel (interne, tous les shows). Un membre d'un autre domaine arrive en
--- `externe` SANS aucun show. Matt lui ouvre ensuite le sien, à la main :
+-- `externe` SANS aucun show, donc sans rien voir tant que personne ne lui
+-- ouvre quelque chose.
+--
+-- Matt lui ouvre ensuite son show, à la main, en DEUX temps. Le rôle donne le
+-- droit d'écrire, la ligne user_shows donne le périmètre : `externe` seul
+-- laisserait la personne en lecture seule côté connecteur MCP, ce qui n'est
+-- pas ce que le brief demande pour Lhou et Christofer.
+--   update profiles set type = 'interne' where email = 'lhou@orsomedia.io';
 --   insert into user_shows (user_id, show_id, role)
 --   select p.id, s.id, 'interne' from profiles p, shows s
 --   where p.email = 'lhou@orsomedia.io' and s.slug = 'la-martingale';
